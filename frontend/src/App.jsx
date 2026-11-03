@@ -13,7 +13,7 @@ function App() {
   const [enableFlip, setEnableFlip] = useState(true);
   const [flipVertical, setFlipVertical] = useState(false);
   // Sync policy: by default the voice is never sped up; the video slows/freezes to fit it.
-  const [allowVoiceSpeedup, setAllowVoiceSpeedup] = useState(false);
+  const [allowVoiceSpeedup, setAllowVoiceSpeedup] = useState(true);
   // Grading & speed
   const [videoSpeed, setVideoSpeed] = useState(1);
   const [brightness, setBrightness] = useState(0);

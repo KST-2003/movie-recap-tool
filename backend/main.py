@@ -436,9 +436,9 @@ async def create_job(
     voice_type: str = Form("su"),
     target_language: str = Form("my"),
     # sync policy
-    allow_voice_speedup: bool = Form(False),
-    max_voice_speedup: float = Form(1.15),
-    min_video_speed: float = Form(0.7),
+    allow_voice_speedup: bool = Form(True),
+    max_voice_speedup: float = Form(1.2),
+    min_video_speed: float = Form(0.85),
     fit_translation: bool = Form(False),
     keep_background: bool = Form(False),
     # effects
