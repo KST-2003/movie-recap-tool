@@ -1,0 +1,11 @@
+fastapi==0.110.0
+uvicorn==0.28.0
+python-multipart==0.0.9
+requests==2.31.0
+Pillow==10.2.0
+pydantic==2.6.4
+rapidocr-onnxruntime>=1.4.4   # subtitle / watermark detection
+opencv-python-headless>=4.9
+anthropic>=2.0                # optional: tighten translations to fit scene timing (ANTHROPIC_API_KEY)
+demucs>=4.1                   # optional: keep original music/effects (needs torch + torchaudio)
+google-genai>=2.25   # Gemini TTS

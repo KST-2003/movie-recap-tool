@@ -1,0 +1,12 @@
+{
+  "name": "rednote-recap-elevenlabs-tts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start:tts": "node elevenlabs-server.mjs"
+  },
+  "dependencies": {
+    "@elevenlabs/elevenlabs-js": "^2.0.0",
+    "express": "^5.1.0"
+  }
+}
