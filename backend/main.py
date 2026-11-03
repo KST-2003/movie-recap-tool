@@ -15,6 +15,7 @@ from subtitle_detect import detect_text_regions, to_pixels
 from audio_tools import cleanup_separation, separate_background
 from fit_text import available as fit_available, shorten
 import gemini_tts
+import gemini_dub
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -209,6 +210,14 @@ def tts_provider() -> str:
     return "gemini" if gemini_tts.available() else "elevenlabs"
 
 
+def dub_provider() -> str:
+    """DUB_PROVIDER=gemini|elevenlabs; defaults to Gemini when a Google key is present."""
+    choice = os.getenv("DUB_PROVIDER", "").lower()
+    if choice in ("gemini", "elevenlabs"):
+        return choice
+    return "gemini" if gemini_tts.available() else "elevenlabs"
+
+
 def audio_ext() -> str:
     return ".wav" if tts_provider() == "gemini" else ".mp3"
 
@@ -303,7 +312,11 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
 
         # 3. Transcribe + translate.
         set_job(job_id, stage="Transcribing and translating", progress=10)
-        detected_source_language, segments = elevenlabs_dub(video_path, p["target_language"])
+        with pipeline_stage("Gemini Transcribe + Translate"):
+            if dub_provider() == "gemini":
+                detected_source_language, segments = gemini_dub.dub(video_path, p["target_language"])
+            else:
+                detected_source_language, segments = elevenlabs_dub(video_path, p["target_language"])
         segments.sort(key=lambda s: s["start"])
 
         # 4. Voice-over.
@@ -404,7 +417,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
 
 @app.get("/")
 def read_root():
-    return {"message": "RedNote Recap Backend is running with ElevenLabs Dubbing v2."}
+    return {"message": "RedNote Recap Backend is running with Gemini dubbing + TTS (ElevenLabs optional)."}
 
 
 @app.post("/api/jobs")

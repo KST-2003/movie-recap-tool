@@ -139,7 +139,7 @@ function App() {
 
           <div className="rounded-xl border border-purple-500/30 bg-purple-950/30 p-4">
             <p className="text-sm text-purple-200 mb-3">
-              Burmese dialogue is translated by ElevenLabs Dubbing, then spoken naturally with Eleven v4. Audio is not sped up to force-fit the source timing.
+              Burmese dialogue is translated by Google Gemini, then spoken naturally with Gemini TTS. Audio is not sped up to force-fit the source timing.
             </p>
             <button
               type="button"

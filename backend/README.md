@@ -6,7 +6,8 @@ Dubs recap videos (zh/th/my/en -> target language) and keeps audio, video and su
 ```bash
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-export ELEVENLABS_API_KEY=...        # dubbing + TTS server (node elevenlabs-server.mjs)
+export GEMINI_API_KEY=...            # transcribe/translate (gemini_dub.py) + TTS (gemini_tts.py)
+# export ELEVENLABS_API_KEY=...    # optional: DUB_PROVIDER=elevenlabs TTS_PROVIDER=elevenlabs
 export ANTHROPIC_API_KEY=...         # optional: shorten translations that overrun their scene
 uvicorn main:app --reload --port 8000
 ```
