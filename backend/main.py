@@ -19,6 +19,7 @@ from audio_tools import cleanup_separation, separate_background
 from fit_text import available as fit_available, shorten
 import gemini_tts
 import gemini_dub
+import local_dub
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -214,11 +215,9 @@ def tts_provider() -> str:
 
 
 def dub_provider() -> str:
-    """DUB_PROVIDER=elevenlabs|gemini; defaults to ElevenLabs when its key is set (faster, reliable)."""
-    choice = os.getenv("DUB_PROVIDER", "").lower()
-    if choice in ("gemini", "elevenlabs"):
-        return choice
-    return "elevenlabs" if os.getenv("ELEVENLABS_API_KEY") else "gemini"
+    """DUB_PROVIDER=local|elevenlabs|gemini; default is local (faster-whisper + NLLB, no API)."""
+    choice = os.getenv("DUB_PROVIDER", "local").lower()
+    return choice if choice in ("local", "elevenlabs", "gemini") else "local"
 
 
 def audio_ext() -> str:
@@ -318,6 +317,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
         with pipeline_stage("Transcribe + Translate"):
             primary = dub_provider()
             runners = {
+                "local": lambda: local_dub.dub(video_path, p["target_language"]),
                 "elevenlabs": lambda: elevenlabs_dub(video_path, p["target_language"]),
                 "gemini": lambda: gemini_dub.dub(video_path, p["target_language"], retries=2),
             }
