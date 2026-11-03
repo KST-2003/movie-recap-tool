@@ -39,8 +39,10 @@ def synthesize_to_file(text: str, path: str, voice: str | None = None, retries: 
             return
         except Exception as exc:
             last = exc
-            text_err = str(exc).lower()
+            text_err = err_l = str(exc).lower()
             transient = any(k in text_err for k in ("429", "500", "503", "resource_exhausted", "unavailable", "timeout"))
+            if "per day" in err_l or "perday" in err_l:  # daily quota: retrying is pointless
+                transient = False
             if not transient or attempt == retries - 1:
                 break
             time.sleep(2 * (attempt + 1))

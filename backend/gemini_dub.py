@@ -76,8 +76,10 @@ def dub(video_path: str, target_language: str, timeout_seconds: int = 600, retri
                     )
                     break
                 except Exception as exc:
-                    err = str(exc).lower()
+                    err = err_l = str(exc).lower()
                     transient = any(k in err for k in ("429", "500", "503", "resource_exhausted", "unavailable", "timeout"))
+                    if "per day" in err_l or "perday" in err_l:  # daily quota: retrying is pointless
+                        transient = False
                     if not transient or attempt == attempts - 1:
                         raise
                     wait = min(5 * 2 ** attempt, 60)
