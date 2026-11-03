@@ -9,3 +9,4 @@ opencv-python-headless>=4.9
 anthropic>=2.0                # optional: tighten translations to fit scene timing (ANTHROPIC_API_KEY)
 demucs>=4.1                   # optional: keep original music/effects (needs torch + torchaudio)
 google-genai>=2.25   # Gemini TTS
+python-dotenv>=1.0   # loads backend/.env

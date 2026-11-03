@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()  # reads backend/.env before anything reads the environment
+
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware

@@ -1,4 +1,6 @@
 """Quick check that your Gemini key can speak Burmese:  GEMINI_API_KEY=... python test_gemini_tts.py"""
+from dotenv import load_dotenv
+load_dotenv()
 import subprocess
 import sys
 
