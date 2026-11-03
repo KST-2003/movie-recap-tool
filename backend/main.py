@@ -314,7 +314,13 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
         set_job(job_id, stage="Transcribing and translating", progress=10)
         with pipeline_stage("Gemini Transcribe + Translate"):
             if dub_provider() == "gemini":
-                detected_source_language, segments = gemini_dub.dub(video_path, p["target_language"])
+                try:
+                    detected_source_language, segments = gemini_dub.dub(video_path, p["target_language"])
+                except Exception as exc:
+                    if not os.getenv("ELEVENLABS_API_KEY"):
+                        raise
+                    print(f"  Gemini transcribe/translate failed ({exc}); falling back to ElevenLabs Dubbing", flush=True)
+                    detected_source_language, segments = elevenlabs_dub(video_path, p["target_language"])
             else:
                 detected_source_language, segments = elevenlabs_dub(video_path, p["target_language"])
         segments.sort(key=lambda s: s["start"])
