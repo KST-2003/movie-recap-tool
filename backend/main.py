@@ -214,11 +214,11 @@ def tts_provider() -> str:
 
 
 def dub_provider() -> str:
-    """DUB_PROVIDER=gemini|elevenlabs; defaults to Gemini when a Google key is present."""
+    """DUB_PROVIDER=elevenlabs|gemini; defaults to ElevenLabs when its key is set (faster, reliable)."""
     choice = os.getenv("DUB_PROVIDER", "").lower()
     if choice in ("gemini", "elevenlabs"):
         return choice
-    return "gemini" if gemini_tts.available() else "elevenlabs"
+    return "elevenlabs" if os.getenv("ELEVENLABS_API_KEY") else "gemini"
 
 
 def audio_ext() -> str:
@@ -315,17 +315,23 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
 
         # 3. Transcribe + translate.
         set_job(job_id, stage="Transcribing and translating", progress=10)
-        with pipeline_stage("Gemini Transcribe + Translate"):
-            if dub_provider() == "gemini":
+        with pipeline_stage("Transcribe + Translate"):
+            primary = dub_provider()
+            runners = {
+                "elevenlabs": lambda: elevenlabs_dub(video_path, p["target_language"]),
+                "gemini": lambda: gemini_dub.dub(video_path, p["target_language"], retries=2),
+            }
+            order = [primary] + [n for n in runners if n != primary]
+            if not os.getenv("ELEVENLABS_API_KEY"):
+                order = [n for n in order if n != "elevenlabs"]
+            for i, name in enumerate(order):
                 try:
-                    detected_source_language, segments = gemini_dub.dub(video_path, p["target_language"])
+                    detected_source_language, segments = runners[name]()
+                    break
                 except Exception as exc:
-                    if not os.getenv("ELEVENLABS_API_KEY"):
+                    if i == len(order) - 1:
                         raise
-                    print(f"  Gemini transcribe/translate failed ({exc}); falling back to ElevenLabs Dubbing", flush=True)
-                    detected_source_language, segments = elevenlabs_dub(video_path, p["target_language"])
-            else:
-                detected_source_language, segments = elevenlabs_dub(video_path, p["target_language"])
+                    print(f"  {name} transcribe/translate failed ({exc}); trying {order[i + 1]}", flush=True)
         segments.sort(key=lambda s: s["start"])
 
         # 4. Voice-over.

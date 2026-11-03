@@ -39,7 +39,7 @@ def _extract_audio(video_path: str, out_path: str) -> None:
     )
 
 
-def dub(video_path: str, target_language: str, timeout_seconds: int = 600) -> tuple[str | None, list[dict]]:
+def dub(video_path: str, target_language: str, timeout_seconds: int = 600, retries: int | None = None) -> tuple[str | None, list[dict]]:
     """Transcribe the speech, translate it, and return (source_language, segments) with timings in seconds."""
     from google.genai import types
 
@@ -62,7 +62,7 @@ def dub(video_path: str, target_language: str, timeout_seconds: int = 600) -> tu
                     raise TimeoutError("Gemini file processing timed out.")
                 time.sleep(2)
                 uploaded = client.files.get(name=uploaded.name)
-            attempts = int(os.getenv("GEMINI_DUB_RETRIES", "6"))
+            attempts = retries or int(os.getenv("GEMINI_DUB_RETRIES", "6"))
             for attempt in range(attempts):
                 try:
                     response = client.models.generate_content(
