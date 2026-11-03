@@ -62,15 +62,27 @@ def dub(video_path: str, target_language: str, timeout_seconds: int = 600) -> tu
                     raise TimeoutError("Gemini file processing timed out.")
                 time.sleep(2)
                 uploaded = client.files.get(name=uploaded.name)
-            response = client.models.generate_content(
-                model=MODEL,
-                contents=[uploaded, prompt],
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=SCHEMA,
-                    temperature=0.2,
-                ),
-            )
+            attempts = int(os.getenv("GEMINI_DUB_RETRIES", "6"))
+            for attempt in range(attempts):
+                try:
+                    response = client.models.generate_content(
+                        model=MODEL,
+                        contents=[uploaded, prompt],
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            response_schema=SCHEMA,
+                            temperature=0.2,
+                        ),
+                    )
+                    break
+                except Exception as exc:
+                    err = str(exc).lower()
+                    transient = any(k in err for k in ("429", "500", "503", "resource_exhausted", "unavailable", "timeout"))
+                    if not transient or attempt == attempts - 1:
+                        raise
+                    wait = min(5 * 2 ** attempt, 60)
+                    print(f"  Gemini busy ({exc.__class__.__name__}); retry {attempt + 1}/{attempts - 1} in {wait}s", flush=True)
+                    time.sleep(wait)
         finally:
             try:
                 client.files.delete(name=uploaded.name)
