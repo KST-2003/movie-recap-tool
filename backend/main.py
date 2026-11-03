@@ -439,7 +439,7 @@ async def create_job(
     allow_voice_speedup: bool = Form(False),
     max_voice_speedup: float = Form(1.15),
     min_video_speed: float = Form(0.7),
-    fit_translation: bool = Form(True),
+    fit_translation: bool = Form(False),
     keep_background: bool = Form(False),
     # effects
     blur_subtitles: bool = Form(True),

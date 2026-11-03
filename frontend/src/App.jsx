@@ -20,7 +20,7 @@ function App() {
   const [contrast, setContrast] = useState(1);
   const [saturation, setSaturation] = useState(1);
   const [logoPosition, setLogoPosition] = useState('top-right');
-  const [fitTranslation, setFitTranslation] = useState(true);
+  const [fitTranslation, setFitTranslation] = useState(false);
   const [keepBackground, setKeepBackground] = useState(false);
   const [progress, setProgress] = useState({ pct: 0, stage: '' });
   const [notes, setNotes] = useState('');
