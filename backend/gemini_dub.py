@@ -7,7 +7,7 @@ import time
 
 from gemini_tts import _get_client
 
-MODEL = os.getenv("GEMINI_DUB_MODEL", "gemini-2.5-flash")
+MODEL = os.getenv("GEMINI_DUB_MODEL", "gemini-3.8-flash")
 LANGUAGE_NAMES = {"my": "Burmese (Myanmar)", "en": "English", "th": "Thai", "zh": "Chinese"}
 
 SCHEMA = {
