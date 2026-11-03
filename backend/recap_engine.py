@@ -6,6 +6,7 @@ aligned no matter how long the translation runs.
 """
 import json
 import os
+import re
 import subprocess
 from dataclasses import dataclass, field
 
@@ -247,14 +248,36 @@ def render_caption(text: str, path: str, width: int, height: int, max_lines: int
     img.save(path)
 
 
+def _split_sentences(text: str, min_chars: int = 12) -> list[str]:
+    """Split on sentence enders (Burmese ။, . ! ? and CJK equivalents); fold tiny pieces into a neighbour."""
+    parts = [p.strip() for p in re.findall(r"[^။.!?！？。]+[။.!?！？。]*", text) if p.strip()]
+    merged: list[str] = []
+    for part in parts:
+        if merged and len(merged[-1]) < min_chars:
+            merged[-1] = f"{merged[-1]} {part}"
+        else:
+            merged.append(part)
+    if len(merged) > 1 and len(merged[-1]) < min_chars:
+        tail = merged.pop()
+        merged[-1] = f"{merged[-1]} {tail}"
+    return merged or [text.strip()]
+
+
 def caption_cues(scenes: list[Scene], speed: float) -> list[tuple[float, float, str]]:
+    """One cue per sentence; each scene's speech time is shared out by sentence length."""
     cues = []
     for sc in scenes:
         if sc.audio_index is None or not sc.text.strip():
             continue
         start = sc.out_start / speed
         end = (sc.out_start + sc.audio_len + BREATH / 2) / speed
-        cues.append((start, end, sc.text))
+        sentences = _split_sentences(sc.text)
+        total = sum(len(x) for x in sentences) or 1
+        t = start
+        for n, sentence in enumerate(sentences):
+            e = end if n == len(sentences) - 1 else t + (end - start) * len(sentence) / total
+            cues.append((t, e, sentence))
+            t = e
     return cues
 
 
