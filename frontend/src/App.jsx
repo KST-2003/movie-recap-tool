@@ -292,7 +292,7 @@ function App() {
                 className="w-4 h-4 accent-purple-500"
               />
               <span className="text-sm text-slate-300">
-                Allow slight voice speed-up (max 1.15x) before slowing the video
+                Allow slight voice speed-up (up to 1.35x) before slowing the video
               </span>
             </label>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">

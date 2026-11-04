@@ -49,7 +49,12 @@ def dub(video_path: str, target_language: str, timeout_seconds: int = 600, retri
         "Transcribe all spoken dialogue in this audio into sentence-level segments with precise start/end "
         f"times in seconds from the beginning. Translate each segment into natural, spoken {target} suitable "
         "for a voice-over (no notes, no romanization). Skip music and silence. Segments must not overlap "
-        "and must be in chronological order. Also report the source language as an ISO code."
+        "and must be in chronological order. Also report the source language as an ISO code.\n"
+        "TIMING IS CRITICAL: the translation will be read aloud by a TTS voice and must fit inside the "
+        "segment's own duration (end - start). Burmese TTS reads roughly 10-12 characters per second, so keep "
+        "translated_text at or below about 10 x (end - start) characters. Be concise: keep the key meaning, "
+        "drop filler words, repetition and honorifics, and prefer short common words. A translation that is "
+        "shorter than the original speech is better than one that is longer."
     )
     with tempfile.TemporaryDirectory() as tmp:
         audio_path = os.path.join(tmp, "audio.mp3")
