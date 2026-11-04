@@ -43,7 +43,7 @@ function App() {
   const [contrast, setContrast] = useState(1);
   const [saturation, setSaturation] = useState(1);
   const [logoPosition, setLogoPosition] = useState('top-right');
-  const [fitTranslation, setFitTranslation] = useState(false);
+  const [fitTranslation, setFitTranslation] = useState(true);
   const [keepBackground, setKeepBackground] = useState(false);
   const [progress, setProgress] = useState({ pct: 0, stage: '' });
   const [notes, setNotes] = useState('');
@@ -272,7 +272,7 @@ function App() {
                 className="w-4 h-4 accent-purple-500"
               />
               <span className="text-sm text-slate-300">
-                Tighten long translations to fit each scene (needs ANTHROPIC_API_KEY on the backend)
+                Tighten long translations to fit each scene (uses Gemini; only the lines that overrun are rewritten)
               </span>
             </label>
             <label className="flex items-center space-x-3 cursor-pointer">

@@ -199,6 +199,7 @@ def save_upload(upload: UploadFile, directory: str) -> str:
 
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
+TTS_WORKERS = int(os.getenv("TTS_WORKERS", "8"))
 EXECUTOR = ThreadPoolExecutor(max_workers=int(os.getenv("RECAP_WORKERS", "2")))
 
 
@@ -249,17 +250,20 @@ def synthesize(text: str, voice: str, path: str):
     return media_duration(path)
 
 
-def fit_segments_to_slots(segments, video_duration, job, voice, target_language, temp_paths, max_rounds=2):
-    """Re-write lines whose voice-over overshoots their scene so the video rarely has to slow down."""
-    for i, segment in enumerate(segments):
+def fit_segments_to_slots(segments, video_duration, job, voice, target_language, temp_paths,
+                          max_rounds=2, tolerance=1.05):
+    """Re-write lines whose voice-over overshoots their scene (even after the allowed speed-up),
+    so the video rarely has to slow down or freeze. Lines are fixed in parallel."""
+    def fit_one(i):
+        segment = segments[i]
         end = segments[i + 1]["start"] if i + 1 < len(segments) else video_duration
         budget = max(end - segment["start"] - BREATH, 0.4)
         for round_no in range(max_rounds):
-            if segment["audio_dur"] <= budget * 1.05:
+            if segment["audio_dur"] <= budget * tolerance:
                 break
             try:
                 new_text = shorten(segment["source_text"], segment["translated_text"], target_language,
-                                   segment["audio_dur"], budget)
+                                   segment["audio_dur"], budget * tolerance)
                 root, ext = os.path.splitext(segment["audio_path"])
                 new_path = f"{root}_fit{round_no}{ext}"
                 temp_paths.append(new_path)
@@ -271,6 +275,9 @@ def fit_segments_to_slots(segments, video_duration, job, voice, target_language,
                 break
             print(f"  fit {i + 1}: {segment['audio_dur']:.1f}s -> {new_dur:.1f}s (budget {budget:.1f}s)", flush=True)
             segment.update(translated_text=new_text, audio_path=new_path, audio_dur=new_dur)
+
+    with ThreadPoolExecutor(max_workers=TTS_WORKERS) as pool:
+        list(pool.map(fit_one, range(len(segments))))
 
 
 def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
@@ -337,19 +344,30 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
 
         # 4. Voice-over.
         with pipeline_stage(f"Voiceover ({tts_provider()})"):
-            for index, segment in enumerate(segments, start=1):
-                set_job(job_id, stage=f"Voice-over {index}/{len(segments)}",
-                        progress=35 + int(25 * (index - 1) / len(segments)))
+            if tts_provider() == "gemini":
+                gemini_tts._get_client()  # create the shared client before worker threads start
+            done = [0]
+
+            def _voice(item):
+                index, segment = item
                 segment_path = os.path.join(OUTPUT_DIR, f"voice_{job_id}_{index}{audio_ext()}")
                 temp_paths.append(segment_path)
                 segment["audio_path"] = segment_path
                 segment["audio_dur"] = synthesize(segment["translated_text"], p["voice_type"], segment_path)
+                done[0] += 1
+                set_job(job_id, stage=f"Voice-over {done[0]}/{len(segments)}",
+                        progress=35 + int(25 * done[0] / len(segments)))
+
+            with ThreadPoolExecutor(max_workers=TTS_WORKERS) as pool:
+                list(pool.map(_voice, enumerate(segments, start=1)))
 
         # 5. Make each line fit its scene.
         if p["fit_translation"] and fit_available():
             set_job(job_id, stage="Fitting translation to scene timing", progress=62)
             with pipeline_stage("Fit Translation To Timing"):
-                fit_segments_to_slots(segments, video_duration, job_id, p["voice_type"], p["target_language"], temp_paths)
+                fit_segments_to_slots(
+                    segments, video_duration, job_id, p["voice_type"], p["target_language"], temp_paths,
+                    tolerance=(max(p["max_voice_speedup"], 1.0) if p["allow_voice_speedup"] else 1.05) * 1.02)
 
         # 6. Sync timeline + render.
         set_job(job_id, stage="Building sync timeline", progress=68)
@@ -467,7 +485,7 @@ async def create_job(
     allow_voice_speedup: bool = Form(True),
     max_voice_speedup: float = Form(1.35),
     min_video_speed: float = Form(0.85),
-    fit_translation: bool = Form(False),
+    fit_translation: bool = Form(True),
     keep_background: bool = Form(False),
     # effects
     blur_subtitles: bool = Form(True),
