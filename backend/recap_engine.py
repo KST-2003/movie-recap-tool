@@ -8,7 +8,8 @@ import json
 import os
 import re
 import subprocess
-from dataclasses import dataclass, field
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field, replace
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -342,15 +343,16 @@ _LOGO_POS = {
 }
 
 
-def render(video_path: str, segments: list[dict], scenes: list[Scene], fx: EffectOptions,
-           output_path: str, work_dir: str, tag: str, timeout: int = 1800) -> dict:
+def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], fx: EffectOptions,
+                   output_path: str, work_dir: str, tag: str, timeout: int = 1800,
+                   src_offset: float = 0.0, threads: int | None = None) -> dict:
     work_dir = os.path.abspath(work_dir)
     info = probe_video(video_path)
     W, H, fps = info["width"], info["height"], min(max(info["fps"], 1), 60)
     speed = min(max(fx.speed, 0.5), 2.0)
     total_len = sum(s.out_len for s in scenes) / speed
 
-    cmd = ["ffmpeg", "-y", "-i", video_path]
+    cmd = ["ffmpeg", "-y"] + (["-ss", f"{src_offset:.3f}"] if src_offset else []) + ["-i", video_path]
     audio_inputs: dict[int, int] = {}
     nxt = 1
     for sc in scenes:
@@ -366,7 +368,7 @@ def render(video_path: str, segments: list[dict], scenes: list[Scene], fx: Effec
 
     bg_idx = None
     if fx.background_path and os.path.exists(fx.background_path):
-        cmd += ["-i", fx.background_path]
+        cmd += (["-ss", f"{src_offset:.3f}"] if src_offset else []) + ["-i", fx.background_path]
         bg_idx = nxt
         nxt += 1
 
@@ -462,8 +464,10 @@ def render(video_path: str, segments: list[dict], scenes: list[Scene], fx: Effec
     with open(script, "w") as fh:
         fh.write(";\n".join(f))
     cmd += ["-/filter_complex", script, "-map", f"[{cur}]", "-map", f"[{acur}]",
-            "-r", f"{fps:.3f}", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-t", f"{total_len:.3f}", "-movflags", "+faststart", output_path]
+            "-r", f"{fps:.3f}", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p"]
+    if threads:
+        cmd += ["-threads", str(threads)]
+    cmd += ["-c:a", "aac", "-t", f"{total_len:.3f}", "-movflags", "+faststart", output_path]
     try:
         res = subprocess.run(cmd, capture_output=True, timeout=timeout)
     finally:
@@ -473,3 +477,66 @@ def render(video_path: str, segments: list[dict], scenes: list[Scene], fx: Effec
     if res.returncode != 0:
         raise RuntimeError(res.stderr.decode(errors="replace")[-2000:])
     return {"duration": total_len, "cues": cue_list}
+
+
+# ---------- parallel render ----------
+
+PARALLEL_MIN_SECONDS = float(os.getenv("PARALLEL_RENDER_MIN_SECONDS", "60"))
+CHUNK_TARGET_SECONDS = float(os.getenv("PARALLEL_RENDER_CHUNK_SECONDS", "40"))
+
+
+def _split_scenes(scenes: list[Scene], parts: int) -> list[list[Scene]]:
+    """Consecutive groups of scenes with roughly equal output length."""
+    total = sum(sc.out_len for sc in scenes)
+    groups, cur, acc = [], [], 0.0
+    for sc in scenes:
+        cur.append(sc)
+        acc += sc.out_len
+        if acc >= total / parts * (len(groups) + 1) and len(groups) < parts - 1:
+            groups.append(cur)
+            cur = []
+    if cur:
+        groups.append(cur)
+    return groups
+
+
+def render(video_path: str, segments: list[dict], scenes: list[Scene], fx: EffectOptions,
+           output_path: str, work_dir: str, tag: str, timeout: int = 1800) -> dict:
+    """Render the dub. Long videos are cut into scene groups rendered on separate CPU cores, then joined."""
+    speed = min(max(fx.speed, 0.5), 2.0)
+    total_len = sum(s.out_len for s in scenes) / speed
+    cores = os.cpu_count() or 2
+    parts = min(cores, int(total_len // CHUNK_TARGET_SECONDS), len(scenes))
+    if total_len < PARALLEL_MIN_SECONDS or parts < 2:
+        return _render_single(video_path, segments, scenes, fx, output_path, work_dir, tag, timeout)
+
+    work_dir = os.path.abspath(work_dir)
+    groups = _split_scenes(scenes, parts)
+    threads = max(2, cores // len(groups))
+    chunk_paths = [os.path.join(work_dir, f"{tag}_c{k}.mp4") for k in range(len(groups))]
+
+    def job(k: int):
+        group = groups[k]
+        offset, out0 = group[0].src_start, group[0].out_start
+        local = [replace(sc, src_start=sc.src_start - offset, src_end=sc.src_end - offset,
+                         out_start=sc.out_start - out0) for sc in group]
+        return _render_single(video_path, segments, local, fx, chunk_paths[k], work_dir, f"{tag}_c{k}",
+                              timeout, src_offset=offset, threads=threads)
+
+    playlist = os.path.join(work_dir, f"{tag}_chunks.txt")
+    try:
+        with ThreadPoolExecutor(max_workers=len(groups)) as pool:
+            list(pool.map(job, range(len(groups))))
+        with open(playlist, "w") as fh:
+            fh.write("\n".join(f"file '{p}'" for p in chunk_paths))
+        res = subprocess.run(
+            ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", playlist, "-c:v", "copy", "-c:a", "aac",
+             "-b:a", "160k", "-movflags", "+faststart", output_path],
+            capture_output=True, timeout=timeout)
+        if res.returncode != 0:
+            raise RuntimeError(res.stderr.decode(errors="replace")[-2000:])
+    finally:
+        for p in chunk_paths + [playlist]:
+            if os.path.exists(p):
+                os.remove(p)
+    return {"duration": total_len, "cues": caption_cues(scenes, speed)}

@@ -16,7 +16,10 @@ def _get_client():
     global _client
     if _client is None:
         from google import genai
-        _client = genai.Client()  # reads GEMINI_API_KEY / GOOGLE_API_KEY
+        from google.genai import types
+        # A hung request must fail (and retry) instead of freezing a job forever.
+        _client = genai.Client(http_options=types.HttpOptions(
+            timeout=int(os.getenv("GEMINI_HTTP_TIMEOUT_MS", "120000"))))  # reads GEMINI_API_KEY / GOOGLE_API_KEY
     return _client
 
 
