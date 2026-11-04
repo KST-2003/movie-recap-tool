@@ -1,11 +1,34 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 
 function App() {
   // Form State
   const [videoFile, setVideoFile] = useState(null);
   const [customLogo, setCustomLogo] = useState(null);
-  const [voiceType, setVoiceType] = useState('su');
+  const API_BASE = 'http://localhost:8000';
+  const [voiceType, setVoiceType] = useState('Kore');
+  const [voices, setVoices] = useState([]);
+  const [voiceGender, setVoiceGender] = useState('female');
+  const [playing, setPlaying] = useState(null);
+  const audioRef = useRef(null);
+
+  useEffect(() => {
+    axios.get(`${API_BASE}/api/voices`).then((r) => setVoices(r.data)).catch(() => setVoices([]));
+    return () => audioRef.current?.pause();
+  }, []);
+
+  const playSample = (voice) => {
+    audioRef.current?.pause();
+    if (playing === voice.name) {
+      setPlaying(null);
+      return;
+    }
+    const audio = new Audio(`${API_BASE}${voice.sample_url}`);
+    audio.onended = () => setPlaying(null);
+    audio.play();
+    audioRef.current = audio;
+    setPlaying(voice.name);
+  };
   // Feature Toggles
   const [blurSubtitles, setBlurSubtitles] = useState(true);
   const [enableSubtitles, setEnableSubtitles] = useState(true); // Burmese Subtitles toggle
@@ -67,7 +90,7 @@ function App() {
 
     try {
       // Start a background job on the local FastAPI backend, then poll its progress.
-      const baseUrl = 'http://localhost:8000';
+      const baseUrl = API_BASE;
       const { data: started } = await axios.post(`${baseUrl}/api/jobs`, formData);
       setProgress({ pct: 0, stage: 'Queued' });
 
@@ -141,18 +164,48 @@ function App() {
             <p className="text-sm text-purple-200 mb-3">
               Burmese dialogue is translated by Google Gemini, then spoken naturally with Gemini TTS. Audio is not sped up to force-fit the source timing.
             </p>
-            <button
-              type="button"
-              onClick={() => setVoiceType('su')}
-              className={`p-3 rounded-xl border text-left transition-all ${
-                voiceType === 'su'
-                  ? 'border-purple-500 bg-purple-950/40 shadow-lg shadow-purple-900/20'
-                  : 'border-slate-800 bg-slate-800/50 hover:bg-slate-800'
-              }`}
-            >
-              <span className="font-semibold text-sm block">Su</span>
-              <span className="text-xs text-purple-300">Female Burmese voice</span>
-            </button>
+            <div className="flex gap-2 mb-3">
+              {['female', 'male'].map((g) => (
+                <button
+                  key={g}
+                  type="button"
+                  onClick={() => setVoiceGender(g)}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold capitalize ${
+                    voiceGender === g ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  {g}
+                </button>
+              ))}
+            </div>
+            {voices.length === 0 && (
+              <p className="text-xs text-slate-400">No voice samples available — the default voice will be used.</p>
+            )}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              {voices.filter((v) => v.gender === voiceGender).map((v) => (
+                <div
+                  key={v.name}
+                  className={`p-2 rounded-xl border transition-all ${
+                    voiceType === v.name
+                      ? 'border-purple-500 bg-purple-950/40 shadow-lg shadow-purple-900/20'
+                      : 'border-slate-800 bg-slate-800/50 hover:bg-slate-800'
+                  }`}
+                >
+                  <button type="button" onClick={() => setVoiceType(v.name)} className="w-full text-left">
+                    <span className="font-semibold text-sm block">{v.name}</span>
+                    <span className="text-xs text-purple-300 capitalize">{v.gender} Burmese voice</span>
+                  </button>
+                  <div className="flex gap-3 mt-2 text-xs">
+                    <button type="button" onClick={() => playSample(v)} className="text-purple-300 hover:text-white">
+                      {playing === v.name ? '■ Stop' : '▶ Play'}
+                    </button>
+                    <a href={`${API_BASE}${v.sample_url}`} download className="text-slate-400 hover:text-white">
+                      ⬇ Download
+                    </a>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Feature Toggles (Checkboxes) */}

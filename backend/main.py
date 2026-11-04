@@ -20,6 +20,7 @@ from fit_text import available as fit_available, shorten
 import gemini_tts
 import gemini_dub
 import local_dub
+from voices import VOICES, VOICE_NAMES
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -430,6 +431,27 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                 os.remove(temp_path)
 
 
+SAMPLES_DIR = "voice_samples"
+
+
+@app.get("/api/voices")
+def list_voices():
+    """Voice catalogue with pre-generated sample URLs (only voices whose sample file exists)."""
+    return [
+        {**v, "sample_url": f"/api/voice-samples/{v['name']}.wav"}
+        for v in VOICES if os.path.exists(os.path.join(SAMPLES_DIR, f"{v['name']}.wav"))
+    ]
+
+
+@app.get("/api/voice-samples/{filename}")
+def voice_sample(filename: str):
+    name = filename.removesuffix(".wav")
+    path = os.path.join(SAMPLES_DIR, f"{name}.wav")
+    if name not in VOICE_NAMES or not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Sample not found.")
+    return FileResponse(path, media_type="audio/wav", filename=f"{name}-sample.wav")
+
+
 @app.get("/")
 def read_root():
     return {"message": "RedNote Recap Backend is running with Gemini dubbing + TTS (ElevenLabs optional)."}
@@ -462,6 +484,8 @@ async def create_job(
 ):
     if not video_file:
         raise HTTPException(status_code=400, detail="No video file provided.")
+    if tts_provider() == "gemini" and voice_type != "su" and voice_type not in VOICE_NAMES:
+        raise HTTPException(status_code=400, detail=f"Unknown voice: {voice_type}")
     if tts_provider() == "elevenlabs" and voice_type != "su":
         raise HTTPException(status_code=400, detail=f"Unsupported voice selection: {voice_type}")
     params = {k: v for k, v in locals().items() if k not in ("video_file", "custom_logo")}
