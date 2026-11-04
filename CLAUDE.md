@@ -79,8 +79,13 @@ Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user 
 
 ## 6. To do / roadmap
 **In progress — branch `feature/bulk-voice-editor`**
-1. Test **large TTS requests** (whole text, or ~30–60 s paragraphs, in 1 to a few requests): max input length, quality,
-   latency. Then split the audio back into sentence clips automatically (speech-to-text timestamps on the generated audio).
+1. **Large TTS requests.** Built (`backend/bulk_tts.py`, enabled with `TTS_BULK=1`, off by default): up to 8 sentences /
+   1,200 chars per request, sentences separated by a blank line; the audio is cut back into one clip per sentence at the
+   N-1 longest pauses; if the split looks wrong (too few pauses, clip lengths far from text length) that group falls back
+   to one request per sentence. Tested offline with `TTS_PROVIDER=fake` only (splitter + full job).
+   **Still to do:** run `python test_bulk_tts.py` against real Gemini once the daily TTS quota is free (it was exhausted on
+   2026-11-04/05): check max input length, voice consistency, whether Gemini really pauses between sentences, and tune
+   `TTS_BULK_*` settings. Then decide whether to turn it on by default.
 2. **Browser editor (CapCut-like)**: preview of the uploaded video; tracks for video, subtitles, audio clips;
    user can edit subtitle text, trim/move clips, change clip speed. Server returns a "project" JSON
    (segments, times, clip files); the browser plays it with a video element + Web Audio + subtitle overlay;
@@ -104,4 +109,5 @@ Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user 
 - 2026-11-03: new branch `feature/google-gemini-dubbing`; Gemini replaces ElevenLabs for dubbing; `.env` loading.
 - 2026-11-04: voice picker + samples, sentence subtitles, sync tuning, speed work, accounts/queue/storage architecture;
   discovered Gemini TTS Tier 1 limit (100 requests/day).
-- 2026-11-05: branch `feature/bulk-voice-editor` created from the Gemini branch; this file added.
+- 2026-11-05: branch `feature/bulk-voice-editor` created from the Gemini branch; this file added; `bulk_tts.py`
+  (batched voice requests, fake-voice tested) and `test_bulk_tts.py` added. Real Gemini test pending quota reset.

@@ -6,5 +6,7 @@ backend/outputs/
 frontend/dist/
 .env
 *.wav
+bulk_test/
 backend/data/
 backend/gemini_test.wav
+backend/bulk_test/

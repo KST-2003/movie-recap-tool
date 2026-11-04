@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 import requests
 
+import bulk_tts
 import gemini_dub
 import gemini_tts
 import local_dub
@@ -155,6 +156,7 @@ def elevenlabs_dub(video_path: str, target_language: str) -> tuple[str | None, l
     return project.get("source_language") or transcript.get("source_language"), segments
 
 TTS_WORKERS = int(os.getenv("TTS_WORKERS", "8"))
+TTS_BULK = os.getenv("TTS_BULK", "").lower() in ("1", "true")  # several sentences per TTS request (experimental)
 
 
 def set_job(job_id: str, **fields):
@@ -162,9 +164,16 @@ def set_job(job_id: str, **fields):
 
 
 def synthesize(text: str, voice: str, path: str):
-    if tts_provider() == "fake":  # no API: a tone about as long as speech would be (for tests / load tests)
-        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
-                        f"sine=frequency=220:duration={max(0.8, len(text) / 12):.2f}", "-ar", "24000", path], check=True)
+    if tts_provider() == "fake":  # no API: tones about as long as speech would be (tests / load tests)
+        parts = [t for t in text.split("\n\n") if t.strip()] or [text]
+        cmd = ["ffmpeg", "-y", "-loglevel", "error"]
+        for t in parts:
+            cmd += ["-f", "lavfi", "-i", f"sine=frequency=220:duration={max(0.8, len(t) / 12):.2f}"]
+            cmd += ["-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono:d=0.5"] if t is not parts[-1] else []
+        n_in = len(parts) * 2 - 1
+        fc = "".join(f"[{i}:a]aresample=24000,aformat=channel_layouts=mono[a{i}];" for i in range(n_in))
+        fc += "".join(f"[a{i}]" for i in range(n_in)) + f"concat=n={n_in}:v=0:a=1[out]"
+        subprocess.run(cmd + ["-filter_complex", fc, "-map", "[out]", path], check=True)
         return media_duration(path)
     if tts_provider() == "gemini":
         # "su" is the UI's default Burmese voice slot; map it to the configured Gemini voice.
@@ -287,18 +296,50 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                 gemini_tts._get_client()  # create the shared client before worker threads start
             done = [0]
 
-            def _voice(item):
-                index, segment = item
-                segment_path = os.path.join(OUTPUT_DIR, f"voice_{job_id}_{index}{audio_ext()}")
-                temp_paths.append(segment_path)
-                segment["audio_path"] = segment_path
-                segment["audio_dur"] = synthesize(segment["translated_text"], p["voice_type"], segment_path)
-                done[0] += 1
+            def _paths(index: int) -> str:
+                path = os.path.join(OUTPUT_DIR, f"voice_{job_id}_{index}{audio_ext()}")
+                temp_paths.append(path)
+                return path
+
+            def _progress(count: int):
+                done[0] += count
                 set_job(job_id, stage=f"Voice-over {done[0]}/{len(segments)}",
                         progress=35 + int(25 * done[0] / len(segments)))
 
+            def _single(index: int):
+                segment = segments[index]
+                segment["audio_path"] = _paths(index + 1)
+                segment["audio_dur"] = synthesize(segment["translated_text"], p["voice_type"], segment["audio_path"])
+                _progress(1)
+
+            def _batch(indices: list[int]):
+                """One request for several sentences, cut apart; falls back to one request per sentence."""
+                if len(indices) > 1:
+                    try:
+                        outs = [_paths(i + 1) for i in indices]
+                        ok = bulk_tts.synthesize_batch(
+                            [segments[i]["translated_text"] for i in indices], p["voice_type"], outs,
+                            lambda text, path: synthesize(text, p["voice_type"], path), OUTPUT_DIR)
+                        if ok:
+                            for i, path in zip(indices, outs):
+                                segments[i]["audio_path"] = path
+                                segments[i]["audio_dur"] = media_duration(path)
+                            _progress(len(indices))
+                            return
+                        print(f"  bulk voice split not trusted for sentences {indices[0] + 1}-{indices[-1] + 1}; "
+                              "using one request each", flush=True)
+                    except Exception as exc:
+                        print(f"  bulk voice failed ({exc}); using one request each", flush=True)
+                for i in indices:
+                    _single(i)
+
+            if TTS_BULK:
+                batches = bulk_tts.make_batches([sg["translated_text"] for sg in segments])
+                print(f"  voice-over: {len(segments)} sentences in {len(batches)} request group(s)", flush=True)
+            else:
+                batches = [[i] for i in range(len(segments))]
             with ThreadPoolExecutor(max_workers=TTS_WORKERS) as pool:
-                list(pool.map(_voice, enumerate(segments, start=1)))
+                list(pool.map(_batch, batches))
 
         # 5. Make each line fit its scene.
         if p["fit_translation"] and fit_available():
