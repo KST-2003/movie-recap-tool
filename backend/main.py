@@ -322,7 +322,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                 "elevenlabs": lambda: elevenlabs_dub(video_path, p["target_language"]),
                 "gemini": lambda: gemini_dub.dub(video_path, p["target_language"], retries=2),
             }
-            order = [primary] + [n for n in runners if n != primary]
+            order = [primary] + [n for n in ("elevenlabs", "gemini", "local") if n != primary]  # local last: slow, weakest Burmese
             if not os.getenv("ELEVENLABS_API_KEY"):
                 order = [n for n in order if n != "elevenlabs"]
             for i, name in enumerate(order):
