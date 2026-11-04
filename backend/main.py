@@ -1,456 +1,117 @@
-from dotenv import load_dotenv
-load_dotenv()  # reads backend/.env before anything reads the environment
+from config import (ALLOW_SIGNUP, CORS_ORIGINS, DEFAULT_DAILY_MINUTES, FILE_TTL_HOURS, GLOBAL_DAILY_MINUTES,
+                    LOGOS_DIR, MAINTENANCE_MODE, MAX_ACTIVE_JOBS_PER_USER, MAX_UPLOAD_MB, MAX_VIDEO_MINUTES,
+                    OUTPUT_DIR, SIGNED_URL_SECONDS, UPLOAD_DIR)
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from fastapi.responses import FileResponse
-from fastapi.middleware.cors import CORSMiddleware
 import os
-import shutil
-import subprocess
-import time
+import re
 import threading
+import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
-import mimetypes
-import requests
-from recap_engine import (BREATH, EffectOptions, SyncOptions, plan_timeline, probe_video, render, write_srt)
-from subtitle_detect import detect_text_regions, to_pixels
-from audio_tools import cleanup_separation, separate_background
-from fit_text import available as fit_available, shorten
-import gemini_tts
-import gemini_dub
-import local_dub
+
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+from sqlalchemy import select
+
+import auth
+import jobs_queue
+import storage
+from common import media_duration, tts_provider
+from db import Job, Session, User, active_jobs, used_seconds_today
 from voices import VOICES, VOICE_NAMES
-from contextlib import contextmanager
-from datetime import datetime, timezone
 
-app = FastAPI(title="RedNote Video Recap Backend", version="2.6.0")
-
+app = FastAPI(title="RedNote Video Recap Backend", version="3.0.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=False,  # bearer tokens, not cookies
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-UPLOAD_DIR = "uploads"
-LOGOS_DIR = "uploads/logos"
-OUTPUT_DIR = "outputs"
-
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(LOGOS_DIR, exist_ok=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-
-class ElevenLabsRateLimited(RuntimeError):
-    pass
-
-
-@contextmanager
-def pipeline_stage(name: str):
-    started = time.monotonic()
-    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    print(f"[{timestamp}] [{name}] START", flush=True)
-    try:
-        yield
-    except Exception as exc:
-        elapsed = time.monotonic() - started
-        timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        print(
-            f"[{timestamp}] [{name}] FAILED after {elapsed:.2f}s: {exc}",
-            flush=True,
-        )
-        raise
-    else:
-        elapsed = time.monotonic() - started
-        timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        print(f"[{timestamp}] [{name}] DONE in {elapsed:.2f}s", flush=True)
-
-
-def elevenlabs_dub(video_path: str, target_language: str) -> tuple[str | None, list[dict]]:
-    """Use ElevenLabs Dubbing v2 to transcribe, translate, and return timed text segments."""
-    api_key = os.getenv("ELEVENLABS_API_KEY")
-    if not api_key:
-        raise RuntimeError("ELEVENLABS_API_KEY is not set in the FastAPI server environment.")
-
-    api_base = "https://api.elevenlabs.io/v1/dubbing"
-    headers = {"xi-api-key": api_key}
-    timeout_seconds = int(os.getenv("ELEVENLABS_DUBBING_TIMEOUT_SECONDS", "900"))
-    deadline = time.monotonic() + timeout_seconds
-
-    with pipeline_stage("ElevenLabs Dubbing Project"):
-        with open(video_path, "rb") as source_file:
-            response = requests.post(
-                f"{api_base}/project",
-                headers=headers,
-                data={"model_id": "dubbing_v2", "target_language": target_language},
-                files={
-                    "file": (
-                        os.path.basename(video_path),
-                        source_file,
-                        mimetypes.guess_type(video_path)[0] or "application/octet-stream",
-                    )
-                },
-                timeout=(15, 180),
-            )
-        if response.status_code == 429:
-            raise ElevenLabsRateLimited("ElevenLabs rate-limited this dubbing request (HTTP 429).")
-        response.raise_for_status()
-        project = response.json()
-
-    project_id = project["project_id"]
-    language_ids = project.get("language_ids") or []
-    language_id = language_ids[0] if language_ids else None
-
-    with pipeline_stage("ElevenLabs Dubbing Preparation"):
-        while time.monotonic() < deadline:
-            if project.get("status") == "failed":
-                raise RuntimeError(f"ElevenLabs could not prepare the source: {project.get('error')}")
-            if project.get("status") == "ready":
-                break
-            time.sleep(2)
-            response = requests.get(
-                f"{api_base}/project/{project_id}", headers=headers, timeout=(10, 30)
-            )
-            response.raise_for_status()
-            project = response.json()
-            language_ids = project.get("language_ids") or language_ids
-            if not language_id and language_ids:
-                language_id = language_ids[0]
-        else:
-            raise TimeoutError(f"ElevenLabs source preparation exceeded {timeout_seconds} seconds.")
-
-    if not language_id:
-        raise RuntimeError("ElevenLabs project became ready without a Burmese language target.")
-
-    with pipeline_stage("ElevenLabs Burmese Dubbing"):
-        while time.monotonic() < deadline:
-            response = requests.get(
-                f"{api_base}/project/{project_id}/language/{language_id}",
-                headers=headers,
-                timeout=(10, 30),
-            )
-            response.raise_for_status()
-            language_target = response.json()
-            status = language_target.get("status")
-            if status == "failed":
-                raise RuntimeError(f"ElevenLabs dubbing failed: {language_target.get('error')}")
-            if status == "completed":
-                break
-            time.sleep(2)
-        else:
-            raise TimeoutError(f"ElevenLabs dubbing exceeded {timeout_seconds} seconds.")
-
-    with pipeline_stage("ElevenLabs Timed Transcript"):
-        response = requests.get(
-            f"{api_base}/project/{project_id}/language/{language_id}/transcript",
-            headers=headers,
-            timeout=(10, 30),
-        )
-        response.raise_for_status()
-        transcript = response.json()
-        segments = [
-            {
-                "start": float(segment["start_s"]),
-                "end": float(segment["end_s"]),
-                "source_text": segment.get("source_text", ""),
-                "translated_text": segment.get("translation", ""),
-            }
-            for segment in transcript.get("segments", [])
-            if segment.get("translation") and segment.get("end_s", 0) > segment.get("start_s", 0)
-        ]
-
-    if not segments:
-        raise RuntimeError("ElevenLabs returned no translated timed transcript segments.")
-
-    with pipeline_stage("ElevenLabs Burmese Transcript"):
-        for segment in segments:
-            timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-            print(
-                f"[{timestamp}] [Burmese {segment['start']:.2f}s–{segment['end']:.2f}s] "
-                f"{segment['translated_text']}",
-                flush=True,
-            )
-    return project.get("source_language") or transcript.get("source_language"), segments
-
-def media_duration(path: str) -> float:
-    result = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", path],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        timeout=15,
-        check=True,
-    )
-    return float(result.stdout.strip())
-
-
-def save_upload(upload: UploadFile, directory: str) -> str:
-    """Store an upload under a unique name so concurrent jobs never overwrite each other."""
-    ext = os.path.splitext(os.path.basename(upload.filename or ""))[1][:10]
-    path = os.path.join(directory, f"{uuid.uuid4().hex}{ext}")
-    with open(path, "wb") as buffer:
-        shutil.copyfileobj(upload.file, buffer)
-    return path
-
-
-# ---------- job queue ----------
-
-JOBS: dict[str, dict] = {}
-JOBS_LOCK = threading.Lock()
-TTS_WORKERS = int(os.getenv("TTS_WORKERS", "8"))
-EXECUTOR = ThreadPoolExecutor(max_workers=int(os.getenv("RECAP_WORKERS", "2")))
-
-
-def set_job(job_id: str, **fields):
-    with JOBS_LOCK:
-        JOBS[job_id].update(fields)
-
-
-def tts_provider() -> str:
-    """TTS_PROVIDER=gemini|elevenlabs; default is Gemini when a Google key is present."""
-    choice = os.getenv("TTS_PROVIDER", "").lower()
-    if choice in ("gemini", "elevenlabs"):
-        return choice
-    return "gemini" if gemini_tts.available() else "elevenlabs"
-
-
-def dub_provider() -> str:
-    """DUB_PROVIDER=local|elevenlabs|gemini; default is local (faster-whisper + NLLB, no API)."""
-    choice = os.getenv("DUB_PROVIDER", "local").lower()
-    return choice if choice in ("local", "elevenlabs", "gemini") else "local"
-
-
-def audio_ext() -> str:
-    return ".wav" if tts_provider() == "gemini" else ".mp3"
-
-
-def synthesize(text: str, voice: str, path: str):
-    if tts_provider() == "gemini":
-        # "su" is the UI's default Burmese voice slot; map it to the configured Gemini voice.
-        gemini_tts.synthesize_to_file(text, path, None if voice == "su" else voice)
-        return media_duration(path)
-    response = requests.post(
-        os.getenv("ELEVENLABS_TTS_URL", "http://127.0.0.1:8001/api/tts"),
-        json={"text": text, "voice": voice},
-        timeout=(5, 180),
-    )
-    if response.status_code >= 400:
-        try:
-            body = response.json()
-            reason = f"{body.get('upstreamStatus', '')} {body.get('detail') or body.get('error')}".strip()
-        except ValueError:
-            reason = response.text[:300]
-        raise RuntimeError(f"Voice-over failed ({response.status_code}): {reason}")
-    if not response.headers.get("content-type", "").startswith("audio/"):
-        raise RuntimeError("ElevenLabs TTS endpoint returned a non-audio response.")
-    with open(path, "wb") as audio_file:
-        audio_file.write(response.content)
-    return media_duration(path)
-
-
-def fit_segments_to_slots(segments, video_duration, job, voice, target_language, temp_paths,
-                          max_rounds=2, tolerance=1.05):
-    """Re-write lines whose voice-over overshoots their scene (even after the allowed speed-up),
-    so the video rarely has to slow down or freeze. Lines are fixed in parallel."""
-    def fit_one(i):
-        segment = segments[i]
-        end = segments[i + 1]["start"] if i + 1 < len(segments) else video_duration
-        budget = max(end - segment["start"] - BREATH, 0.4)
-        for round_no in range(max_rounds):
-            if segment["audio_dur"] <= budget * tolerance:
-                break
-            try:
-                new_text = shorten(segment["source_text"], segment["translated_text"], target_language,
-                                   segment["audio_dur"], budget * tolerance)
-                root, ext = os.path.splitext(segment["audio_path"])
-                new_path = f"{root}_fit{round_no}{ext}"
-                temp_paths.append(new_path)
-                new_dur = synthesize(new_text, voice, new_path)
-            except Exception as exc:  # fitting is best-effort; the engine still syncs by slowing video
-                print(f"  fit skipped for segment {i + 1}: {exc}", flush=True)
-                break
-            if new_dur >= segment["audio_dur"]:
-                break
-            print(f"  fit {i + 1}: {segment['audio_dur']:.1f}s -> {new_dur:.1f}s (budget {budget:.1f}s)", flush=True)
-            segment.update(translated_text=new_text, audio_path=new_path, audio_dur=new_dur)
-
-    with ThreadPoolExecutor(max_workers=TTS_WORKERS) as pool:
-        list(pool.map(fit_one, range(len(segments))))
-
-
-def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
-    output_filename = f"recap_output_{job_id}.mp4"
-    srt_filename = f"recap_output_{job_id}.srt"
-    output_path = os.path.join(OUTPUT_DIR, output_filename)
-    temp_paths: list[str] = []
-    bg_state: dict = {}
-    bg_thread = None
-    try:
-        info = probe_video(video_path)
-        video_duration = media_duration(video_path)
-        fx_kwargs = {}
-
-        # 1. Where are the source subtitles / watermarks? Only those regions get blurred.
-        if p["blur_subtitles"] or p["remove_watermark"]:
-            set_job(job_id, stage="Detecting subtitles", progress=3)
-            with pipeline_stage("Subtitle Detection"):
-                try:
-                    found = detect_text_regions(video_path, video_duration)
-                    if found["subtitle"]:
-                        fx_kwargs["subtitle_rect"] = to_pixels(found["subtitle"], info["width"], info["height"])
-                    fx_kwargs["watermark_rects"] = [
-                        to_pixels(r, info["width"], info["height"], 0.01, 0.005) for r in found["watermarks"]
-                    ]
-                    print(f"  subtitles: {found['subtitle']}  watermarks: {len(found['watermarks'])}", flush=True)
-                except Exception as exc:  # OCR unavailable: fall back to the classic lower-third strip
-                    print(f"  detection failed ({exc}); using fixed lower-third", flush=True)
-                    fx_kwargs["subtitle_rect"] = (0, int(info["height"] * 0.72) // 2 * 2,
-                                                  info["width"] // 2 * 2, int(info["height"] * 0.25) // 2 * 2)
-        set_job(job_id, subtitles_detected=bool(fx_kwargs.get("subtitle_rect")))
-
-        # 2. Keep the original music/effects (voice removed) — runs alongside dubbing.
-        if p["keep_background"]:
-            def _separate():
-                try:
-                    bg_state["path"] = separate_background(video_path, OUTPUT_DIR, job_id)
-                except Exception as exc:
-                    bg_state["error"] = str(exc)
-            bg_thread = threading.Thread(target=_separate, daemon=True)
-            bg_thread.start()
-
-        # 3. Transcribe + translate.
-        set_job(job_id, stage="Transcribing and translating", progress=10)
-        with pipeline_stage("Transcribe + Translate"):
-            primary = dub_provider()
-            runners = {
-                "local": lambda: local_dub.dub(video_path, p["target_language"]),
-                "elevenlabs": lambda: elevenlabs_dub(video_path, p["target_language"]),
-                "gemini": lambda: gemini_dub.dub(video_path, p["target_language"], retries=2),
-            }
-            order = [primary] + [n for n in ("elevenlabs", "gemini", "local") if n != primary]  # local last: slow, weakest Burmese
-            if not os.getenv("ELEVENLABS_API_KEY"):
-                order = [n for n in order if n != "elevenlabs"]
-            for i, name in enumerate(order):
-                try:
-                    detected_source_language, segments = runners[name]()
-                    break
-                except Exception as exc:
-                    if i == len(order) - 1:
-                        raise
-                    print(f"  {name} transcribe/translate failed ({exc}); trying {order[i + 1]}", flush=True)
-        segments.sort(key=lambda s: s["start"])
-
-        # 4. Voice-over.
-        with pipeline_stage(f"Voiceover ({tts_provider()})"):
-            if tts_provider() == "gemini":
-                gemini_tts._get_client()  # create the shared client before worker threads start
-            done = [0]
-
-            def _voice(item):
-                index, segment = item
-                segment_path = os.path.join(OUTPUT_DIR, f"voice_{job_id}_{index}{audio_ext()}")
-                temp_paths.append(segment_path)
-                segment["audio_path"] = segment_path
-                segment["audio_dur"] = synthesize(segment["translated_text"], p["voice_type"], segment_path)
-                done[0] += 1
-                set_job(job_id, stage=f"Voice-over {done[0]}/{len(segments)}",
-                        progress=35 + int(25 * done[0] / len(segments)))
-
-            with ThreadPoolExecutor(max_workers=TTS_WORKERS) as pool:
-                list(pool.map(_voice, enumerate(segments, start=1)))
-
-        # 5. Make each line fit its scene.
-        if p["fit_translation"] and fit_available():
-            set_job(job_id, stage="Fitting translation to scene timing", progress=62)
-            with pipeline_stage("Fit Translation To Timing"):
-                fit_segments_to_slots(
-                    segments, video_duration, job_id, p["voice_type"], p["target_language"], temp_paths,
-                    tolerance=(max(p["max_voice_speedup"], 1.0) if p["allow_voice_speedup"] else 1.05) * 1.02)
-
-        # 6. Sync timeline + render.
-        set_job(job_id, stage="Building sync timeline", progress=68)
-        scenes = plan_timeline(
-            segments,
-            video_duration,
-            SyncOptions(
-                allow_speedup=p["allow_voice_speedup"],
-                max_speedup=min(max(p["max_voice_speedup"], 1.0), 1.5),
-                min_video_speed=min(max(p["min_video_speed"], 0.5), 1.0),
-            ),
-        )
-        for scene in scenes:
-            if scene.audio_index is not None:
-                print(f"  src {scene.src_start:.2f}-{scene.src_end:.2f}s -> out {scene.out_start:.2f}s "
-                      f"+{scene.out_len:.2f}s [{scene.action}]", flush=True)
-
-        if bg_thread:
-            set_job(job_id, stage="Separating background music", progress=70)
-            bg_thread.join()
-            if "error" in bg_state:
-                print(f"  background separation failed: {bg_state['error']}", flush=True)
-
-        effects = EffectOptions(
-            blur_subtitles=p["blur_subtitles"],
-            blur_watermark=p["remove_watermark"],
-            flip_h=p["enable_flip"],
-            flip_v=p["flip_vertical"],
-            speed=p["video_speed"],
-            brightness=min(max(p["brightness"], -1.0), 1.0),
-            contrast=min(max(p["contrast"], 0.0), 2.0),
-            saturation=min(max(p["saturation"], 0.0), 3.0),
-            logo_path=logo_path,
-            logo_width_frac=min(max(p["logo_size"], 0.05), 0.5),
-            logo_position=p["logo_position"],
-            captions=p["enable_subtitles"],
-            background_path=bg_state.get("path"),
-            **fx_kwargs,
-        )
-        set_job(job_id, stage="Rendering video", progress=75)
-        with pipeline_stage("FFmpeg Render"):
-            result = render(video_path, segments, scenes, effects, output_path, OUTPUT_DIR, job_id)
-        write_srt(result["cues"], os.path.join(OUTPUT_DIR, srt_filename))
-
-        set_job(
-            job_id,
-            status="done",
-            stage="Done",
-            progress=100,
-            result={
-                "source_language": detected_source_language,
-                "target_language": p["target_language"],
-                "source_duration": video_duration,
-                "output_duration": result["duration"],
-                "subtitles_detected": bool(fx_kwargs.get("subtitle_rect")),
-                "background_kept": "path" in bg_state,
-                "transcript": " ".join(s["translated_text"] for s in segments),
-                "timeline": [
-                    {"source_start": sc.src_start, "source_end": sc.src_end, "output_start": sc.out_start,
-                     "output_length": sc.out_len, "action": sc.action, "text": sc.text}
-                    for sc in scenes
-                ],
-                "video_url": f"/api/preview/{output_filename}",
-                "download_url": f"/api/download/{output_filename}",
-                "subtitle_url": f"/api/download/{srt_filename}",
-            },
-        )
-    except ElevenLabsRateLimited:
-        set_job(job_id, status="error", error="ElevenLabs rate-limited this dubbing request. Please retry later.")
-    except Exception as exc:
-        print(f"[job {job_id}] FAILED: {exc}", flush=True)
-        set_job(job_id, status="error", error=f"Recap generation failed: {exc}")
-    finally:
-        if bg_thread:
-            bg_thread.join(timeout=5)
-            cleanup_separation(OUTPUT_DIR, job_id)
-        for temp_path in temp_paths:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-
-
 SAMPLES_DIR = "voice_samples"
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
+
+# ---------- housekeeping ----------
+
+def _cleanup_loop():
+    while True:
+        try:
+            removed = storage.cleanup()
+            if removed:
+                print(f"[cleanup] removed {removed} old file(s)", flush=True)
+        except Exception as exc:
+            print(f"[cleanup] failed: {exc}", flush=True)
+        time.sleep(3600)
+
+
+@app.on_event("startup")
+def _startup():
+    if storage.BACKEND == "local":
+        threading.Thread(target=_cleanup_loop, daemon=True).start()
+
+
+@app.get("/")
+def read_root():
+    return {"message": "RedNote Recap API", "version": app.version}
+
+
+@app.get("/health")
+def health():
+    return {"ok": True}
+
+
+# ---------- accounts ----------
+
+class Credentials(BaseModel):
+    email: str
+    password: str
+
+
+def _quota(user: User) -> dict:
+    with Session() as s:
+        used = used_seconds_today(s, user.id)
+    limit = user.daily_minutes * 60
+    return {"daily_minutes": user.daily_minutes, "used_seconds": round(used), "remaining_seconds": max(0, round(limit - used))}
+
+
+@app.post("/api/auth/register")
+def register(body: Credentials, request: Request):
+    auth.rate_limit(request)
+    if not ALLOW_SIGNUP:
+        raise HTTPException(status_code=403, detail="Sign-ups are closed.")
+    email = body.email.strip().lower()
+    if not EMAIL_RE.match(email) or len(email) > 255:
+        raise HTTPException(status_code=400, detail="Enter a valid email address.")
+    if len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+    with Session() as s:
+        if s.execute(select(User).where(User.email == email)).scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="That email is already registered.")
+        user = User(email=email, password_hash=auth.hash_password(body.password), daily_minutes=DEFAULT_DAILY_MINUTES)
+        s.add(user)
+        s.commit()
+    return {"token": auth.make_token(user), "email": email, **_quota(user)}
+
+
+@app.post("/api/auth/login")
+def login(body: Credentials, request: Request):
+    auth.rate_limit(request)
+    with Session() as s:
+        user = s.execute(select(User).where(User.email == body.email.strip().lower())).scalar_one_or_none()
+    if not user or not user.is_active or not auth.verify_password(body.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Wrong email or password.")
+    return {"token": auth.make_token(user), "email": user.email, **_quota(user)}
+
+
+@app.get("/api/auth/me")
+def me(user: User = Depends(auth.current_user)):
+    return {"email": user.email, **_quota(user)}
+
+
+# ---------- voices (public) ----------
 
 @app.get("/api/voices")
 def list_voices():
@@ -470,13 +131,30 @@ def voice_sample(filename: str):
     return FileResponse(path, media_type="audio/wav", filename=f"{name}-sample.wav")
 
 
-@app.get("/")
-def read_root():
-    return {"message": "RedNote Recap Backend is running with Gemini dubbing + TTS (ElevenLabs optional)."}
+# ---------- jobs ----------
+
+def save_upload(upload: UploadFile, directory: str, max_mb: int) -> str:
+    """Store an upload under a unique name; refuse files over the size limit."""
+    ext = os.path.splitext(os.path.basename(upload.filename or ""))[1][:10]
+    path = os.path.join(directory, f"{uuid.uuid4().hex}{ext}")
+    limit, size = max_mb * 1024 * 1024, 0
+    try:
+        with open(path, "wb") as buffer:
+            while chunk := upload.file.read(1024 * 1024):
+                size += len(chunk)
+                if size > limit:
+                    raise HTTPException(status_code=413, detail=f"File is larger than {max_mb} MB.")
+                buffer.write(chunk)
+    except Exception:
+        if os.path.exists(path):
+            os.remove(path)
+        raise
+    return path
 
 
 @app.post("/api/jobs")
-async def create_job(
+def create_job(
+    user: User = Depends(auth.current_user),
     video_file: UploadFile = File(None),
     custom_logo: UploadFile = File(None),
     voice_type: str = Form("su"),
@@ -500,46 +178,100 @@ async def create_job(
     logo_position: str = Form("top-right"),
     logo_size: float = Form(0.15),
 ):
+    if MAINTENANCE_MODE:
+        raise HTTPException(status_code=503, detail="We're temporarily not accepting new videos. Please try again later.")
     if not video_file:
         raise HTTPException(status_code=400, detail="No video file provided.")
     if tts_provider() == "gemini" and voice_type != "su" and voice_type not in VOICE_NAMES:
         raise HTTPException(status_code=400, detail=f"Unknown voice: {voice_type}")
     if tts_provider() == "elevenlabs" and voice_type != "su":
         raise HTTPException(status_code=400, detail=f"Unsupported voice selection: {voice_type}")
-    params = {k: v for k, v in locals().items() if k not in ("video_file", "custom_logo")}
-    video_path = save_upload(video_file, UPLOAD_DIR)
-    logo_path = save_upload(custom_logo, LOGOS_DIR) if custom_logo else None
+    params = {"voice_type": voice_type, "target_language": target_language,
+              "allow_voice_speedup": allow_voice_speedup, "max_voice_speedup": max_voice_speedup,
+              "min_video_speed": min_video_speed, "fit_translation": fit_translation,
+              "keep_background": keep_background, "blur_subtitles": blur_subtitles,
+              "enable_subtitles": enable_subtitles, "remove_watermark": remove_watermark,
+              "enable_flip": enable_flip, "flip_vertical": flip_vertical, "video_speed": video_speed,
+              "brightness": brightness, "contrast": contrast, "saturation": saturation,
+              "logo_position": logo_position, "logo_size": logo_size}
 
-    job_id = uuid.uuid4().hex[:12]
-    with JOBS_LOCK:
-        JOBS[job_id] = {"id": job_id, "status": "running", "stage": "Queued", "progress": 0}
-    EXECUTOR.submit(run_job, job_id, video_path, logo_path, params)
+    with Session() as s:
+        if active_jobs(s, user.id) >= MAX_ACTIVE_JOBS_PER_USER:
+            raise HTTPException(status_code=429, detail="You already have videos processing. Wait for one to finish.")
+
+    video_path = save_upload(video_file, UPLOAD_DIR, MAX_UPLOAD_MB)
+    logo_path = save_upload(custom_logo, LOGOS_DIR, 20) if custom_logo else None
+    try:
+        try:
+            seconds = media_duration(video_path)
+        except Exception:
+            raise HTTPException(status_code=400, detail="That file doesn't look like a valid video.")
+        if seconds > MAX_VIDEO_MINUTES * 60:
+            raise HTTPException(status_code=413, detail=f"Videos can be at most {MAX_VIDEO_MINUTES:g} minutes long.")
+        job_id = uuid.uuid4().hex[:12]
+        with Session() as s:
+            used = used_seconds_today(s, user.id)
+            if used + seconds > user.daily_minutes * 60:
+                left = max(0, user.daily_minutes * 60 - used)
+                raise HTTPException(status_code=402, detail=(
+                    f"Daily limit reached: {left / 60:.1f} of your {user.daily_minutes} minutes left today, "
+                    f"this video is {seconds / 60:.1f} minutes."))
+            if GLOBAL_DAILY_MINUTES and used_seconds_today(s) + seconds > GLOBAL_DAILY_MINUTES * 60:
+                raise HTTPException(status_code=503, detail="We've reached today's capacity. Please try again tomorrow.")
+            input_key = storage.put(video_path, "uploads")
+            logo_key = storage.put(logo_path, "logos") if logo_path else None
+            s.add(Job(id=job_id, user_id=user.id, status="queued", params=params, data={},
+                      input_key=input_key, logo_key=logo_key, charged_seconds=seconds))
+            s.commit()
+    except Exception:
+        for p in (video_path, logo_path):
+            if p and os.path.exists(p):
+                os.remove(p)
+        raise
+    jobs_queue.enqueue(job_id)
     return {"job_id": job_id}
 
 
+def _file_url(key: str, download: bool) -> str:
+    name = os.path.basename(key)
+    if storage.BACKEND == "s3":
+        return storage.presigned_url(key, name if download else None)
+    exp, sig = auth.sign_file(name, SIGNED_URL_SECONDS)
+    return f"/api/files/{name}?exp={exp}&sig={sig}" + ("&dl=1" if download else "")
+
+
+def _job_view(job: Job) -> dict:
+    view = {"id": job.id, "status": job.status, "stage": job.stage, "progress": job.progress,
+            "error": job.error, **{k: v for k, v in (job.data or {}).items() if k != "result"}}
+    result = (job.data or {}).get("result")
+    if result:
+        result = dict(result)
+        if result.get("video_file") and storage.output_exists(result["video_file"]):
+            result["video_url"] = _file_url(result["video_file"], False)
+            result["download_url"] = _file_url(result["video_file"], True)
+            result["subtitle_url"] = _file_url(result["subtitle_file"], True)
+        else:
+            result["expired"] = True  # files are deleted after FILE_TTL_HOURS
+        view["result"] = result
+    return view
+
+
 @app.get("/api/jobs/{job_id}")
-def get_job(job_id: str):
-    with JOBS_LOCK:
-        job = JOBS.get(job_id)
-        if not job:
-            raise HTTPException(status_code=404, detail="Unknown job")
-        return dict(job)
+def get_job(job_id: str, user: User = Depends(auth.current_user)):
+    with Session() as s:
+        job = s.get(Job, job_id)
+    if job is None or job.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Unknown job")
+    return _job_view(job)
 
 
-def _output_file(filename: str) -> str:
-    file_path = os.path.join(OUTPUT_DIR, os.path.basename(filename))
-    if not os.path.isfile(file_path):
-        raise HTTPException(status_code=404, detail="File not found")
-    return file_path
-
-
-@app.get("/api/preview/{filename}")
-def preview_file(filename: str):
-    return FileResponse(_output_file(filename), media_type="video/mp4")
-
-
-@app.get("/api/download/{filename}")
-def download_file(filename: str):
-    file_path = _output_file(filename)
-    media_type = "application/x-subrip" if file_path.endswith(".srt") else "video/mp4"
-    return FileResponse(file_path, media_type=media_type, filename=os.path.basename(file_path))
+@app.get("/api/files/{filename}")
+def get_file(filename: str, exp: int, sig: str, dl: int = 0):
+    name = os.path.basename(filename)
+    if not auth.check_signature(name, exp, sig):
+        raise HTTPException(status_code=403, detail="Link expired. Reload the page to get a new one.")
+    path = os.path.join(OUTPUT_DIR, name)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="File not found (results are kept for %g hours)." % FILE_TTL_HOURS)
+    media_type = "application/x-subrip" if name.endswith(".srt") else "video/mp4"
+    return FileResponse(path, media_type=media_type, filename=name if dl else None)

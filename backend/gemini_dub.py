@@ -112,7 +112,7 @@ def _dub_chunk(audio_path: str, offset: float, target: str, attempts: int) -> tu
                 break
             except Exception as exc:
                 err = str(exc).lower()
-                transient = any(k in err for k in ("429", "500", "503", "resource_exhausted", "unavailable", "timeout"))
+                transient = any(k in err for k in ("429", "500", "503", "resource_exhausted", "unavailable", "timeout", "too_many_requests"))
                 if "per day" in err or "perday" in err:
                     transient = False
                 if not transient or attempt == attempts - 1:

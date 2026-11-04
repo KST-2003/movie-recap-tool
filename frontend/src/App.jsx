@@ -1,11 +1,79 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+
+function AuthScreen({ onAuth }) {
+  const [mode, setMode] = useState('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const { data } = await axios.post(`${API_BASE}/api/auth/${mode === 'login' ? 'login' : 'register'}`, { email, password });
+      onAuth(data);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Could not reach the server.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const input = 'w-full rounded-xl bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-white outline-none focus:border-purple-500';
+  return (
+    <div className="min-h-screen bg-slate-950 text-white p-6 font-sans flex items-center justify-center">
+      <form onSubmit={submit} className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+        <h1 className="text-xl font-bold text-purple-400">🎬 RedNote Recap Studio</h1>
+        <input className={input} type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        <input className={input} type="password" placeholder="Password (8+ characters)" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} />
+        {error && <p className="text-sm text-red-400">{error}</p>}
+        <button disabled={busy} className="w-full py-2 rounded-xl bg-purple-600 hover:bg-purple-500 font-semibold disabled:opacity-50">
+          {mode === 'login' ? 'Log in' : 'Create account'}
+        </button>
+        <button type="button" onClick={() => setMode(mode === 'login' ? 'register' : 'login')} className="text-xs text-slate-400 hover:text-white">
+          {mode === 'login' ? 'New here? Create an account' : 'Already have an account? Log in'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 function App() {
+  const [token, setToken] = useState(() => localStorage.getItem('token') || '');
+  const [account, setAccount] = useState(null); // { email, daily_minutes, remaining_seconds }
+  if (token) axios.defaults.headers.common.Authorization = `Bearer ${token}`;
+
+  const logout = () => {
+    localStorage.removeItem('token');
+    delete axios.defaults.headers.common.Authorization;
+    setToken('');
+    setAccount(null);
+  };
+  const onAuth = (data) => {
+    localStorage.setItem('token', data.token);
+    axios.defaults.headers.common.Authorization = `Bearer ${data.token}`;
+    setToken(data.token);
+    setAccount(data);
+  };
+  const refreshAccount = () => axios.get(`${API_BASE}/api/auth/me`).then((r) => setAccount(r.data)).catch(() => {});
+  useEffect(() => {
+    const id = axios.interceptors.response.use((r) => r, (err) => {
+      if (err.response?.status === 401 && !String(err.config?.url).includes('/api/auth/')) logout();
+      return Promise.reject(err);
+    });
+    return () => axios.interceptors.response.eject(id);
+  }, []);
+  useEffect(() => { if (token) refreshAccount(); }, [token]);
+  const absUrl = (u) => (u.startsWith('http') ? u : API_BASE + u);
+
   // Form State
   const [videoFile, setVideoFile] = useState(null);
   const [customLogo, setCustomLogo] = useState(null);
-  const API_BASE = 'http://localhost:8000';
   const [voiceType, setVoiceType] = useState('Kore');
   const [voices, setVoices] = useState([]);
   const [voiceGender, setVoiceGender] = useState('female');
@@ -99,14 +167,15 @@ function App() {
         await new Promise((resolve) => setTimeout(resolve, 1500));
         ({ data: job } = await axios.get(`${baseUrl}/api/jobs/${started.job_id}`));
         setProgress({ pct: job.progress, stage: job.stage });
-      } while (job.status === 'running');
+      } while (job.status === 'running' || job.status === 'queued');
 
       if (job.status === 'error') throw new Error(job.error);
 
       const result = job.result;
-      setResultVideoUrl(baseUrl + result.video_url);
-      setResultDownloadUrl(baseUrl + result.download_url);
-      setSubtitleUrl(baseUrl + result.subtitle_url);
+      if (result.expired) throw new Error('This result has expired. Please generate it again.');
+      setResultVideoUrl(absUrl(result.video_url));
+      setResultDownloadUrl(absUrl(result.download_url));
+      setSubtitleUrl(absUrl(result.subtitle_url));
       setTimeline(result.timeline.filter((scene) => scene.text));
       setNotes(
         [
@@ -119,17 +188,28 @@ function App() {
       setErrorMessage(error.response?.data?.detail || error.message || 'ဗီဒီယို ထုတ်လုပ်ရာတွင် အမှားအယွင်း ရှိသွားပါသည်');
     } finally {
       setLoading(false);
+      refreshAccount();
     }
   };
+
+  if (!token) return <AuthScreen onAuth={onAuth} />;
 
   return (
     <div className="min-h-screen bg-slate-950 text-white p-6 font-sans">
       <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl">
         
         {/* Header */}
-        <h1 className="text-2xl font-bold mb-6 text-purple-400 flex items-center gap-2">
+        <h1 className="text-2xl font-bold mb-2 text-purple-400 flex items-center gap-2">
           🎬 RedNote Recap Studio (မြန်မာ)
         </h1>
+        {account && (
+          <div className="flex items-center justify-between text-xs text-slate-400 mb-6">
+            <span>
+              {account.email} · {Math.floor(account.remaining_seconds / 60)} of {account.daily_minutes} min left today
+            </span>
+            <button type="button" onClick={logout} className="hover:text-white">Log out</button>
+          </div>
+        )}
 
         <form onSubmit={handleGenerateRecap} className="space-y-6">
           

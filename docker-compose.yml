@@ -1,0 +1,38 @@
+# UNTESTED sketch of the production layout. Put it behind HTTPS (Caddy/nginx) and keep secrets in backend/.env.
+# Scale workers with:  docker compose up -d --scale worker=4   (each worker = one job at a time)
+# For several machines: run api + redis + postgres on one, and only `worker` on the others, with
+# STORAGE_BACKEND=s3 and REDIS_URL / DATABASE_URL pointing at the first machine.
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: ["redis-data:/data"]
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: recap
+    volumes: ["pg-data:/var/lib/postgresql/data"]
+  api:
+    build: ./backend
+    env_file: ./backend/.env
+    environment:
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD}@postgres:5432/recap
+    ports: ["8000:8000"]
+    depends_on: [redis, postgres]
+    volumes: ["shared-files:/app/uploads", "shared-outputs:/app/outputs"]
+  worker:
+    build: ./backend
+    command: ["./run_worker.sh"]
+    env_file: ./backend/.env
+    environment:
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD}@postgres:5432/recap
+    depends_on: [redis, postgres]
+    volumes: ["shared-files:/app/uploads", "shared-outputs:/app/outputs"]
+volumes:
+  redis-data:
+  pg-data:
+  shared-files:
+  shared-outputs:

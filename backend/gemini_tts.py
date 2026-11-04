@@ -18,8 +18,11 @@ def _get_client():
         from google import genai
         from google.genai import types
         # A hung request must fail (and retry) instead of freezing a job forever.
+        # attempts=1: the SDK's own retry can sleep for the server's whole "retry in 16h" hint and look like a hang.
+        # We retry transient errors ourselves (short, bounded) and fail fast on quota errors.
         _client = genai.Client(http_options=types.HttpOptions(
-            timeout=int(os.getenv("GEMINI_HTTP_TIMEOUT_MS", "120000"))))  # reads GEMINI_API_KEY / GOOGLE_API_KEY
+            timeout=int(os.getenv("GEMINI_HTTP_TIMEOUT_MS", "120000")),
+            retry_options=types.HttpRetryOptions(attempts=1)))  # reads GEMINI_API_KEY / GOOGLE_API_KEY
     return _client
 
 
@@ -43,7 +46,7 @@ def synthesize_to_file(text: str, path: str, voice: str | None = None, retries: 
         except Exception as exc:
             last = exc
             text_err = err_l = str(exc).lower()
-            transient = any(k in text_err for k in ("429", "500", "503", "resource_exhausted", "unavailable", "timeout"))
+            transient = any(k in text_err for k in ("429", "500", "503", "resource_exhausted", "unavailable", "timeout", "too_many_requests"))
             if "per day" in err_l or "perday" in err_l:  # daily quota: retrying is pointless
                 transient = False
             if not transient or attempt == retries - 1:
