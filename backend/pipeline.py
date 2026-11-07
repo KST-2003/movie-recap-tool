@@ -17,6 +17,7 @@ import bulk_tts
 import duration_model
 import tts_pool
 import casting
+import pitch
 import gemini_dub
 import gemini_tts
 import local_dub
@@ -331,6 +332,15 @@ def voice_many(texts: list[str], paths: list[str], voice, model: dict, job_id: s
             print(f"  emotion '{styles[i]}' was probably read aloud ({durs[i]:.1f}s); voicing the line plainly", flush=True)
             styles[i] = None
             durs[i] = synthesize(texts[i], voices[i], paths[i], chooser, None)
+        elif styles[i] and tts_provider() == "gemini":   # an emotion direction can pull the voice to another pitch (male -> female)
+            try:
+                bad, got, ref = pitch.drifted(paths[i], voices[i])
+            except Exception:
+                bad = False
+            if bad:
+                print(f"  emotion '{styles[i]}' moved the voice {voices[i]} from {ref:.0f} Hz to {got:.0f} Hz; voicing the line plainly", flush=True)
+                styles[i] = None
+                durs[i] = synthesize(texts[i], voices[i], paths[i], chooser, None)
         storage.put_clip(paths[i], clip_name(texts[i], voices[i], styles[i]))
         if progress:
             progress(1)

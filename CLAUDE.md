@@ -149,6 +149,14 @@ Upload form: **Recap video** (one narrator voice, as before) or **Full movie / d
   (source seconds, stored in `project.fx.subtitle_windows`, reused by editor re-renders) become an `enable=between(t,..)` on the blur overlay, applied to the SOURCE
   stream before it is cut into scenes (`recap_engine._render_single`, `pre_blur`). Watermark rule tightened (small box <= 45% x 12%, stable text in >= 60% of frames,
   confidence >= 0.8): wide strips of texture were being blurred as "watermarks". `test_blur_windows.py` checks it offline. Not handled: watermarks that jump around.
+- **Voice fixes after the real 502 s run (2026-11-07 night 10)**: (1) at 1:59 three lines became a female "character" E: they were the hero reading a system panel, mislabelled
+  inside his run. `merge_minor_speakers` now folds a <=3-line character whose every line sits between two lines of the SAME other major character into that character, even across
+  genders (`SANDWICH_MERGE=1`; a cameo between two different speakers stays). (2) at 2:42 an emotion direction ("cheerfully") pulled the male voice to another pitch:
+  `pitch.py` (numpy F0) compares every emotional clip with the voice's normal pitch (measured once from `voice_samples/<voice>.wav`); outside +-4 semitones the line is re-voiced plainly.
+  (3) old man got a young man's voice: casting ignored age. `voices.AGE_VOICES` (male/female x elderly/young/adult, from Google's style words + measured pitch, VERIFY BY EAR) and
+  `casting.assign_voices` picks the age-matching free voice (the main character still gets the user's pick); age comes from the roster. Tried and dropped: gender from the SOURCE
+  audio's pitch (film music/effects make it unreliable: hero measured 184 Hz). Only 12 of ~70 emotional lines get a direction (cap) - grouping same-emotion lines per request is the open idea.
+  Tests: `test_voice_fixes.py`.
 Not done: per-line speaker change re-casts only on re-render; no voice preview per character; emotion quality unverified; Demucs path unchanged/untested here.
 
 ### Progress UI
@@ -263,3 +271,4 @@ Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user 
 - 2026-11-07 (night 9): whole-film speaker roster pass for stable character voices; app language setting Myanmar/English (`frontend/src/i18n.jsx`: `tr()` for UI text,
   `trs()` for server texts via regex table; choice kept in localStorage; Burmese wording AI-written, needs native review; new UI strings must be added to `MY` there).
 - 2026-11-07 (night 9b): subtitle blur only while the source subtitle is on screen; stricter watermark detection (no more blurred empty corners).
+- 2026-11-07 (night 10): mislabel merge (system-panel lines no longer a female character), emotion pitch-drift guard, age-aware voice casting.

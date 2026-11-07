@@ -19,6 +19,10 @@ def assign_voices(segments: list[dict], chosen_voice: str, overrides: dict | Non
     chosen = DEFAULT_VOICE if chosen_voice in (None, "", "su") else chosen_voice
     lines: dict[str, int] = {}
     gender: dict[str, str] = {}
+    ages: dict[str, dict] = {}
+    for sg in segments:
+        a = ages.setdefault(sg.get("speaker") or "A", {})
+        a[sg.get("age") or "adult"] = a.get(sg.get("age") or "adult", 0) + 1
     for sg in segments:
         sid = sg.get("speaker") or "A"
         sg["speaker"] = sid
@@ -39,11 +43,14 @@ def assign_voices(segments: list[dict], chosen_voice: str, overrides: dict | Non
             if g == "unknown":
                 g = "female" if sum(_gender_of(u) == "female" for u in used) <= sum(_gender_of(u) == "male" for u in used) else "male"
             pool = V.FEMALE if g == "female" else V.MALE
-            free = [v for v in pool if v not in used and v != chosen]
+            age = max(ages.get(sid) or {"adult": 1}, key=lambda k: ages[sid][k])
+            # first the voices that suit this character's age (an old man must not get a young man's voice), then any free one
+            free = [v for v in V.AGE_VOICES.get((g, age), []) if v not in used and v != chosen] \
+                or [v for v in pool if v not in used and v != chosen]
             voice = free[0] if free else pool[len([u for u in used if u in pool]) % len(pool)]
         used.append(voice)
         result[sid] = {"voice": voice, "gender": gender.get(sid, _gender_of(voice) if sid in overrides else "unknown"),
-                       "lines": lines[sid]}
+                       "lines": lines[sid], "age": max(ages.get(sid) or {"adult": 1}, key=lambda k: ages[sid][k])}
     for sg in segments:
         sg["voice"] = result[sg["speaker"]]["voice"]
     return result

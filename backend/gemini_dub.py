@@ -412,6 +412,8 @@ def apply_diarization(segments: list[dict], speakers: dict, turns: list[dict], t
             known = speakers[sg["speaker"]]
             if known.get("gender") in ("male", "female"):
                 sg["gender"] = known["gender"]
+            if known.get("age"):
+                sg["age"] = known["age"]
             continue
         a, b = sg["start"], sg["end"]
         score: dict[str, float] = {}
@@ -431,6 +433,8 @@ def apply_diarization(segments: list[dict], speakers: dict, turns: list[dict], t
         known = speakers.get(sid, {})
         if known.get("gender") in ("male", "female"):
             sg["gender"] = known["gender"]
+        if known.get("age"):
+            sg["age"] = known["age"]
     counts: dict[str, int] = {}
     for sg in segments:
         counts[sg["speaker"]] = counts.get(sg["speaker"], 0) + 1
@@ -509,6 +513,26 @@ def merge_minor_speakers(segments: list[dict]):
     for sg in segments:
         if sg["gender"] in ("male", "female"):
             gender_of.setdefault(sg["speaker"], sg["gender"])
+    # A character with <= 3 lines whose every line sits between two lines of the SAME other character is a mislabel inside
+    # that character's run (e.g. the hero reading a system panel aloud): fold it in, even across genders.
+    if os.getenv("SANDWICH_MERGE", "1") == "1":
+        for sid in [s for s in ranked if lines[s] <= 3]:
+            owners = set()
+            for k, sg in enumerate(segments):
+                if sg["speaker"] != sid:
+                    continue
+                before = next((segments[j]["speaker"] for j in range(k - 1, -1, -1) if segments[j]["speaker"] != sid), None)
+                after = next((segments[j]["speaker"] for j in range(k + 1, len(segments)) if segments[j]["speaker"] != sid), None)
+                owners.add(before if before == after else None)
+            if len(owners) == 1 and None not in owners and next(iter(owners)) in majors:
+                owner = next(iter(owners))
+                print(f"  character {sid} ({lines[sid]} lines) only speaks inside {owner}'s lines: treated as {owner}", flush=True)
+                for sg in segments:
+                    if sg["speaker"] == sid:
+                        sg["speaker"] = owner
+                        sg["gender"] = gender_of.get(owner, sg["gender"])
+                lines[owner] += lines.pop(sid)
+                ranked.remove(sid)
     for sid in [s for s in ranked if s not in majors]:
         g = gender_of.get(sid)
         pool = [m for m in majors if g is None or gender_of.get(m) in (None, g)]
