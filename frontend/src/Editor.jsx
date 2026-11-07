@@ -15,6 +15,8 @@ export function syllables(text) {
   if (n === 0) n = Math.max(1, Math.round([...text].filter((ch) => /[a-z0-9]/i.test(ch)).length / 3));
   return n;
 }
+// one colour per character (timeline blocks, badges): [normal, selected/active edge]
+const PALETTE = ['#7c3aed', '#0891b2', '#d97706', '#db2777', '#059669', '#2563eb', '#dc2626', '#65a30d'];
 const MIN_LEN = 0.2; // shortest a line may be, seconds
 const fmt = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
@@ -26,7 +28,7 @@ const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
  *  - tap a block to edit its text, voice speed or delete it; "Split" adds a line at the playhead
  * Edits are applied with one re-render; only changed lines are re-voiced.
  */
-export default function Editor({ project, videoRef, busy, onApply, voices = [] }) {
+export default function Editor({ project, videoRef, busy, onApply, voices = [], playingVoice = null, onPlaySample = () => {} }) {
   const { tr } = useI18n();
   const duration = project.source_duration;
   const model = project.voice_model || DEFAULT_MODEL;
@@ -46,6 +48,7 @@ export default function Editor({ project, videoRef, busy, onApply, voices = [] }
   const nextKey = useRef(1);
   const speakerIds = Object.keys(project.speakers || {});
   const subsOnly = project.output === 'subtitles';
+  const colorOf = (sid) => (sid && speakerIds.includes(sid) ? PALETTE[speakerIds.indexOf(sid) % PALETTE.length] : PALETTE[0]);
   const [speakerVoices, setSpeakerVoices] = useState(() => Object.fromEntries(speakerIds.map((s) => [s, project.speakers[s].voice])));
   const voicesChanged = speakerIds.some((s) => speakerVoices[s] !== project.speakers[s].voice);
   const dirty = JSON.stringify(lines) !== JSON.stringify(initial) || voicesChanged;
@@ -208,10 +211,10 @@ export default function Editor({ project, videoRef, busy, onApply, voices = [] }
                   <div
                     key={l.key}
                     onClick={(e) => { e.stopPropagation(); setSelected(l.key); seekSrc(timeFromEvent(e)); }}
-                    className={`absolute top-0 h-12 rounded-lg overflow-hidden px-2 text-xs leading-tight pt-1 cursor-pointer border-2 ${
-                      on ? 'border-white bg-purple-600' : l.key === activeKey ? 'border-purple-300 bg-purple-700' : 'border-transparent bg-purple-800/80'
+                    className={`absolute top-0 h-12 rounded-lg overflow-hidden px-2 text-xs leading-tight pt-1 cursor-pointer border-2 text-white ${
+                      on ? 'border-white' : l.key === activeKey ? 'border-white/60' : 'border-transparent'
                     }`}
-                    style={{ left: l.start * pps + 1, width: Math.max(slot * pps - 2, 6) }}
+                    style={{ left: l.start * pps + 1, width: Math.max(slot * pps - 2, 6), backgroundColor: colorOf(l.speaker), opacity: on || l.key === activeKey ? 1 : 0.8 }}
                     title={l.text}
                   >
                     <span className="line-clamp-2 break-words">{l.text || tr('(empty line: type text below)')}</span>
@@ -261,7 +264,7 @@ export default function Editor({ project, videoRef, busy, onApply, voices = [] }
           <div className="flex flex-wrap gap-3">
             {speakerIds.map((sid) => (
               <label key={sid} className="flex items-center gap-2 text-xs text-slate-300">
-                <span className="px-1.5 py-0.5 rounded bg-purple-700 text-white font-semibold">{sid}</span>
+                <span className="px-1.5 py-0.5 rounded text-white font-semibold" style={{ backgroundColor: colorOf(sid) }}>{sid}</span>
                 <span className="text-slate-500">{project.speakers[sid].gender !== 'unknown' ? tr(project.speakers[sid].gender) : ''} · {tr('{n} lines', { n: project.speakers[sid].lines })}</span>
                 <select
                   value={speakerVoices[sid]} onChange={(ev) => setSpeakerVoices({ ...speakerVoices, [sid]: ev.target.value })}
@@ -270,6 +273,15 @@ export default function Editor({ project, videoRef, busy, onApply, voices = [] }
                   {voices.length === 0 && <option value={speakerVoices[sid]}>{speakerVoices[sid]}</option>}
                   {voices.map((v) => <option key={v.name} value={v.name}>{v.name} ({tr(v.gender)})</option>)}
                 </select>
+                {(() => {
+                  const vv = voices.find((x) => x.name === speakerVoices[sid]);
+                  return vv ? (
+                    <button type="button" onClick={() => onPlaySample(vv)} title={tr('Play a sample of this voice')}
+                      className="w-7 h-7 rounded-full bg-slate-700 hover:bg-slate-600 text-white text-xs flex items-center justify-center">
+                      {playingVoice === vv.name ? '■' : '🔊'}
+                    </button>
+                  ) : null;
+                })()}
                 {speakerIds.length > 1 && (
                   <select
                     value="" title={tr('Same person as another character? Give all these lines to that character.')}
@@ -293,7 +305,7 @@ export default function Editor({ project, videoRef, busy, onApply, voices = [] }
             <div className="flex items-center gap-2 text-xs mb-2">
               <span className="text-slate-400">{tr('Line {n} · {time} · slot {s}s', { n: index + 1, time: fmt(sel.start), s: selSlot.toFixed(1) })}</span>
               {speakerIds.length > 0 && (
-                <select value={sel.speaker || ''} onChange={(ev) => patch(sel.key, { speaker: ev.target.value || null })} className="rounded bg-slate-900 border border-slate-700 px-1 py-0.5 text-xs" title={tr('Which character says this line')}>
+                <select value={sel.speaker || ''} onChange={(ev) => patch(sel.key, { speaker: ev.target.value || null })} className="rounded border border-slate-700 px-1 py-0.5 text-xs text-white" style={{ backgroundColor: colorOf(sel.speaker) }} title={tr('Which character says this line')}>
                   {speakerIds.map((sid) => <option key={sid} value={sid}>{sid}</option>)}
                 </select>
               )}

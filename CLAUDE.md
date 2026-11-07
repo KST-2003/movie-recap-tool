@@ -157,6 +157,7 @@ Upload form: **Recap video** (one narrator voice, as before) or **Full movie / d
   `casting.assign_voices` picks the age-matching free voice (the main character still gets the user's pick); age comes from the roster. Tried and dropped: gender from the SOURCE
   audio's pitch (film music/effects make it unreliable: hero measured 184 Hz). Only 12 of ~70 emotional lines get a direction (cap) - grouping same-emotion lines per request is the open idea.
   Tests: `test_voice_fixes.py`.
+Editor (night 10): each character has its own colour (timeline subtitle blocks, badges, line speaker select) and a 🔊 sample button next to its voice.
 Not done: per-line speaker change re-casts only on re-render; no voice preview per character; emotion quality unverified; Demucs path unchanged/untested here.
 
 ### Progress UI
@@ -272,3 +273,4 @@ Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user 
   `trs()` for server texts via regex table; choice kept in localStorage; Burmese wording AI-written, needs native review; new UI strings must be added to `MY` there).
 - 2026-11-07 (night 9b): subtitle blur only while the source subtitle is on screen; stricter watermark detection (no more blurred empty corners).
 - 2026-11-07 (night 10): mislabel merge (system-panel lines no longer a female character), emotion pitch-drift guard, age-aware voice casting.
+- 2026-11-07 (night 10b): editor: colour per character on the timeline, voice sample button per character.

@@ -664,7 +664,7 @@ function App() {
               </a>}
               {notes && <p className="text-xs text-slate-400">{notes}</p>}
               {project && (
-                <Editor key={jobId} project={project} videoRef={videoRef} busy={loading} voices={voices} onApply={applyEdits} />
+                <Editor key={jobId} project={project} videoRef={videoRef} busy={loading} voices={voices} playingVoice={playing} onPlaySample={playSample} onApply={applyEdits} />
               )}
               {!project && timeline.length > 0 && (
                 <ul className="w-full text-xs text-slate-400 space-y-1">

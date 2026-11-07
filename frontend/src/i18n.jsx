@@ -98,6 +98,7 @@ const MY = {
   '{n} lines': '{n} ကြောင်း',
   'merge into…': 'ပေါင်းထည့်မည်…',
   'Same person as another character? Give all these lines to that character.': 'အခြားဇာတ်ကောင်နှင့် လူတစ်ယောက်တည်းလား? ဤစာကြောင်းအားလုံးကို ထိုဇာတ်ကောင့်ထံ ပေးမည်။',
+  'Play a sample of this voice': 'ဤအသံ၏ နမူနာကို နားထောင်ရန်',
   'Which character says this line': 'ဤစာကြောင်းကို ပြောသော ဇာတ်ကောင်',
   'Line {n} · {time} · slot {s}s': 'စာကြောင်း {n} · {time} · အချိန်ကွက် {s} စက္ကန့်',
   '≈ {s}s voice · {note}': '≈ အသံ {s} စက္ကန့် · {note}',
