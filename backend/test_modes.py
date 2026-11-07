@@ -35,6 +35,30 @@ hb, hs = Image.open(big).getbbox(), Image.open(small).getbbox()
 assert (hb[3] - hb[1]) > (hs[3] - hs[1]) * 1.3, (hb, hs)
 print("units ok: batches, casting", {k: v["voice"] for k, v in cast.items()}, "caption size follows size_px")
 
+# --- refused audio: halves are retried, a still-refused part is skipped (job survives)
+audio = f"{tmp}/a.mp3"
+subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=300:duration=60", audio], check=True)
+real_piece = gemini_dub._dub_piece
+tried = []
+
+
+def fake_piece(path, offset, target, attempts, cuts=None, mode="recap", chunk_no=0):
+    length = gemini_dub._duration(path)
+    tried.append((round(offset), round(length)))
+    if length > 50 or (offset >= 30 and length < 40):   # whole piece refused; second half refused too
+        raise gemini_dub._Blocked("empty answer from Gemini (reason: OTHER)")
+    return "zh", [{"start": offset, "end": offset + 1, "source_text": "x", "translated_text": "y"}]
+
+
+gemini_dub._dub_piece = fake_piece
+skipped = []
+lang, segs = gemini_dub._dub_chunk(audio, 0.0, "Burmese", 1, [], "recap", 0, 0, skipped)
+gemini_dub._dub_piece = real_piece
+assert tried[0] == (0, 60) and (0, 30) in tried and (30, 30) in tried, tried
+assert len(segs) == 1 and segs[0]["start"] == 0, segs
+assert abs(sum(b - a for a, b in skipped) - 30) < 0.2 and min(a for a, _ in skipped) > 29.9, skipped
+print("refused audio ok: split in halves, first half kept, second half skipped and reported", skipped)
+
 # --- an 18 s video with a tone
 video = f"{tmp}/in.mp4"
 subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=s=320x240:r=25:d=18",

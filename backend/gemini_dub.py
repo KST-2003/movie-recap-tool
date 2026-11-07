@@ -170,8 +170,45 @@ def _prompt(target: str, cuts: list[float] | None = None, mode: str = "recap") -
     return text + _cut_hint(cuts)
 
 
-def _dub_chunk(audio_path: str, offset: float, target: str, attempts: int,
-               cuts: list[float] | None = None, mode: str = "recap", chunk_no: int = 0) -> tuple[str | None, list[dict]]:
+class _Blocked(RuntimeError):
+    """Gemini answered with nothing (blocked / cut off) every time for this piece of audio."""
+
+
+def _safety_settings(types):
+    """Film dialogue (fights, crime, romance) must not be refused: switch the adjustable safety filters off."""
+    cats = ("HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH", "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            "HARM_CATEGORY_DANGEROUS_CONTENT")
+    return [types.SafetySetting(category=c, threshold="BLOCK_NONE") for c in cats]
+
+
+def _dub_chunk(audio_path: str, offset: float, target: str, attempts: int, cuts: list[float] | None = None,
+               mode: str = "recap", chunk_no=0, depth: int = 0, skipped: list | None = None) -> tuple[str | None, list[dict]]:
+    """One piece of audio -> (language, segments). If Gemini keeps refusing it (empty answer), the piece is cut in two
+    and each half is tried again (up to 2 levels, down to ~25 s); a piece that is still refused is skipped and reported
+    in `skipped` ((start, end) seconds) instead of failing the whole video."""
+    try:
+        return _dub_piece(audio_path, offset, target, attempts, cuts, mode, chunk_no)
+    except _Blocked as exc:
+        length = _duration(audio_path)
+        if depth >= 2 or length < 25:
+            print(f"  part {offset:.0f}-{offset + length:.0f}s refused by Gemini ({exc}); skipped", flush=True)
+            if skipped is not None:
+                skipped.append((offset, offset + length))
+            return None, []
+        print(f"  part {offset:.0f}-{offset + length:.0f}s refused by Gemini; trying it as two halves", flush=True)
+        results = []
+        with tempfile.TemporaryDirectory() as tmp:
+            for k, (a, b) in enumerate([(0.0, length / 2), (length / 2, length)]):
+                piece = os.path.join(tmp, f"half{k}.mp3")
+                _run(["ffmpeg", "-y", "-ss", f"{a:.3f}", "-t", f"{b - a:.3f}", "-i", audio_path, "-c", "copy", piece])
+                results.append(_dub_chunk(piece, offset + a, target, attempts,
+                                          [c - a for c in cuts or [] if a <= c < b], mode, f"{chunk_no}{'ab'[k]}",
+                                          depth + 1, skipped))
+        return next((lang for lang, _ in results if lang), None), [s for _, segs in results for s in segs]
+
+
+def _dub_piece(audio_path: str, offset: float, target: str, attempts: int,
+               cuts: list[float] | None = None, mode: str = "recap", chunk_no=0) -> tuple[str | None, list[dict]]:
     from google.genai import types
 
     client = _get_client()
@@ -191,7 +228,7 @@ def _dub_chunk(audio_path: str, offset: float, target: str, attempts: int,
                     contents=[uploaded, _prompt(target, cuts, mode)],
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json", response_schema=SCHEMA_FULL if mode == "full" else SCHEMA,
-                        temperature=0.2,
+                        temperature=0.2, safety_settings=_safety_settings(types),
                         thinking_config=types.ThinkingConfig(thinking_budget=THINKING_BUDGET)),
                 )
                 raw = response.text
@@ -208,6 +245,8 @@ def _dub_chunk(audio_path: str, offset: float, target: str, attempts: int,
                 if "per day" in err or "perday" in err:
                     transient = False
                 if not transient or attempt == attempts - 1:
+                    if isinstance(exc, ValueError) and "empty answer" in str(exc):
+                        raise _Blocked(str(exc)) from exc
                     raise RuntimeError(f"Gemini transcription failed: {exc}") from exc
                 wait = min(5 * 2 ** attempt, 60) if not isinstance(exc, ValueError) else 2
                 print(f"  Gemini problem ({exc.__class__.__name__}: {str(exc)[:120]}); retry {attempt + 1}/{attempts - 1} in {wait}s", flush=True)
@@ -233,7 +272,7 @@ def _dub_chunk(audio_path: str, offset: float, target: str, attempts: int,
 
 def dub(video_path: str, target_language: str, timeout_seconds: int = 600,
         retries: int | None = None, scene_cuts: list[float] | None = None,
-        mode: str = "recap") -> tuple[str | None, list[dict]]:
+        mode: str = "recap", skipped: list | None = None) -> tuple[str | None, list[dict]]:
     """Transcribe the speech, translate it, and return (source_language, segments) with timings in seconds."""
     target = LANGUAGE_NAMES.get(target_language, target_language)
     attempts = retries or int(os.getenv("GEMINI_DUB_RETRIES", "6"))
@@ -254,7 +293,7 @@ def dub(video_path: str, target_language: str, timeout_seconds: int = 600,
             results = list(pool.map(
                 lambda n_pab: _dub_chunk(n_pab[1][0], n_pab[1][1], target, attempts,
                                          [c - n_pab[1][1] for c in scene_cuts or [] if n_pab[1][1] <= c < n_pab[1][2]],
-                                         mode, n_pab[0]),
+                                         mode, n_pab[0], 0, skipped),
                 enumerate(paths)))
 
     source = next((lang for lang, _ in results if lang), None)

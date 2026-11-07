@@ -301,6 +301,7 @@ function App() {
       [
         result.subtitles_detected ? 'Source subtitles detected and blurred.' : 'No source subtitles found, nothing blurred.',
         keepBackground && !result.background_kept ? 'Background music separation failed; voice-only audio.' : '',
+        ...(result.warnings || []),
       ].filter(Boolean).join(' ')
     );
   };

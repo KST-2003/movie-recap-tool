@@ -520,6 +520,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
         # 3. Transcribe + translate (an edited job brings its own transcript).
         set_job(job_id, stage="Transcribing and translating", progress=10)
         scene_cut_times: list[float] = []
+        skipped_parts: list[tuple[float, float]] = []   # audio Gemini refused to transcribe even in small pieces
         if cuts_future:
             try:
                 scene_cut_times = cuts_future.result()
@@ -544,11 +545,12 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
             runners = {
                 "local": lambda: local_dub.dub(video_path, p["target_language"]),
                 "elevenlabs": lambda: elevenlabs_dub(video_path, p["target_language"]),
-                "gemini": lambda: gemini_dub.dub(video_path, p["target_language"], retries=2, scene_cuts=scene_cut_times),
+                "gemini": lambda: gemini_dub.dub(video_path, p["target_language"], retries=3, scene_cuts=scene_cut_times,
+                                                 skipped=skipped_parts),
             }
             if mode == "full":
-                runners["gemini"] = lambda: gemini_dub.dub(video_path, p["target_language"], retries=2,
-                                                           scene_cuts=scene_cut_times, mode="full")
+                runners["gemini"] = lambda: gemini_dub.dub(video_path, p["target_language"], retries=3,
+                                                           scene_cuts=scene_cut_times, mode="full", skipped=skipped_parts)
                 primary = "gemini"   # only the Gemini path knows speakers, emotions and the natural-Burmese rules
             order = [primary] + [n for n in ("elevenlabs", "gemini", "local") if n != primary]  # local last: slow, weakest Burmese
             if os.getenv("DUB_FALLBACK", "").lower() not in ("1", "true"):
@@ -749,6 +751,9 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                 "output_duration": result["duration"],
                 "subtitles_detected": bool(fx_kwargs.get("subtitle_rect")),
                 "background_kept": "path" in bg_state or bg_choice == "original",
+                "warnings": ([f"Gemini refused to transcribe {len(skipped_parts)} short part(s) of this video "
+                              f"({', '.join(f'{a:.0f}-{b:.0f}s' for a, b in skipped_parts[:6])}); those parts have no "
+                              "translation. Add lines there in the editor."] if skipped_parts else []),
                 "transcript": " ".join(s["translated_text"] for s in segments),
                 "timeline": [
                     {"source_start": sc.src_start, "source_end": sc.src_end, "output_start": sc.out_start,
