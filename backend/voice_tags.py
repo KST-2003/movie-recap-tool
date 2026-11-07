@@ -4,6 +4,7 @@ short tags (gender, age feel, pitch, timbre, energy) to voice_tags.json. At cast
 import json
 import os
 
+import looks
 import voices as V
 
 TAGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "voice_tags.json")
@@ -75,10 +76,13 @@ def cast(characters: list[dict], tags: dict | None = None) -> dict:
     if len(tags) < 10:
         raise RuntimeError("voice_tags.json missing: run generate_voice_tags.py")
     catalogue = "\n".join(line(n, t) for n, t in tags.items() if n in V.VOICE_NAMES)
+    creature_lines = "\n".join(f"look:{i} | {lab} (a real voice with a special delivery)" for i, g, lab, _b, _s in looks.LOOKS if i in looks.AUTO_IDS)
     chars = "\n".join(f"{c['id']} | gender {c.get('gender', 'unknown')} | age {c.get('age', 'adult')} | "
                       f"sounds: {c.get('desc') or '-'} | {c.get('lines', 0)} lines" for c in characters)
     prompt = (
         "You cast voice actors for a dubbed film. VOICES (name | gender | age | pitch | timbre | energy):\n" + catalogue +
+        "\n\nSPECIAL LOOKS (use one ONLY for a character that is clearly not an ordinary human: monster, animal, robot, ghost, alien, "
+        "baby... as the description says; never for ordinary people):\n" + creature_lines +
         "\n\nCHARACTERS (id | gender | age | how the original voice sounds | lines):\n" + chars +
         "\n\nGive every character ONE voice. Rules: never use the same voice for two characters; the voice's gender must match "
         "the character's when it is known; match age (an old man must get an old-sounding voice, a child a young one), pitch "
@@ -89,4 +93,4 @@ def cast(characters: list[dict], tags: dict | None = None) -> dict:
         model=MODEL, contents=prompt,
         config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0.0,
                                            thinking_config=types.ThinkingConfig(thinking_budget=0)))
-    return {d["id"]: d["voice"] for d in json.loads(resp.text) if d.get("voice") in V.VOICE_NAMES}
+    return {d["id"]: d["voice"] for d in json.loads(resp.text) if d.get("voice") in V.VOICE_NAMES or d.get("voice") in {f"look:{i}" for i in looks.AUTO_IDS}}

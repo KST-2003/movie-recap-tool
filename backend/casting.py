@@ -4,12 +4,15 @@
 - every other character gets the next unused voice of their gender (female / male lists in voices.py);
 - unknown gender takes whichever list has been used less; when a list is used up, voices are reused;
 - user overrides (the editor's "Characters" panel) always win."""
+import looks
 import voices as V
 
 DEFAULT_VOICE = "Kore"
 
 
 def _gender_of(voice: str) -> str:
+    if looks.is_look(voice):
+        return looks.gender_of(voice)
     return "female" if voice in V.FEMALE else "male"
 
 
@@ -48,7 +51,7 @@ def llm_choice(segments: list[dict], skip: set | None = None) -> dict:
 
 def assign_voices(segments: list[dict], chosen_voice: str, overrides: dict | None = None, suggested: dict | None = None) -> dict:
     """Sets sg["voice"] on every segment and returns {speaker: {"voice", "gender", "lines"}} (A = most lines)."""
-    overrides = {k: v for k, v in (overrides or {}).items() if v in V.VOICE_NAMES}
+    overrides = {k: v for k, v in (overrides or {}).items() if looks.valid(v)}
     chosen = DEFAULT_VOICE if chosen_voice in (None, "", "su") else chosen_voice
     lines: dict[str, int] = {}
     gender: dict[str, str] = {}
@@ -83,7 +86,7 @@ def assign_voices(segments: list[dict], chosen_voice: str, overrides: dict | Non
                 or [v for v in pool if v not in used and v != chosen]
             voice = free[0] if free else pool[len([u for u in used if u in pool]) % len(pool)]
             # Gemini's pick wins when it is a free voice of the right gender (it may have been told nothing about gender: check)
-            if sug and sug not in used and sug != chosen and (gender.get(sid, "unknown") in ("unknown", _gender_of(sug))):
+            if sug and sug not in used and sug != chosen and (looks.is_look(sug) or gender.get(sid, "unknown") in ("unknown", _gender_of(sug))):
                 voice = sug
         used.append(voice)
         result[sid] = {"voice": voice, "gender": gender.get(sid, _gender_of(voice) if sid in overrides else "unknown"),

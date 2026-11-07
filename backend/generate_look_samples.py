@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 import gemini_tts  # noqa: E402
-from looks import LOOK_SAMPLE_TEXT, LOOKS  # noqa: E402
+from looks import LOOK_SAMPLE_TEXT, LOOKS, compose  # noqa: E402
 
 os.makedirs("look_samples", exist_ok=True)
 for lid, _g, label, voice, instr in LOOKS:
@@ -15,7 +15,7 @@ for lid, _g, label, voice, instr in LOOKS:
     if os.path.exists(path) and "--force" not in sys.argv:
         continue
     try:
-        gemini_tts.synthesize_to_file(f"{instr}: {LOOK_SAMPLE_TEXT}", path, voice)
+        gemini_tts.synthesize_to_file(compose(instr, LOOK_SAMPLE_TEXT), path, voice)
         print("ok", lid, flush=True)
     except gemini_tts.QuotaExceeded as exc:
         print("quota reached, stopping:", str(exc)[:100])

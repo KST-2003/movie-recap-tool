@@ -51,7 +51,7 @@ export default function VoiceLibrary({ voices, looks, selected, playing, onPlay,
                 <a href={`${apiBase}${it.sample_url}`} download className="text-slate-400 hover:text-white">⬇</a>
                 {it.kind === 'voice'
                   ? <button type="button" onClick={() => { onSelect(it.voice); onClose(); }} className="ml-auto px-2 py-0.5 rounded-full bg-purple-600 text-white">{tr('Use')}</button>
-                  : <span className="ml-auto text-[10px] text-slate-500">{tr('sample only')}</span>}
+                  : <span className="ml-auto text-[10px] text-slate-500">{tr('for characters')}</span>}
               </div>
             </div>
           ))}

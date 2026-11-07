@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 
 import auth
 import jobs_queue
+import looks
 import storage
 from common import media_duration, tts_provider
 from db import Job, Session, User, active_jobs, used_seconds_today
@@ -417,7 +418,7 @@ def rerender(job_id: str, body: RerenderBody, user: User = Depends(auth.current_
     old = {sg["id"]: sg for sg in project["segments"]}
     speakers = {k: dict(v) for k, v in (project.get("speakers") or {}).items()}
     for sid, v in (body.speaker_voices or {}).items():
-        if sid in speakers and (v in VOICE_NAMES):
+        if sid in speakers and looks.valid(v):
             speakers[sid]["voice"] = v
     edit_lines = []
     for l in lines:
@@ -452,7 +453,7 @@ _preview_times: dict[int, list[float]] = {}
 @app.post("/api/jobs/{job_id}/preview-line")
 def preview_line(job_id: str, body: PreviewBody, user: User = Depends(auth.current_user)):
     """Hear ONE line in a chosen voice before pressing Apply: one TTS request, cached for the render."""
-    if body.voice not in VOICE_NAMES:
+    if not looks.valid(body.voice):
         raise HTTPException(status_code=400, detail=f"Unknown voice: {body.voice}")
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="This line has no text.")

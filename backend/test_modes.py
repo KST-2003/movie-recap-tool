@@ -201,6 +201,18 @@ assert {v for v, _ in new_calls} == {new_voice}, new_calls   # A's lines come fr
 assert [s["speaker"] for s in p2["segments"]] == [s["speaker"] for s in proj["segments"]], "characters survive an edit"
 print("editor character voice change ok:", len(new_calls), "new requests, all for", new_voice)
 
+# 3b. editor: give character B a LOOK (monster): accepted, only B re-voiced, the look id is what is stored and cached
+before = len(calls)
+r = client.post(f"/api/jobs/{job2['id']}/rerender", headers=H, json={"segments": lines, "speaker_voices": {"B": "look:monster"}})
+assert r.status_code == 200, r.text
+job2b = wait(r.json()["job_id"])
+assert job2b["status"] == "done", job2b.get("error")
+assert job2b["result"]["project"]["speakers"]["B"]["voice"] == "look:monster"
+assert {v for v, _ in calls[before:]} == {"look:monster"}, calls[before:]
+bad = client.post(f"/api/jobs/{job2['id']}/rerender", headers=H, json={"segments": lines, "speaker_voices": {"B": "look:nope"}})
+assert bad.status_code == 200 and wait(bad.json()["job_id"])["result"]["project"]["speakers"]["B"]["voice"] == new_voice, "unknown look is ignored"
+print("look as character voice ok")
+
 # 4. subtitles only: no voice requests at all, original sound and timing kept
 before = len(calls)
 job3 = submit(mode="full", output="subtitles")

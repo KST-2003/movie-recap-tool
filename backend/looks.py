@@ -38,3 +38,38 @@ LOOKS = [
     ("announcer", "mood", "Announcer", "Alnilam", "Say like a loud, dramatic movie-trailer announcer"),
 ]
 LOOK_IDS = {l[0] for l in LOOKS}
+_BY_ID = {l[0]: l for l in LOOKS}
+PREFIX = "look:"
+AUTO_IDS = {l[0] for l in LOOKS if l[1] in ("creature", "machine", "animal") or l[0] == "baby"}   # Gemini may cast these by itself
+
+
+def is_look(voice) -> bool:
+    return isinstance(voice, str) and voice.startswith(PREFIX) and voice[len(PREFIX):] in LOOK_IDS
+
+
+def valid(voice) -> bool:
+    import voices as V
+    return voice in V.VOICE_NAMES or is_look(voice)
+
+
+def resolve(voice: str) -> tuple[str, str]:
+    """'look:monster' -> (base Gemini voice, performance instruction)."""
+    _id, _g, _label, base, instr = _BY_ID[voice[len(PREFIX):]]
+    return base, instr
+
+
+def gender_of(voice: str) -> str:
+    import voices as V
+    return "female" if resolve(voice)[0] in V.FEMALE else "male"
+
+
+def compose(instr: str, text: str) -> str:
+    """Director's-notes template (Google's documented TTS format). A bare "Say in a ...: text" prefix was READ ALOUD in English
+    by the model (measured: half of a monster clip); the notes + TRANSCRIPT layout was not (3 formats listened to by transcription)."""
+    style = instr.replace("Say ", "Speak ", 1)
+    return f"### DIRECTOR'S NOTES\nStyle: {style}. Do not read these notes aloud.\n\n#### TRANSCRIPT\n{text}"
+
+
+def compose_emotion(adverb: str, text: str) -> str:
+    """Emotion direction in the same notes layout ("Say fearfully: text" was read aloud: measured, English heard in the clip)."""
+    return f"### DIRECTOR'S NOTES\nStyle: speak {adverb}. Do not read these notes aloud.\n\n#### TRANSCRIPT\n{text}"

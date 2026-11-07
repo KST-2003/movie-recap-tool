@@ -39,3 +39,15 @@ assert sp["B"]["voice"] != "Leda" and sp["C"]["voice"] != "Orus", sp
 import voice_tags as _vt
 assert len(_vt.load()) == 30 and all(t.get("f0_hz") for t in _vt.load().values())
 print("llm casting ALL OK")
+
+import looks as _l
+assert _l.is_look("look:monster") and not _l.is_look("look:nope") and not _l.is_look("Kore") and _l.resolve("look:monster")[0] == "Charon"
+sp = _c.assign_voices([dict(s) for s in segs], "Orus", None, {"B": "look:ghost"})
+assert sp["B"]["voice"] == "look:ghost", sp   # a look suggestion is accepted whatever the gender label
+txt = _l.compose("Say in a deep, growling, inhuman monster voice", "ဟယ်လို")
+assert txt.endswith("#### TRANSCRIPT\nဟယ်လို") and "Speak in a deep" in txt and "Say " not in txt
+import pipeline as _p
+assert _p.clip_name("a", "look:monster") != _p.clip_name("a", "Charon")
+print("looks ALL OK")
+assert "Say fearfully" not in _l.compose_emotion("fearfully", "x") and _l.compose_emotion("fearfully", "x").endswith("#### TRANSCRIPT\nx")
+print("emotion format ok")

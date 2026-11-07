@@ -17,6 +17,7 @@ import bulk_tts
 import duration_model
 import tts_pool
 import casting
+import looks
 import pitch
 import gemini_dub
 import gemini_tts
@@ -222,14 +223,19 @@ def synthesize(text: str, voice: str, path: str, chooser=None, style: str | None
     if tts_provider() == "gemini":
         # "su" is the UI's default Burmese voice slot; map it to the configured Gemini voice.
         chooser = chooser or tts_pool.Chooser(1)
-        v = None if voice == "su" else voice
+        look = looks.resolve(voice) if looks.is_look(voice) else None   # character look = base voice + performance notes
+        v = look[0] if look else (None if voice == "su" else voice)
+        if look:
+            style = None   # the look decides the delivery; an emotion direction on top would be read aloud / fight it
         # What to try when the voice service refuses a text (policy): 1) without the emotion direction, 2) on another model
         # (policies differ), 3) with milder wording. A group of lines (ladder=False) just fails so its lines are tried one by one.
-        plan = [("cur", text, style)]
+        plan = [("cur", text, style, True)]
         if ladder:
-            plan += ([("cur", text, None)] if style else []) + [("alt", text, None), ("cur", None, None)]
+            plan += ([("cur", text, None, True)] if style else []) + [("alt", text, None, True), ("cur", None, None, True)]
+            if look:
+                plan.append(("cur", text, None, False))   # last: the refusal may come from the look's wording -> plain base voice
         last = None
-        for kind, variant, st in plan:
+        for kind, variant, st, use_look in plan:
             if variant is None:   # milder wording (one text request)
                 try:
                     variant = fit_text.soften(text, "my")
@@ -242,7 +248,8 @@ def synthesize(text: str, voice: str, path: str, chooser=None, style: str | None
                 if model is None:
                     break
                 try:
-                    gemini_tts.synthesize_to_file(f"Say {st}: {variant}" if st else variant, path, v, model=model)
+                    spoken = looks.compose(look[1], variant) if look and use_look else (looks.compose_emotion(st, variant) if st else variant)
+                    gemini_tts.synthesize_to_file(spoken, path, v, model=model)
                     return media_duration(path)
                 except gemini_tts.QuotaExceeded:
                     if kind == "cur":
@@ -314,6 +321,9 @@ def voice_many(texts: list[str], paths: list[str], voice, model: dict, job_id: s
     voices = list(voice) if isinstance(voice, (list, tuple)) else [voice] * n
     if styles is None:
         styles = [None] * n
+    for i in range(n):
+        if looks.is_look(voices[i]):
+            styles[i] = None
     durs = [0.0] * n
 
     def single(i: int):
@@ -670,7 +680,8 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
             speakers = casting.assign_voices(segments, p["voice_type"], known, suggested)
             print("  casting: " + ", ".join(f"{sid}={v['voice']} ({v['lines']} lines)" for sid, v in speakers.items()), flush=True)
             if p.get("emotion", True) and tts_provider() in ("gemini", "fake") and not edit:
-                cand = [i for i, sg in enumerate(segments) if gemini_dub.EMOTIONS.get(sg.get("emotion") or "neutral")]
+                cand = [i for i, sg in enumerate(segments) if gemini_dub.EMOTIONS.get(sg.get("emotion") or "neutral")
+                        and not looks.is_look(sg.get("voice"))]
                 if len(cand) > EMOTION_MAX:
                     cand = [cand[int(k * len(cand) / EMOTION_MAX)] for k in range(EMOTION_MAX)]
                 for i in cand:

@@ -28,7 +28,7 @@ const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
  *  - tap a block to edit its text, voice speed or delete it; "Split" adds a line at the playhead
  * Edits are applied with one re-render; only changed lines are re-voiced.
  */
-export default function Editor({ project, videoRef, busy, onApply, voices = [], playingVoice = null, onPlaySample = () => {}, onPreviewLine = null, previewing = null }) {
+export default function Editor({ project, videoRef, busy, onApply, voices = [], looks = [], playingVoice = null, onPlaySample = () => {}, onPreviewLine = null, previewing = null }) {
   const { tr } = useI18n();
   const duration = project.source_duration;
   const model = project.voice_model || DEFAULT_MODEL;
@@ -273,10 +273,18 @@ export default function Editor({ project, videoRef, busy, onApply, voices = [], 
                   className="rounded-lg bg-slate-900 border border-slate-700 px-2 py-1 text-xs"
                 >
                   {voices.length === 0 && <option value={speakerVoices[sid]}>{speakerVoices[sid]}</option>}
-                  {voices.map((v) => <option key={v.name} value={v.name}>{v.name} ({tr(v.gender)})</option>)}
+                  <optgroup label={tr('Voices')}>
+                    {voices.map((v) => <option key={v.name} value={v.name}>{v.name} ({tr(v.gender)})</option>)}
+                  </optgroup>
+                  {looks.length > 0 && (
+                    <optgroup label={tr('Character looks')}>
+                      {looks.map((l) => <option key={l.id} value={`look:${l.id}`}>{tr(l.label)} · {l.voice}</option>)}
+                    </optgroup>
+                  )}
                 </select>
                 {(() => {
-                  const vv = voices.find((x) => x.name === speakerVoices[sid]);
+                  const lk = looks.find((x) => `look:${x.id}` === speakerVoices[sid]);
+                  const vv = lk ? { name: `look:${lk.id}`, sample_url: lk.sample_url } : voices.find((x) => x.name === speakerVoices[sid]);
                   return vv ? (
                     <button type="button" onClick={() => onPlaySample(vv)} title={tr('Play a sample of this voice')}
                       className="w-7 h-7 rounded-full bg-slate-700 hover:bg-slate-600 text-white text-xs flex items-center justify-center">
@@ -325,7 +333,7 @@ export default function Editor({ project, videoRef, busy, onApply, voices = [], 
                 <button type="button" disabled={previewing != null} title={tr('Hear this line in the chosen character\'s voice (1 voice request, kept for Apply)')}
                   onClick={() => onPreviewLine(sel, speakerVoices[sel.speaker])}
                   className="px-2 py-0.5 rounded-full bg-purple-600 text-white disabled:opacity-50">
-                  {previewing === sel.key ? '…' : `▶ ${tr('Hear')} ${speakerVoices[sel.speaker]}`}
+                  {previewing === sel.key ? '…' : `▶ ${tr('Hear')} ${looks.find((x) => `look:${x.id}` === speakerVoices[sel.speaker])?.label ?? speakerVoices[sel.speaker]}`}
                 </button>
               )}
               {meta[sel.key]?.emotion && meta[sel.key].emotion !== 'neutral' && <span className="text-amber-300">{tr(meta[sel.key].emotion)}</span>}

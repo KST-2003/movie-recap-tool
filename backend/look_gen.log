@@ -1,65 +1,34 @@
-  TTS ok: 106 chars in 8.5s
+  TTS ok: 184 chars in 7.4s
 ok baby
-  TTS ok: 110 chars in 6.4s
+  TTS ok: 188 chars in 6.8s
 ok child_boy
-  TTS ok: 107 chars in 7.1s
+  TTS ok: 185 chars in 7.1s
 ok child_girl
-  TTS ok: 104 chars in 6.6s
+  TTS ok: 182 chars in 7.1s
 ok teen_boy
-  TTS ok: 109 chars in 7.4s
+  TTS ok: 187 chars in 7.4s
 ok teen_girl
-  TTS ok: 106 chars in 8.3s
+  TTS ok: 184 chars in 6.6s
 ok old_man
-  TTS ok: 104 chars in 7.2s
+  TTS ok: 182 chars in 7.8s
 ok old_woman
-  TTS ok: 108 chars in 7.7s
+  TTS ok: 186 chars in 7.4s
 ok wise_elder
-  TTS ok: 98 chars in 8.2s
+  TTS ok: 176 chars in 6.8s
 ok monster
-  TTS ok: 98 chars in 8.6s
+  TTS ok: 176 chars in 7.6s
 ok giant
-  TTS ok: 95 chars in 6.9s
+  TTS ok: 173 chars in 8.6s
 ok demon
-  TTS ok: 106 chars in 8.4s
+  TTS ok: 184 chars in 8.8s
 ok dragon
-  TTS ok: 99 chars in 7.4s
+  TTS ok: 177 chars in 7.1s
 ok goblin
-  TTS ok: 98 chars in 8.8s
+  TTS ok: 176 chars in 8.2s
 ok zombie
-  TTS ok: 99 chars in 7.7s
-ok ghost
-  TTS ok: 92 chars in 7.7s
-ok witch
-  TTS ok: 96 chars in 6.9s
-ok fairy
-  TTS ok: 103 chars in 8.4s
-ok alien
-  TTS ok: 87 chars in 7.6s
-ok robot
-  TTS ok: 116 chars in 8.0s
-ok ai
-  TTS ok: 91 chars in 7.8s
-ok cat
-  TTS ok: 100 chars in 7.4s
-ok dog
-  TTS ok: 104 chars in 8.1s
-ok small_animal
-  TTS ok: 95 chars in 6.1s
-ok bird
-  TTS ok: 88 chars in 8.0s
-ok fox
-  TTS ok: 92 chars in 9.8s
-ok bear
-  TTS ok: 96 chars in 8.5s
-ok villain
-  TTS ok: 86 chars in 6.9s
-ok hero
-  TTS ok: 83 chars in 7.7s
-ok whisper
-  TTS ok: 90 chars in 8.4s
-ok drunk
-  TTS ok: 93 chars in 10.1s
-ok sleepy
-  TTS ok: 101 chars in 7.3s
-ok announcer
-done
+  Gemini TTS slow/busy (TimeoutError: timeout: no answer from Gemini TTS after 52s); retry 1/2
+  Gemini TTS slow/busy (TimeoutError: timeout: no answer from Gemini TTS after 52s); retry 2/2
+FAILED ghost Gemini TTS failed: timeout: no answer from Gemini TTS after 52s
+  Gemini TTS slow/busy (TimeoutError: timeout: no answer from Gemini TTS after 51s); retry 1/2
+  Gemini TTS slow/busy (TimeoutError: timeout: no answer from Gemini TTS after 51s); retry 2/2
+FAILED witch Gemini TTS failed: timeout: no answer from Gemini TTS after 51s
