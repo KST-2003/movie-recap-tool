@@ -664,8 +664,10 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
         speakers = None
         chooser = None
         if mode == "full" and dub:
-            speakers = casting.assign_voices(segments, p["voice_type"],
-                                             {sid: v["voice"] for sid, v in ((edit or {}).get("speakers") or {}).items()})
+            known = {sid: v["voice"] for sid, v in ((edit or {}).get("speakers") or {}).items()}
+            suggested = {} if (edit or tts_provider() != "gemini" or os.getenv("LLM_CASTING", "1") == "0") \
+                else casting.llm_choice(segments)   # one text request; editor re-renders keep the voices they have
+            speakers = casting.assign_voices(segments, p["voice_type"], known, suggested)
             print("  casting: " + ", ".join(f"{sid}={v['voice']} ({v['lines']} lines)" for sid, v in speakers.items()), flush=True)
             if p.get("emotion", True) and tts_provider() in ("gemini", "fake") and not edit:
                 cand = [i for i, sg in enumerate(segments) if gemini_dub.EMOTIONS.get(sg.get("emotion") or "neutral")]

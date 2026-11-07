@@ -26,3 +26,16 @@ ok, _, _ = pitch.drifted("voice_samples/Puck.wav", "Puck")
 print("Kore as Puck:", bad, got, ref, "| Puck as Puck:", ok)
 assert bad and not ok
 print("ALL OK")
+
+
+# Gemini voice matching: its pick is used for characters other than A (A keeps the user's voice if the gender fits); invalid picks fall back
+import casting as _c
+segs = [{"speaker": "A", "gender": "male", "age": "adult"}] * 5 + [{"speaker": "B", "gender": "male", "age": "elderly"}] * 3 + \
+       [{"speaker": "C", "gender": "female", "age": "child"}] * 2
+sp = _c.assign_voices([dict(s) for s in segs], "Orus", None, {"A": "Charon", "B": "Enceladus", "C": "Callirrhoe"})
+assert sp["A"]["voice"] == "Orus" and sp["B"]["voice"] == "Enceladus" and sp["C"]["voice"] == "Callirrhoe", sp
+sp = _c.assign_voices([dict(s) for s in segs], "Orus", None, {"B": "Leda", "C": "Orus"})   # wrong gender / the chosen voice: ignored
+assert sp["B"]["voice"] != "Leda" and sp["C"]["voice"] != "Orus", sp
+import voice_tags as _vt
+assert len(_vt.load()) == 30 and all(t.get("f0_hz") for t in _vt.load().values())
+print("llm casting ALL OK")

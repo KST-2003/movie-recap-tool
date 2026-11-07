@@ -1,0 +1,272 @@
+{
+ "Zephyr": {
+  "gender": "female",
+  "age": "young",
+  "pitch": "high",
+  "timbre": "sweet and clear",
+  "energy": "neutral",
+  "f0_hz": 211,
+  "google_style": "bright"
+ },
+ "Kore": {
+  "gender": "female",
+  "age": "adult",
+  "pitch": "low",
+  "timbre": "deep and resonant",
+  "energy": "neutral",
+  "f0_hz": 213,
+  "google_style": "firm"
+ },
+ "Leda": {
+  "gender": "female",
+  "age": "young",
+  "pitch": "high",
+  "timbre": "sweet, thin, and smooth",
+  "energy": "neutral",
+  "f0_hz": 208,
+  "google_style": "youthful"
+ },
+ "Aoede": {
+  "gender": "female",
+  "age": "young",
+  "pitch": "low",
+  "timbre": "deep and smooth",
+  "energy": "calm",
+  "f0_hz": 192,
+  "google_style": "breezy"
+ },
+ "Callirrhoe": {
+  "gender": "female",
+  "age": "young",
+  "pitch": "high",
+  "timbre": "sweet and clear",
+  "energy": "lively",
+  "f0_hz": 246,
+  "google_style": "easy-going"
+ },
+ "Autonoe": {
+  "gender": "female",
+  "age": "adult",
+  "pitch": "high",
+  "timbre": "clear, warm, gentle",
+  "energy": "calm",
+  "f0_hz": 179,
+  "google_style": "bright"
+ },
+ "Despina": {
+  "gender": "female",
+  "age": "young",
+  "pitch": "high",
+  "timbre": "sweet and clear",
+  "energy": "neutral",
+  "f0_hz": 211,
+  "google_style": "smooth"
+ },
+ "Erinome": {
+  "gender": "female",
+  "age": "adult",
+  "pitch": "medium",
+  "timbre": "clear, warm, slightly synthetic",
+  "energy": "neutral",
+  "f0_hz": 201,
+  "google_style": "clear"
+ },
+ "Laomedeia": {
+  "gender": "female",
+  "age": "adult",
+  "pitch": "low",
+  "timbre": "deep, resonant, warm",
+  "energy": "calm",
+  "f0_hz": 203,
+  "google_style": "upbeat"
+ },
+ "Achernar": {
+  "gender": "female",
+  "age": "young",
+  "pitch": "high",
+  "timbre": "sweet, breathy, and clear",
+  "energy": "neutral",
+  "f0_hz": 195,
+  "google_style": "soft"
+ },
+ "Gacrux": {
+  "gender": "female",
+  "age": "young",
+  "pitch": "high",
+  "timbre": "sweet, bright, clear",
+  "energy": "lively",
+  "f0_hz": 180,
+  "google_style": "mature"
+ },
+ "Pulcherrima": {
+  "gender": "female",
+  "age": "young",
+  "pitch": "medium",
+  "timbre": "warm and clear",
+  "energy": "neutral",
+  "f0_hz": 143,
+  "google_style": "forward"
+ },
+ "Vindemiatrix": {
+  "gender": "female",
+  "age": "adult",
+  "pitch": "low",
+  "timbre": "warm, deep, resonant",
+  "energy": "calm",
+  "f0_hz": 193,
+  "google_style": "gentle"
+ },
+ "Sulafat": {
+  "gender": "female",
+  "age": "adult",
+  "pitch": "high",
+  "timbre": "clear and warm",
+  "energy": "neutral",
+  "f0_hz": 203,
+  "google_style": "warm"
+ },
+ "Puck": {
+  "gender": "male",
+  "age": "adult",
+  "pitch": "medium",
+  "timbre": "warm and smooth",
+  "energy": "neutral",
+  "f0_hz": 150,
+  "google_style": "upbeat"
+ },
+ "Charon": {
+  "gender": "male",
+  "age": "adult",
+  "pitch": "medium",
+  "timbre": "clear, warm, resonant",
+  "energy": "calm",
+  "f0_hz": 119,
+  "google_style": "informative"
+ },
+ "Fenrir": {
+  "gender": "male",
+  "age": "young",
+  "pitch": "low",
+  "timbre": "warm and clear",
+  "energy": "neutral",
+  "f0_hz": 150,
+  "google_style": "excitable"
+ },
+ "Orus": {
+  "gender": "male",
+  "age": "adult",
+  "pitch": "medium",
+  "timbre": "clear, warm, slightly resonant",
+  "energy": "neutral",
+  "f0_hz": 163,
+  "google_style": "firm"
+ },
+ "Enceladus": {
+  "gender": "male",
+  "age": "middle-aged",
+  "pitch": "low",
+  "timbre": "warm and resonant",
+  "energy": "calm",
+  "f0_hz": 122,
+  "google_style": "breathy"
+ },
+ "Iapetus": {
+  "gender": "male",
+  "age": "adult",
+  "pitch": "low",
+  "timbre": "deep and clear",
+  "energy": "neutral",
+  "f0_hz": 134,
+  "google_style": "clear"
+ },
+ "Umbriel": {
+  "gender": "male",
+  "age": "adult",
+  "pitch": "medium",
+  "timbre": "clear, warm, slightly resonant",
+  "energy": "neutral",
+  "f0_hz": 122,
+  "google_style": "easy-going"
+ },
+ "Algieba": {
+  "gender": "male",
+  "age": "adult",
+  "pitch": "medium",
+  "timbre": "deep, clear, warm, slightly resonant",
+  "energy": "neutral",
+  "f0_hz": 102,
+  "google_style": "smooth"
+ },
+ "Algenib": {
+  "gender": "male",
+  "age": "young",
+  "pitch": "low",
+  "timbre": "deep, resonant, warm",
+  "energy": "neutral",
+  "f0_hz": 123,
+  "google_style": "gravelly"
+ },
+ "Rasalgethi": {
+  "gender": "male",
+  "age": "young",
+  "pitch": "low",
+  "timbre": "warm and smooth",
+  "energy": "neutral",
+  "f0_hz": 168,
+  "google_style": "informative"
+ },
+ "Alnilam": {
+  "gender": "male",
+  "age": "adult",
+  "pitch": "medium",
+  "timbre": "warm and smooth",
+  "energy": "calm",
+  "f0_hz": 145,
+  "google_style": "firm"
+ },
+ "Schedar": {
+  "gender": "male",
+  "age": "adult",
+  "pitch": "low",
+  "timbre": "deep, clear, resonant",
+  "energy": "calm",
+  "f0_hz": 144,
+  "google_style": "even"
+ },
+ "Achird": {
+  "gender": "male",
+  "age": "young",
+  "pitch": "medium",
+  "timbre": "warm and clear",
+  "energy": "neutral",
+  "f0_hz": 127,
+  "google_style": "friendly"
+ },
+ "Zubenelgenubi": {
+  "gender": "male",
+  "age": "young",
+  "pitch": "low",
+  "timbre": "deep and clear",
+  "energy": "neutral",
+  "f0_hz": 179,
+  "google_style": "casual"
+ },
+ "Sadachbia": {
+  "gender": "male",
+  "age": "young",
+  "pitch": "low",
+  "timbre": "warm, smooth, slightly resonant",
+  "energy": "neutral",
+  "f0_hz": 148,
+  "google_style": "lively"
+ },
+ "Sadaltager": {
+  "gender": "male",
+  "age": "adult",
+  "pitch": "low",
+  "timbre": "deep, resonant, warm",
+  "energy": "calm",
+  "f0_hz": 130,
+  "google_style": "knowledgeable"
+ }
+}
