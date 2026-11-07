@@ -19,28 +19,35 @@ class QuotaExceeded(RuntimeError):
     """Gemini's daily request limit is used up. Retrying only wastes time: stop the job, refuse new ones."""
 
 
-def blocked_for() -> float:
-    """Seconds until the daily voice limit resets (0 when voice requests may be sent)."""
+def _blocks() -> dict:
     try:
         with open(BLOCK_FILE) as f:
-            return max(0.0, json.load(f)["until"] - time.time())
+            data = json.load(f)
+        return data if "until" not in data else {}
     except Exception:
-        return 0.0
+        return {}
 
 
-def _block(error_text: str):
+def blocked_for(model: str | None = None) -> float:
+    """Seconds until this model's daily voice limit resets (0 when requests may be sent). Each model has its own limit."""
+    return max(0.0, _blocks().get(model or MODEL, 0) - time.time())
+
+
+def _block(error_text: str, model: str | None = None):
     m = re.search(r"retry in (?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?", error_text)
     secs = (int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60 + int(m.group(3) or 0)) if m else 0
     try:
         os.makedirs(os.path.dirname(BLOCK_FILE), exist_ok=True)
+        blocks = _blocks()
+        blocks[model or MODEL] = time.time() + (secs or 3600)
         with open(BLOCK_FILE, "w") as f:
-            json.dump({"until": time.time() + (secs or 3600)}, f)
+            json.dump(blocks, f)
     except OSError:
         pass
 
 
-def quota_message() -> str:
-    left = blocked_for()
+def quota_message(model: str | None = None) -> str:
+    left = blocked_for(model)
     return (f"The Gemini voice service's daily request limit is used up (resets in about {int(left // 3600)}h "
             f"{int(left % 3600 // 60)}m). Upgrade the Gemini tier or try again later.")
 # The SDK's own HTTP timeout did not stop a voice request that never answered, so every request runs in a pool thread
@@ -71,17 +78,20 @@ def _get_client():
     return _client
 
 
-def synthesize_to_file(text: str, path: str, voice: str | None = None, retries: int = 3) -> None:
+def synthesize_to_file(text: str, path: str, voice: str | None = None, retries: int = 3, model: str | None = None) -> None:
     voice = voice or DEFAULT_VOICE
-    if blocked_for() > 0:
-        raise QuotaExceeded(quota_message())
+    model = model or MODEL
+    if blocked_for(model) > 0:
+        raise QuotaExceeded(quota_message(model))
     last: Exception | None = None
     for attempt in range(retries):
         try:
+            import tts_pool
+            tts_pool.acquire(model)   # stay under this model's per-minute limit (and count today's use)
             started = time.monotonic()
             client = _get_client()
             future = _pool.submit(lambda: client.interactions.create(
-                model=MODEL,
+                model=model,
                 input=f"{STYLE}\n\n{text}" if STYLE else text,
                 response_format={"type": "audio"},
                 generation_config={"speech_config": [{"voice": voice}]},
@@ -94,16 +104,25 @@ def synthesize_to_file(text: str, path: str, voice: str | None = None, retries: 
             audio = interaction.output_audio
             if audio is None or not audio.data:
                 raise RuntimeError("Gemini returned no audio.")
-            with open(path, "wb") as f:
-                f.write(base64.b64decode(audio.data))
+            pcm = base64.b64decode(audio.data)
+            if pcm[:4] != b"RIFF":  # some models (2.5, 3.1) return bare 24 kHz 16-bit mono samples: add the WAV header
+                import wave
+                with wave.open(path, "wb") as w:
+                    w.setnchannels(1)
+                    w.setsampwidth(2)
+                    w.setframerate(24000)
+                    w.writeframes(pcm)
+            else:
+                with open(path, "wb") as f:
+                    f.write(pcm)
             return
         except Exception as exc:
             last = exc
             text_err = err_l = str(exc).lower()
             transient = any(k in text_err for k in ("429", "500", "503", "resource_exhausted", "unavailable", "timeout", "too_many_requests"))
             if "per day" in err_l or "perday" in err_l:  # daily quota: retrying is pointless
-                _block(str(exc))
-                raise QuotaExceeded(quota_message()) from exc
+                _block(str(exc), model)
+                raise QuotaExceeded(quota_message(model)) from exc
             if not transient or attempt == retries - 1:
                 break
             print(f"  Gemini TTS slow/busy ({exc.__class__.__name__}: {str(exc)[:120]}); retry {attempt + 1}/{retries - 1}", flush=True)

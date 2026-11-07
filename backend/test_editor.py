@@ -50,7 +50,7 @@ def fake_dub(path, target, **kw):
 gemini_dub.dub = fake_dub
 calls = []
 real_synth = pipeline.synthesize
-pipeline.synthesize = lambda text, voice, path: (calls.append(text), real_synth(text, voice, path))[1]
+pipeline.synthesize = lambda text, voice, path, chooser=None: (calls.append(text), real_synth(text, voice, path))[1]
 
 client = TestClient(app)
 tok = client.post("/api/auth/register", json={"email": "t@example.com", "password": "password123"}).json()["token"]
@@ -131,6 +131,55 @@ assert job4["status"] == "done", job4.get("error")
 assert len(rewrite_calls) == before, "fitting must be skipped when the time budget is used up"
 print("budget exhausted: fitting skipped, job done")
 pipeline.JOB_BUDGET_MAX = 540.0
+
+# 3d. TTS model pool: preference order, per-model blocks, switching, per-minute limiter
+import gemini_tts  # noqa: E402
+import tts_pool  # noqa: E402
+
+names = [m for m, _, _ in tts_pool.models()]
+assert names[0] == "gemini-3.1-flash-tts-preview" and names[-1] == "gemini-2.5-pro-preview-tts"
+ch = tts_pool.Chooser(10)
+assert ch.get() == names[0], ch.get()
+assert tts_pool.Chooser(10, preferred=names[1]).get() == names[1], "a job's earlier model is preferred (edits keep the voice)"
+gemini_tts._block("limit. retry in 23h59m59s", names[0])
+assert gemini_tts.blocked_for(names[0]) > 80000 and gemini_tts.blocked_for(names[1]) == 0, "blocks are per model"
+assert tts_pool.Chooser(10).get() == names[1], "a blocked model is skipped"
+for n in names:
+    gemini_tts._block("retry in 1h", n)
+assert tts_pool.all_blocked()
+try:
+    tts_pool.Chooser(1)
+    raise AssertionError("must raise when every model is blocked")
+except gemini_tts.QuotaExceeded as e:
+    print("all blocked ->", str(e)[:80])
+open(gemini_tts.BLOCK_FILE, "w").write("{}")   # unblock everything
+# pipeline.synthesize switches model on QuotaExceeded
+ch = tts_pool.Chooser(1)
+first, seen_models = ch.get(), []
+
+
+def fake_tts(text, path, voice=None, retries=3, model=None):
+    seen_models.append(model)
+    if model == first:
+        raise gemini_tts.QuotaExceeded("daily limit")
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=duration=1", path], check=True)
+
+
+real_tts_provider, real_stf = pipeline.tts_provider, gemini_tts.synthesize_to_file
+pipeline.tts_provider = lambda: "gemini"
+gemini_tts.synthesize_to_file = fake_tts
+real_synth("မင်္ဂလာပါ။", "su", f"{tmp}/sw.wav", ch)  # the real function (pipeline.synthesize is wrapped by the call counter)
+pipeline.tts_provider, gemini_tts.synthesize_to_file = real_tts_provider, real_stf
+assert seen_models[0] == first and seen_models[-1] != first and ch.get() != first, (first, seen_models, ch.get())
+print("model switch ok:", seen_models)
+# limiter: 2 requests per 1 s window (SAFETY 0) -> the 3rd waits for the window
+tts_pool.WINDOW, tts_pool.SAFETY = 1.0, 0
+tts_pool.DEFAULT_MODELS[:] = [("m-test", 2, 100)]
+t_start = time.time()
+for _ in range(3):
+    tts_pool.acquire("m-test")
+assert time.time() - t_start >= 0.9, "per-minute limiter must delay the 3rd request"
+print("limiter ok")
 
 # 4. validation + queue ETA
 bad = client.post(f"/api/jobs/{job['id']}/rerender", headers=H, json={"segments": [{"start": 999, "text": "x"}]})

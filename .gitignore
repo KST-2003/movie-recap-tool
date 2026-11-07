@@ -12,3 +12,6 @@ backend/gemini_test.wav
 backend/bulk_test/
 
 backend/style_samples/
+backend/model_samples/
+backend/samples/*
+!backend/samples/README.md

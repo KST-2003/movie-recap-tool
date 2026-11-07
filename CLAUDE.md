@@ -93,6 +93,19 @@ Ys)`. Estimate for 10 min (UNVERIFIED with real Gemini): transcribe ~60 s (8 chu
 (~30 bulk groups, 8 parallel), fit rounds ~100 s, render ~100 s = 6-7 min. Risks: Gemini TTS latency / rate limits under parallel
 load, Tier 1 daily request limits (a 10-min video is ~65 Gemini requests), many users at once (needs more workers/cores).
 
+### TTS model pool (`tts_pool.py`)
+AI Studio rate limits (Tier 1, per model, seen 2026-11-07): TTS models allow **10 requests/minute and 100/day** (2.5 Pro TTS: 10/min,
+50/day); text models ~1,000/day. Every model has its own counters, so the pool multiplies capacity (~450 voice requests/day, ~50/min if
+all are used). Models (user's listening test: all acceptable; best 2.5 Flash and 3.1 Flash, then 3.8 Flash; 2.5 Pro sounds a bit off):
+`gemini-3.1-flash-tts-preview`, `gemini-2.5-flash-preview-tts`, `gemini-3.8-flash-tts`, `gemini-3.8-flash-lite-tts`,
+`gemini-2.5-pro-preview-tts` (order = preference; override `TTS_MODELS="name:rpm:rpd,..."`). The 2.5/3.1 models return bare 24 kHz PCM
+without a WAV header (`gemini_tts` adds it). One video uses ONE model (same voice); `Chooser` picks the first model with enough requests
+left (by our daily count in `data/tts_usage.json`, Pacific-day reset, and 429 blocks in `data/tts_blocked.json`), keeps a job's model
+for edits (`project.tts_model`), and switches mid-video only when a model is exhausted. `acquire()` is a per-model sliding-window limiter
+(9/min) used before every request. Uploads are refused only when ALL models are blocked. Counters are per process (RQ workers: split the
+share). Bulk groups are now up to 12 sentences / 1800 chars (fewer requests; 16 split fine on real audio; 12 not yet listened to).
+Not done: spreading ONE video over several models for speed (voice would change mid-video), fallback text models, Google Cloud TTS.
+
 ### Progress UI
 The source video previews as soon as a file is chosen; on Generate the player shows a spinner overlay + Cancel and a step
 checklist (upload %, subtitles/cuts, translate, voice, fit, render) with the live stage text and an elapsed timer. Backend progress:
@@ -195,3 +208,5 @@ Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user 
 - 2026-11-07 (night 3): time budget + skip of optional fitting, bench_10min.py (local floor 95 s for 10 min), LLM rewrite parallelism 8.
 - 2026-11-07 (night 4): hard job limit (`JOB_HARD_LIMIT_SECONDS`=720, fails cleanly, refunded), no silent ElevenLabs/local fallback unless
   `DUB_FALLBACK=1`, second LLM ask skipped when budget is low.
+- 2026-11-07 (night 5): TTS model pool with per-minute limiter and daily counters, 5 models, per-model blocks, WAV header fix; samples/ folder
+  for test videos; test_tts_models.py.

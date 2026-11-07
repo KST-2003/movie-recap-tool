@@ -1,5 +1,6 @@
 """The dubbing pipeline. Runs inside a queue worker (or an in-process thread in dev), never inside a request."""
 import hashlib
+import math
 import mimetypes
 import os
 import subprocess
@@ -13,6 +14,7 @@ import requests
 
 import bulk_tts
 import duration_model
+import tts_pool
 import gemini_dub
 import gemini_tts
 import local_dub
@@ -193,7 +195,7 @@ def check_cancelled(job_id: str):
             raise JobCancelled(job_id)
 
 
-def synthesize(text: str, voice: str, path: str):
+def synthesize(text: str, voice: str, path: str, chooser=None):
     if tts_provider() == "fake":  # no API: tones about as long as speech would be (tests / load tests)
         parts = [t for t in text.split("\n\n") if t.strip()] or [text]
         cmd = ["ffmpeg", "-y", "-loglevel", "error"]
@@ -207,8 +209,14 @@ def synthesize(text: str, voice: str, path: str):
         return media_duration(path)
     if tts_provider() == "gemini":
         # "su" is the UI's default Burmese voice slot; map it to the configured Gemini voice.
-        gemini_tts.synthesize_to_file(text, path, None if voice == "su" else voice)
-        return media_duration(path)
+        chooser = chooser or tts_pool.Chooser(1)
+        while True:
+            model = chooser.get()
+            try:
+                gemini_tts.synthesize_to_file(text, path, None if voice == "su" else voice, model=model)
+                return media_duration(path)
+            except gemini_tts.QuotaExceeded:
+                chooser.failed(model)   # switches to the next model, or raises QuotaExceeded when none is left
     response = requests.post(
         os.getenv("ELEVENLABS_TTS_URL", "http://127.0.0.1:8001/api/tts"),
         json={"text": text, "voice": voice},
@@ -237,14 +245,15 @@ JOB_BUDGET_MAX = float(os.getenv("JOB_BUDGET_MAX_SECONDS", "540"))
 RENDER_SECONDS_PER_VIDEO_SECOND = float(os.getenv("RENDER_SECONDS_PER_VIDEO_SECOND", "0.2"))   # measured 0.14 on an M2 Air
 
 
-def voice_many(texts: list[str], paths: list[str], voice: str, model: dict, job_id: str, progress=None) -> list[float]:
+def voice_many(texts: list[str], paths: list[str], voice: str, model: dict, job_id: str, progress=None,
+               chooser=None) -> list[float]:
     """Voice many lines with as few requests as possible (several lines per request when TTS_BULK is on; a group
     whose audio can't be split reliably is retried as two smaller groups, then line by line). Returns the durations."""
     durs = [0.0] * len(texts)
 
     def single(i: int):
         check_cancelled(job_id)
-        durs[i] = synthesize(texts[i], voice, paths[i])
+        durs[i] = synthesize(texts[i], voice, paths[i], chooser)
         storage.put_clip(paths[i], clip_name(texts[i], voice))
         if progress:
             progress(1)
@@ -254,7 +263,7 @@ def voice_many(texts: list[str], paths: list[str], voice: str, model: dict, job_
         if len(idx) > 1:
             try:
                 ok = bulk_tts.synthesize_batch([texts[i] for i in idx], voice, [paths[i] for i in idx],
-                                               lambda text, path: synthesize(text, voice, path), OUTPUT_DIR, model)
+                                               lambda text, path: synthesize(text, voice, path, chooser), OUTPUT_DIR, model)
                 if ok:
                     for i in idx:
                         durs[i] = media_duration(paths[i])
@@ -350,7 +359,8 @@ def prefit_segments(segments, video_duration, job_id, target_language, model, ti
     print(f"  pre-fit: {kept} lines shortened before voicing", flush=True)
 
 
-def fit_segments_to_slots(segments, video_duration, job_id, voice, target_language, temp_paths, model, time_left=None):
+def fit_segments_to_slots(segments, video_duration, job_id, voice, target_language, temp_paths, model, time_left=None,
+                          chooser=None):
     """AFTER voicing, with real lengths: make each voice line last about as long as the original speech of its scene,
     by rewriting the SCRIPT: too long -> shortened, too short -> lengthened with faithful detail (no dead air).
     Voice speed is only the last resort and is handled by the timeline. Dead air the SOURCE really has is kept.
@@ -394,7 +404,7 @@ def fit_segments_to_slots(segments, video_duration, job_id, voice, target_langua
         def prog(n, total=len(voiced), r=round_no):
             done[0] += n
             set_job(job_id, stage=f"Voicing rewritten lines {done[0]}/{total}", progress=63 + r * 3)
-        durs = voice_many([current[i] for i in voiced], paths, voice, model, job_id, prog)
+        durs = voice_many([current[i] for i in voiced], paths, voice, model, job_id, prog, chooser)
         changed = 0
         for i, path, new_dur in zip(voiced, paths, durs):
             mode, _tgt = todo[i]
@@ -537,8 +547,11 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                     todo.append(i)
                     paths[i] = path
             print(f"  voice-over: {len(todo)} lines to voice ({len(segments) - len(todo)} from cache)", flush=True)
+            groups = math.ceil(len(todo) / bulk_tts.MAX_SENTENCES) if TTS_BULK else len(todo)
+            chooser = (tts_pool.Chooser(groups + max(4, groups // 3), (edit or {}).get("tts_model"))
+                       if tts_provider() == "gemini" and todo else None)   # + room for the fit rewrites
             durs = voice_many([segments[i]["translated_text"] for i in todo], [paths[i] for i in todo],
-                              p["voice_type"], voice_model, job_id, _progress)
+                              p["voice_type"], voice_model, job_id, _progress, chooser)
             for i, d in zip(todo, durs):
                 segments[i]["audio_path"], segments[i]["audio_dur"] = paths[i], d
 
@@ -549,7 +562,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                 voice_model = duration_model.fit([(sg["translated_text"], sg["audio_dur"]) for sg in segments], voice_model)
                 print(f"  voice duration model: {voice_model['a']:.3f}s/syllable + {voice_model['b']:.2f}s", flush=True)
                 fit_segments_to_slots(segments, video_duration, job_id, p["voice_type"], p["target_language"],
-                                      temp_paths, voice_model, time_left)
+                                      temp_paths, voice_model, time_left, chooser)
 
         for sg in segments:  # keep rewritten (fitted) clips too
             if "_fit" in sg["audio_path"]:
@@ -607,6 +620,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
         project = {
             "voice_model": voice_model,
             "voice": p["voice_type"],
+            "tts_model": chooser.get() if chooser else (edit or {}).get("tts_model"),
             "source_language": detected_source_language,
             "source_duration": video_duration,
             "max_voice_speedup": p["max_voice_speedup"],

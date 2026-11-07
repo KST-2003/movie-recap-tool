@@ -265,9 +265,9 @@ def create_job(
 def _refuse_if_voice_limit():
     """Don't accept work (and spend minutes + other quotas) while Gemini's daily voice limit is used up."""
     if tts_provider() == "gemini":
-        import gemini_tts
-        if gemini_tts.blocked_for() > 0:
-            raise HTTPException(status_code=503, detail=gemini_tts.quota_message())
+        import tts_pool
+        if tts_pool.all_blocked():
+            raise HTTPException(status_code=503, detail=tts_pool.blocked_message())
 
 
 def _file_url(key: str, download: bool) -> str:
@@ -378,7 +378,8 @@ def rerender(job_id: str, body: RerenderBody, user: User = Depends(auth.current_
     params["voice_type"] = voice
     params["edit"] = {"segments": [l.model_dump() for l in lines], "fx": project["fx"],
                       "source_language": project.get("source_language"),
-                      "cuts": project.get("cuts", []), "voice_model": project.get("voice_model")}
+                      "cuts": project.get("cuts", []), "voice_model": project.get("voice_model"),
+                      "tts_model": project.get("tts_model")}
     new_id = uuid.uuid4().hex[:12]
     with Session() as s:
         s.add(Job(id=new_id, user_id=user.id, status="queued", params=params, data={},

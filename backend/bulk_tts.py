@@ -12,8 +12,8 @@ import numpy as np
 import duration_model
 
 JOINER = os.getenv("TTS_BULK_JOINER", "\n\n")      # what separates sentences in the single request
-MAX_CHARS = int(os.getenv("TTS_BULK_MAX_CHARS", "1200"))   # characters per request (tune after testing limits)
-MAX_SENTENCES = int(os.getenv("TTS_BULK_MAX_SENTENCES", "8"))
+MAX_CHARS = int(os.getenv("TTS_BULK_MAX_CHARS", "1800"))   # characters per request (tune after testing limits)
+MAX_SENTENCES = int(os.getenv("TTS_BULK_MAX_SENTENCES", "12"))
 MIN_GAP = float(os.getenv("TTS_BULK_MIN_GAP", "0.18"))     # seconds of silence that can count as a sentence break
 SILENCE_DB = os.getenv("TTS_BULK_SILENCE_DB", "-38")
 
