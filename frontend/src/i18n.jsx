@@ -100,6 +100,8 @@ const MY = {
   'move all lines to…': 'စာကြောင်းအားလုံးကို ရွှေ့မည်…',
   'Not applied yet: press "Apply changes & re-render" to hear it.': 'မသုံးရသေးပါ — နားထောင်ရန် "ပြောင်းလဲမှုများ အသုံးချ၍ ပြန်ထုတ်မည်" ကို နှိပ်ပါ။',
   'Same person as another character? Give all these lines to that character.': 'အခြားဇာတ်ကောင်နှင့် လူတစ်ယောက်တည်းလား? ဤစာကြောင်းအားလုံးကို ထိုဇာတ်ကောင့်ထံ ပေးမည်။',
+  'Hear': 'နားထောင်ရန်',
+  "Hear this line in the chosen character's voice (1 voice request, kept for Apply)": 'ရွေးထားသော ဇာတ်ကောင်၏ အသံဖြင့် ဤစာကြောင်းကို နားထောင်ရန် (အသံတောင်းဆိုမှု ၁ ကြိမ်၊ Apply အတွက် သိမ်းထားမည်)',
   'Play a sample of this voice': 'ဤအသံ၏ နမူနာကို နားထောင်ရန်',
   'Which character says this line': 'ဤစာကြောင်းကို ပြောသော ဇာတ်ကောင်',
   'Line {n} · {time} · slot {s}s': 'စာကြောင်း {n} · {time} · အချိန်ကွက် {s} စက္ကန့်',

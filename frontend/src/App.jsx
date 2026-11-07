@@ -145,6 +145,24 @@ function App() {
     audioRef.current = audio;
     setPlaying(voice.name);
   };
+  const [previewing, setPreviewing] = useState(null);
+  const previewLine = async (line, voiceName) => {
+    if (!jobId) return;
+    audioRef.current?.pause();
+    setPreviewing(line.key);
+    try {
+      const { data } = await axios.post(`${API_BASE}/api/jobs/${jobId}/preview-line`, { id: line.id ?? null, text: line.text, voice: voiceName }, { responseType: 'blob', timeout: 120000 });
+      const audio = new Audio(URL.createObjectURL(data));
+      audioRef.current = audio;
+      audio.play();
+    } catch (err) {
+      let msg = err.message;
+      try { msg = JSON.parse(await err.response.data.text()).detail || msg; } catch { /* keep */ }
+      window.alert(trs(msg));
+    } finally {
+      setPreviewing(null);
+    }
+  };
   // Feature Toggles
   const [blurSubtitles, setBlurSubtitles] = useState(true);
   const [enableSubtitles, setEnableSubtitles] = useState(true); // Burmese Subtitles toggle
@@ -664,7 +682,7 @@ function App() {
               </a>}
               {notes && <p className="text-xs text-slate-400">{notes}</p>}
               {project && (
-                <Editor key={jobId} project={project} videoRef={videoRef} busy={loading} voices={voices} playingVoice={playing} onPlaySample={playSample} onApply={applyEdits} />
+                <Editor key={jobId} project={project} videoRef={videoRef} busy={loading} voices={voices} playingVoice={playing} onPlaySample={playSample} onPreviewLine={previewLine} previewing={previewing} onApply={applyEdits} />
               )}
               {!project && timeline.length > 0 && (
                 <ul className="w-full text-xs text-slate-400 space-y-1">

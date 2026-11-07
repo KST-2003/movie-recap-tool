@@ -417,6 +417,43 @@ def rerender(job_id: str, body: RerenderBody, user: User = Depends(auth.current_
     return {"job_id": new_id}
 
 
+class PreviewBody(BaseModel):
+    id: int | None = None                  # project line (its emotion direction is used, so Apply reuses the clip)
+    text: str = Field(max_length=800)
+    voice: str = Field(max_length=40)      # voice name to hear it in (e.g. the voice of the character you picked)
+
+
+_preview_times: dict[int, list[float]] = {}
+
+
+@app.post("/api/jobs/{job_id}/preview-line")
+def preview_line(job_id: str, body: PreviewBody, user: User = Depends(auth.current_user)):
+    """Hear ONE line in a chosen voice before pressing Apply: one TTS request, cached for the render."""
+    if body.voice not in VOICE_NAMES:
+        raise HTTPException(status_code=400, detail=f"Unknown voice: {body.voice}")
+    if not body.text.strip():
+        raise HTTPException(status_code=400, detail="This line has no text.")
+    now = time.time()
+    recent = [t for t in _preview_times.get(user.id, []) if now - t < 60]
+    if len(recent) >= 12:
+        raise HTTPException(status_code=429, detail="Too many previews. Wait a moment.")
+    _preview_times[user.id] = recent + [now]
+    with Session() as s:
+        job = s.get(Job, job_id)
+    project = ((job.data or {}).get("result") or {}).get("project") if job and job.user_id == user.id else None
+    if not project:
+        raise HTTPException(status_code=404, detail="Unknown job")
+    _refuse_if_voice_limit()
+    src = next((sg for sg in project["segments"] if sg["id"] == body.id), None) if body.id is not None else None
+    import pipeline
+    try:
+        path = pipeline.preview_line(body.text.strip(), body.voice, (src or {}).get("style"),
+                                     project.get("voice_model") or {}, project.get("tts_model"))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Voice preview failed: {str(exc)[:160]}")
+    return FileResponse(path, media_type="audio/wav")
+
+
 @app.post("/api/jobs/{job_id}/cancel")
 def cancel_job(job_id: str, user: User = Depends(auth.current_user)):
     """Stop a queued or running job. The worker notices at its next step and quits; nothing is charged."""

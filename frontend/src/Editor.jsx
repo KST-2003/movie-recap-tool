@@ -28,7 +28,7 @@ const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
  *  - tap a block to edit its text, voice speed or delete it; "Split" adds a line at the playhead
  * Edits are applied with one re-render; only changed lines are re-voiced.
  */
-export default function Editor({ project, videoRef, busy, onApply, voices = [], playingVoice = null, onPlaySample = () => {} }) {
+export default function Editor({ project, videoRef, busy, onApply, voices = [], playingVoice = null, onPlaySample = () => {}, onPreviewLine = null, previewing = null }) {
   const { tr } = useI18n();
   const duration = project.source_duration;
   const model = project.voice_model || DEFAULT_MODEL;
@@ -320,6 +320,13 @@ export default function Editor({ project, videoRef, busy, onApply, voices = [], 
                       style={{ backgroundColor: colorOf(sid) }}>{sid}</button>
                   ))}
                 </span>
+              )}
+              {!subsOnly && onPreviewLine && speakerVoices[sel.speaker] && (
+                <button type="button" disabled={previewing != null} title={tr('Hear this line in the chosen character\'s voice (1 voice request, kept for Apply)')}
+                  onClick={() => onPreviewLine(sel, speakerVoices[sel.speaker])}
+                  className="px-2 py-0.5 rounded-full bg-purple-600 text-white disabled:opacity-50">
+                  {previewing === sel.key ? '…' : `▶ ${tr('Hear')} ${speakerVoices[sel.speaker]}`}
+                </button>
               )}
               {meta[sel.key]?.emotion && meta[sel.key].emotion !== 'neutral' && <span className="text-amber-300">{tr(meta[sel.key].emotion)}</span>}
               {!subsOnly && <span className={`ml-auto ${tone}`} title={tr('Predicted from the text, no voice request needed')}>{tr('≈ {s}s voice · {note}', { s: selVoice.toFixed(1), note: fitNote })}</span>}

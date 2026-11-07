@@ -15,3 +15,4 @@ backend/style_samples/
 backend/model_samples/
 backend/samples/*
 !backend/samples/README.md
+character_samples/

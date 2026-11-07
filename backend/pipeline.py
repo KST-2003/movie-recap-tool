@@ -281,6 +281,10 @@ FIT_ROUNDS = int(os.getenv("FIT_ROUNDS", "2"))
 # Drawn Burmese text is ~1.45x taller than its font size (stacked letters): 0.8 makes our captions ~15% taller than the
 # original subtitle's text box ("slightly bigger"). Tune with CAPTION_SIZE_FACTOR after looking at a result.
 CAPTION_SIZE_FACTOR = float(os.getenv("CAPTION_SIZE_FACTOR", "0.8"))
+# A direction ("Say fearfully:") the TTS READS ALOUD adds ~0.7-1.2 s of English to the clip: a styled clip longer than
+# predicted * RATIO + EXTRA is treated as that and re-voiced plainly (was 1.5x + 1.0 s, which let short lines through).
+READ_ALOUD_RATIO = float(os.getenv("READ_ALOUD_RATIO", "1.25"))
+READ_ALOUD_EXTRA = float(os.getenv("READ_ALOUD_EXTRA", "0.45"))
 EMOTION_MAX = int(os.getenv("EMOTION_MAX_LINES", "12"))   # emotional lines are voiced one per request: cap them (quota + time)
 # Time budget: a video must be finished in about its own length (hard cap JOB_BUDGET_MAX seconds). The optional
 # polishing steps (pre-fit, fit rounds) only start if enough budget is left AFTER reserving time for the render.
@@ -328,7 +332,7 @@ def voice_many(texts: list[str], paths: list[str], voice, model: dict, job_id: s
             if progress:
                 progress(1)
             return
-        if styles[i] and durs[i] > duration_model.predict(texts[i], model) * 1.5 + 1.0:
+        if styles[i] and durs[i] > duration_model.predict(texts[i], model) * READ_ALOUD_RATIO + READ_ALOUD_EXTRA:
             print(f"  emotion '{styles[i]}' was probably read aloud ({durs[i]:.1f}s); voicing the line plainly", flush=True)
             styles[i] = None
             durs[i] = synthesize(texts[i], voices[i], paths[i], chooser, None)
@@ -915,3 +919,18 @@ def run_job_by_id(job_id: str):
         if storage.BACKEND == "s3":
             for path in (video_path, logo_path):
                 storage.delete_local(path)
+
+
+def preview_line(text: str, voice: str, style: str | None, model: dict, preferred_model: str | None = None) -> str:
+    """Voice ONE line right now (editor preview). The clip goes into the same cache the render uses
+    (key = voice + text + style), so pressing Apply afterwards does not pay for it again. Returns the clip's local path."""
+    import tempfile
+    path = os.path.join(tempfile.mkdtemp(), "preview" + audio_ext())
+    if storage.fetch_clip(clip_name(text, voice, style), path):
+        return path
+    chooser = tts_pool.Chooser(1, preferred_model) if tts_provider() == "gemini" else None
+    styles = [style]
+    voice_many([text], [path], [voice], model, "", None, chooser, styles)
+    if styles[0] != style:   # the direction was read aloud / bent the pitch and was dropped: also cache the plain clip under the old key
+        storage.put_clip(path, clip_name(text, voice, style))
+    return path

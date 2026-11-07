@@ -158,7 +158,8 @@ Upload form: **Recap video** (one narrator voice, as before) or **Full movie / d
   audio's pitch (film music/effects make it unreliable: hero measured 184 Hz). Only 12 of ~70 emotional lines get a direction (cap) - grouping same-emotion lines per request is the open idea.
   Tests: `test_voice_fixes.py`.
 Editor (night 10): each character has its own colour (timeline subtitle blocks, badges, line speaker select) and a 🔊 sample button next to its voice.
-Editor (night 10c): selected line has one-click character chips (change ONE line's character; the character itself stays), character rows show live line counts, "move all lines to…" shows the chosen target, a hint says changes need Apply. Changing a character/voice always needs a TTS request for the changed lines (other voice = new audio); an instant preview button (1 request, clip cached for Apply) is NOT built yet.
+Editor (night 10c): selected line has one-click character chips (change ONE line's character; the character itself stays), character rows show live line counts, "move all lines to…" shows the chosen target, a hint says changes need Apply. Changing a character/voice always needs a TTS request for the changed lines (other voice = new audio); 
+Editor (night 11): "▶ Hear <voice>" on the selected line = `POST /api/jobs/{id}/preview-line` (one TTS request in the character's voice, same emotion style, clip goes into the render cache so Apply does not pay again; 12 previews/min/user). Read-aloud guard tightened (`READ_ALOUD_RATIO` 1.25, `READ_ALOUD_EXTRA` 0.45 s; was 1.5x + 1.0 s, "Say fearfully:" leaked into short lines). Gemini has ONLY the 30 prebuilt voices (14 F / 16 M) on every TTS model; no baby/monster/animal voices exist. `test_voice_styles.py` tries style instructions (baby, old, monster, alien, animal, ghost, robot) -> `character_samples/`; first run: clips 8-13 s for a ~3 s line, so the instruction is probably read aloud or delivery is very slow - LISTEN before building "character looks".
 Not done: per-line speaker change re-casts only on re-render; no voice preview per character; emotion quality unverified; Demucs path unchanged/untested here.
 
 ### Progress UI
@@ -276,3 +277,4 @@ Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user 
 - 2026-11-07 (night 10): mislabel merge (system-panel lines no longer a female character), emotion pitch-drift guard, age-aware voice casting.
 - 2026-11-07 (night 10b): editor: colour per character on the timeline, voice sample button per character.
 - 2026-11-07 (night 10c): editor: per-line character chips, live counts, move-all select value, apply hint.
+- 2026-11-07 (night 11): per-line voice preview (endpoint + editor button), tighter read-aloud guard, `test_voice_styles.py` (character looks experiment).

@@ -181,6 +181,13 @@ for _ in range(3):
 assert time.time() - t_start >= 0.9, "per-minute limiter must delay the 3rd request"
 print("limiter ok")
 
+# 3e. single-line preview: one voice request, cached so Apply does not pay again
+n_before = len(calls)
+r = client.post(f"/api/jobs/{job['id']}/preview-line", headers=H, json={"id": proj["segments"][0]["id"], "text": "ဒီမှာ စမ်းကြည့်မယ်။", "voice": "Kore"})
+assert r.status_code == 200 and len(r.content) > 1000, r.status_code
+assert client.post(f"/api/jobs/{job['id']}/preview-line", headers=H, json={"text": "x", "voice": "Nope"}).status_code == 400
+print("preview ok", len(r.content), "bytes")
+
 # 4. validation + queue ETA
 bad = client.post(f"/api/jobs/{job['id']}/rerender", headers=H, json={"segments": [{"start": 999, "text": "x"}]})
 assert bad.status_code == 400, bad.text
