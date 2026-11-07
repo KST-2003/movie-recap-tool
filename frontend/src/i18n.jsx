@@ -1,0 +1,220 @@
+import React, { createContext, useContext, useMemo, useState } from 'react';
+
+// Interface language: 'my' (Myanmar) or 'en' (English). English strings are the keys; MY holds the Burmese text.
+// {name} placeholders are filled by tr(text, { name: value }).
+// NOTE: written by an AI assistant: have a native Burmese speaker review the wording before launch.
+const MY = {
+  // sign-in
+  'Email': 'အီးမေးလ်',
+  'Password (8+ characters)': 'စကားဝှက် (အက္ခရာ ၈ လုံးနှင့်အထက်)',
+  'Log in': 'ဝင်ရောက်မည်',
+  'Log out': 'ထွက်မည်',
+  'Create account': 'အကောင့်ဖွင့်မည်',
+  'New here? Create an account': 'အသစ်လား? အကောင့်ဖွင့်ပါ',
+  'Already have an account? Log in': 'အကောင့်ရှိပြီးသားလား? ဝင်ရောက်ပါ',
+  'Could not reach the server.': 'ဆာဗာနှင့် ချိတ်ဆက်၍ မရပါ။',
+  // header
+  '{email} · {left} of {total} min left today': '{email} · ယနေ့ ကျန်ရှိချိန် {left} / {total} မိနစ်',
+  // upload
+  'Upload video': 'ဗီဒီယိုဖိုင် တင်ရန်',
+  'Logo (optional)': 'လိုဂို (မထည့်လည်းရ)',
+  'Burmese dialogue is translated by Google Gemini, then spoken naturally with Gemini TTS. Audio is not sped up to force-fit the source timing.':
+    'မြန်မာစကားပြောကို Google Gemini ဖြင့် ဘာသာပြန်ပြီး Gemini TTS ဖြင့် သဘာဝကျကျ ပြောပေးပါသည်။ မူလအချိန်နှင့် အတင်းကိုက်အောင် အသံကို မြန်မလုပ်ပါ။',
+  'female': 'အမျိုးသမီး',
+  'male': 'အမျိုးသား',
+  '{gender} Burmese voice': 'မြန်မာအသံ ({gender})',
+  'No voice samples available: the default voice will be used.': 'အသံနမူနာ မရှိပါ၊ မူလအသံကို အသုံးပြုပါမည်။',
+  '■ Stop': '■ ရပ်မည်',
+  '▶ Play': '▶ ဖွင့်မည်',
+  '⬇ Download': '⬇ ဒေါင်းလုဒ်',
+  // toggles
+  'Blur subtitles': 'မူလစာတန်းကို ဝါးမည်',
+  'Burmese subtitles': 'မြန်မာစာတန်းထိုး',
+  'Blur lower-right watermark': 'ညာဘက်အောက်ထောင့် ရေစာကို ဝါးမည်',
+  'Horizontal flip': 'ဘယ်ညာ လှန်မည်',
+  // mode
+  'Recap video': 'အနှစ်ချုပ် (Recap) ဗီဒီယို',
+  'One narrator voice': 'ပြောပြသူ အသံတစ်ခုတည်း',
+  'Full movie / drama': 'ရုပ်ရှင်အပြည့် / ဇာတ်လမ်းတွဲ',
+  'A voice for each character': 'ဇာတ်ကောင်တစ်ဦးစီအတွက် အသံတစ်မျိုးစီ',
+  'Each character is detected and gets one fixed voice for the whole film (the main character uses the voice you pick below). The translation is rewritten as natural, neutral spoken Burmese, not word for word.':
+    'ဇာတ်ကောင်တစ်ဦးစီကို သီးခြားသိရှိပြီး ရုပ်ရှင်တစ်ခုလုံးအတွက် အသံတစ်မျိုးတည်း သတ်မှတ်ပေးပါမည် (အဓိကဇာတ်ကောင်က အောက်တွင် သင်ရွေးသောအသံကို သုံးပါမည်)။ ဘာသာပြန်ချက်ကို စကားလုံးအလိုက်မဟုတ်ဘဲ သဘာဝကျသော၊ ကြားနေသော မြန်မာစကားပြောဖြင့် ပြန်လည်ရေးသားပါမည်။',
+  'Burmese voice-over + subtitles': 'မြန်မာအသံသွင်း + စာတန်းထိုး',
+  'Burmese subtitles only (original sound stays)': 'မြန်မာစာတန်းထိုးသာ (မူလအသံ ရှိနေမည်)',
+  'Original music & sounds': 'မူလ တေးဂီတနှင့် အသံများ',
+  'Keep music & sound effects, remove the original speech (recommended)': 'တေးဂီတနှင့် အသံပြုလွှာများ ထားပြီး မူလစကားပြောကို ဖယ်မည် (အကြံပြုသည်)',
+  'Keep everything, lowered (original speech stays faintly audible)': 'အားလုံးကို အသံလျှော့၍ ထားမည် (မူလစကားပြောကို မသဲမကွဲ ကြားရဦးမည်)',
+  'Remove all original sound': 'မူလအသံအားလုံး ဖယ်မည်',
+  'Add emotion to the voices (angry, sad, scared…; a few key lines)': 'အသံများတွင် စိတ်ခံစားမှု ထည့်မည် (ဒေါသ၊ ဝမ်းနည်း၊ ကြောက်…၊ အဓိကစာကြောင်းအနည်းငယ်)',
+  'Add a soft background tone (optional)': 'နူးညံ့သော နောက်ခံတေးသံ ထည့်မည် (ရွေးချယ်စရာ)',
+  // sync
+  'Tighten long translations to fit each scene (uses Gemini; only the lines that overrun are rewritten)':
+    'ရှည်လွန်းသော ဘာသာပြန်ချက်များကို မြင်ကွင်းတစ်ခုစီနှင့် ကိုက်ညီအောင် ချုံ့မည် (Gemini သုံးသည်၊ ကျော်လွန်နေသော စာကြောင်းများကိုသာ ပြန်ရေးမည်)',
+  'Keep original background music and effects (slower)': 'မူလ နောက်ခံတေးဂီတနှင့် အသံပြုလွှာများ ထားမည် (နှေးသည်)',
+  'Allow slight voice speed-up (up to 1.35x) before slowing the video': 'ဗီဒီယိုကို မနှေးခင် အသံကို အနည်းငယ် မြန်စေခွင့်ပြုမည် (၁.၃၅ ဆအထိ)',
+  'Video speed': 'ဗီဒီယိုအမြန်နှုန်း',
+  'Brightness': 'အလင်းအမှောင်',
+  'Contrast': 'အရောင်ကွဲပြားမှု',
+  'Saturation': 'အရောင်ရင့်မှု',
+  'Logo position': 'လိုဂိုနေရာ',
+  'top-right': 'ညာဘက်အပေါ်',
+  'top-left': 'ဘယ်ဘက်အပေါ်',
+  'bottom-right': 'ညာဘက်အောက်',
+  'bottom-left': 'ဘယ်ဘက်အောက်',
+  'center': 'အလယ်',
+  // actions
+  '⚡ Processing…': '⚡ ဗီဒီယို ထုတ်လုပ်နေသည်…',
+  '✨ Generate video': '✨ ဗီဒီယို ထုတ်ယူမည်',
+  'Cancel': 'ပယ်ဖျက်မည်',
+  'Preview & download': 'ကြည့်ရှုရန်နှင့် ဒေါင်းလုဒ်ရန်',
+  '📥 Download video (MP4)': '📥 ဗီဒီယို သိမ်းမည် (MP4)',
+  'Download subtitles (.srt)': 'စာတန်းထိုး ဒေါင်းလုဒ် (.srt)',
+  'Uploading {n}%': 'တင်နေသည် {n}%',
+  'Working…': 'လုပ်ဆောင်နေသည်…',
+  'Please select a video file.': 'ကျေးဇူးပြု၍ ဗီဒီယိုဖိုင် ရွေးချယ်ပေးပါ။',
+  'Something went wrong while making the video.': 'ဗီဒီယို ထုတ်လုပ်ရာတွင် အမှားအယွင်း ရှိသွားပါသည်။',
+  'Cancelled. Your previous video is unchanged.': 'ပယ်ဖျက်ပြီးပါပြီ။ ယခင်ဗီဒီယို မပြောင်းလဲပါ။',
+  'Source subtitles detected and blurred.': 'မူလစာတန်းထိုးကို တွေ့ရှိ၍ ဝါးထားသည်။',
+  'No source subtitles found, nothing blurred.': 'မူလစာတန်းထိုး မတွေ့ပါ၊ ဘာမျှ မဝါးထားပါ။',
+  'Background music separation failed; voice-only audio.': 'နောက်ခံတေးဂီတ ခွဲထုတ်ခြင်း မအောင်မြင်ပါ၊ အသံသွင်းချက်သာ ပါပါမည်။',
+  'This result has expired. Please generate it again.': 'ဤရလဒ် သက်တမ်းကုန်သွားပြီ။ ထပ်မံထုတ်ယူပါ။',
+  'Waiting in line: you are #{n}, about {m} min': 'တန်းစီစောင့်နေသည် — သင်သည် #{n} ဖြစ်သည်၊ ခန့်မှန်း {m} မိနစ်',
+  'Waiting in line: you are #{n}, starting soon': 'တန်းစီစောင့်နေသည် — သင်သည် #{n} ဖြစ်သည်၊ မကြာမီ စတင်မည်',
+  'Queued': 'တန်းစီထားသည်',
+  'Uploading': 'တင်နေသည်',
+  // progress checklist
+  'Working on your video': 'သင့်ဗီဒီယိုကို လုပ်ဆောင်နေသည်',
+  'Uploading your video': 'ဗီဒီယို တင်နေသည်',
+  'Finding subtitles and scene cuts': 'စာတန်းထိုးနှင့် မြင်ကွင်းပြောင်းချက်များ ရှာနေသည်',
+  'Transcribing and translating to Burmese': 'စကားပြောကို စာသားပြောင်း၍ မြန်မာလို ဘာသာပြန်နေသည်',
+  'Shortening long lines to fit their scenes': 'ရှည်လွန်းသော စာကြောင်းများကို မြင်ကွင်းအချိန်နှင့် ကိုက်ညီအောင် ချုံ့နေသည်',
+  'Generating the Burmese voice-over': 'မြန်မာအသံသွင်းချက် ဖန်တီးနေသည်',
+  'Fitting each line to its scene': 'စာကြောင်းတစ်ကြောင်းစီကို မြင်ကွင်းနှင့် ကိုက်ညီအောင် ညှိနေသည်',
+  'Rendering the final video': 'နောက်ဆုံးဗီဒီယို ထုတ်လုပ်နေသည်',
+  'Longer videos can take a few minutes. You can cancel at any time.': 'ဗီဒီယိုရှည်လျှင် မိနစ်အနည်းငယ် ကြာနိုင်ပါသည်။ မည်သည့်အချိန်တွင်မဆို ပယ်ဖျက်နိုင်ပါသည်။',
+  // editor
+  'Characters: each keeps one voice for the whole film. Change a voice, then re-render (only that character\'s lines are re-voiced).':
+    'ဇာတ်ကောင်များ — တစ်ဦးစီသည် ရုပ်ရှင်တစ်ခုလုံးအတွက် အသံတစ်မျိုးတည်း ရှိသည်။ အသံပြောင်းပြီး ပြန်ထုတ်ပါ (ထိုဇာတ်ကောင်၏ စာကြောင်းများကိုသာ အသံပြန်သွင်းမည်)။',
+  '{n} lines': '{n} ကြောင်း',
+  'merge into…': 'ပေါင်းထည့်မည်…',
+  'Same person as another character? Give all these lines to that character.': 'အခြားဇာတ်ကောင်နှင့် လူတစ်ယောက်တည်းလား? ဤစာကြောင်းအားလုံးကို ထိုဇာတ်ကောင့်ထံ ပေးမည်။',
+  'Which character says this line': 'ဤစာကြောင်းကို ပြောသော ဇာတ်ကောင်',
+  'Line {n} · {time} · slot {s}s': 'စာကြောင်း {n} · {time} · အချိန်ကွက် {s} စက္ကန့်',
+  '≈ {s}s voice · {note}': '≈ အသံ {s} စက္ကန့် · {note}',
+  'Predicted from the text, no voice request needed': 'စာသားမှ ခန့်မှန်းထားသည်၊ အသံတောင်းဆိုရန် မလိုပါ',
+  'too long: voice rushes or the video slows': 'ရှည်လွန်း — အသံမြန်သွားမည် သို့မဟုတ် ဗီဒီယိုနှေးမည်',
+  'slightly long: small speed-up': 'အနည်းငယ်ရှည် — အနည်းငယ်သာ မြန်မည်',
+  '{s}s of silence: add words or shorten the scene': 'တိတ်ဆိတ်ချိန် {s} စက္ကန့် — စကားလုံးထပ်ထည့်ပါ သို့မဟုတ် မြင်ကွင်းတိုပါ',
+  'fits the scene': 'မြင်ကွင်းနှင့် ကိုက်ညီသည်',
+  'Burmese text for this line': 'ဤစာကြောင်းအတွက် မြန်မာစာသား',
+  'Original: {text}': 'မူရင်း — {text}',
+  'Voice speed': 'အသံမြန်နှုန်း',
+  'Auto': 'အလိုအလျောက်',
+  'Delete line': 'စာကြောင်းဖျက်မည်',
+  'Tap a subtitle block on the timeline to edit it, or press Split to add a line at the playhead.': 'ပြင်ရန် အချိန်ဇယားပေါ်ရှိ စာတန်းတုံးကို နှိပ်ပါ၊ သို့မဟုတ် ခွဲမည် ခလုတ်ကိုနှိပ်၍ လက်ရှိနေရာတွင် စာကြောင်းထပ်ထည့်ပါ။',
+  '✂ Split / add line at playhead': '✂ လက်ရှိနေရာတွင် ခွဲမည် / စာကြောင်းထည့်မည်',
+  'Re-rendering…': 'ပြန်ထုတ်နေသည်…',
+  'Apply changes & re-render': 'ပြောင်းလဲမှုများ အသုံးချ၍ ပြန်ထုတ်မည်',
+  'Reset': 'ပြန်စမည်',
+  'Only changed lines are re-voiced. Estimated length ≈ {t}.': 'ပြောင်းထားသော စာကြောင်းများကိုသာ အသံပြန်သွင်းမည်။ ခန့်မှန်းအရှည် ≈ {t}။',
+  'subtitle (drag the left edge to move a scene boundary)': 'စာတန်းထိုး (ဘယ်ဘက်အစွန်းကို ဆွဲ၍ မြင်ကွင်းနယ်နိမိတ် ရွှေ့နိုင်သည်)',
+  'voice too long': 'အသံ ရှည်လွန်း',
+  'scene cut': 'မြင်ကွင်းပြောင်းချက်',
+  'Voice is longer than its scene: it will speed up or the video will slow down': 'အသံသည် မြင်ကွင်းထက် ရှည်နေသည် — အသံမြန်သွားမည် သို့မဟုတ် ဗီဒီယိုနှေးမည်',
+  'Voice fits its scene': 'အသံသည် မြင်ကွင်းနှင့် ကိုက်ညီသည်',
+  '(empty line: type text below)': '(ဗလာစာကြောင်း — အောက်တွင် စာရိုက်ပါ)',
+  'angry': 'ဒေါသထွက်', 'sad': 'ဝမ်းနည်း', 'happy': 'ပျော်ရွှင်', 'fearful': 'ကြောက်ရွံ့',
+  'surprised': 'အံ့ဩ', 'excited': 'စိတ်လှုပ်ရှား', 'tender': 'နူးညံ့', 'whisper': 'တီးတိုး',
+  'Line': 'စာကြောင်း',
+};
+
+// Texts that come from the server (progress steps, warnings, errors). [pattern, Burmese with $1, $2 ... captures].
+const SERVER = [
+  [/^Starting$/, 'စတင်နေသည်'],
+  [/^Queued$/, 'တန်းစီထားသည်'],
+  [/^Detecting subtitles$/, 'စာတန်းထိုး ရှာဖွေနေသည်'],
+  [/^Transcribing and translating$/, 'စကားပြောကို စာသားပြောင်းပြီး ဘာသာပြန်နေသည်'],
+  [/^Shortening long lines to fit their scenes$/, 'ရှည်လွန်းသော စာကြောင်းများကို ချုံ့နေသည်'],
+  [/^Voice-over (\d+)\/(\d+)$/, 'အသံသွင်းနေသည် $1/$2'],
+  [/^Fitting translation to scene timing$/, 'ဘာသာပြန်ချက်ကို မြင်ကွင်းအချိန်နှင့် ညှိနေသည်'],
+  [/^Fitting lines to their scenes \(round (\d+)\/(\d+)\): (\d+) lines$/, 'စာကြောင်းများကို မြင်ကွင်းနှင့် ညှိနေသည် (အကြိမ် $1/$2) — $3 ကြောင်း'],
+  [/^Voicing rewritten lines (\d+)\/(\d+)$/, 'ပြန်ရေးထားသော စာကြောင်းများ အသံသွင်းနေသည် $1/$2'],
+  [/^Building sync timeline$/, 'အချိန်ကိုက်ဇယား တည်ဆောက်နေသည်'],
+  [/^Separating background music$/, 'နောက်ခံတေးဂီတ ခွဲထုတ်နေသည်'],
+  [/^Rendering video$/, 'ဗီဒီယို ထုတ်လုပ်နေသည်'],
+  [/^Done$/, 'ပြီးဆုံးပါပြီ'],
+  [/^Cancelled$/, 'ပယ်ဖျက်ပြီး'],
+  [/^Gemini refused to transcribe (\d+) short part\(s\) \((.*?)\); those parts have no translation\. Add lines there in the editor\.$/,
+    'Gemini က ဗီဒီယို၏ အပိုင်းတို $1 ခု ($2) ကို စာသားမပြောင်းပေးနိုင်ပါ၊ ထိုအပိုင်းများတွင် ဘာသာပြန်မရှိပါ။ တည်းဖြတ်ကိရိယာတွင် စာကြောင်းထပ်ထည့်ပါ။'],
+  [/^The voice service refused (\d+) line\(s\) for policy reasons, so they stay silent \(subtitles still show\), at: (.*)\. Reword them in the editor and re-render\.$/,
+    'အသံဝန်ဆောင်မှုက မူဝါဒအရ စာကြောင်း $1 ကြောင်းကို ငြင်းပယ်သဖြင့် ထိုနေရာများ တိတ်နေပါမည် (စာတန်းထိုးမူ ပေါ်ပါမည်) — $2။ တည်းဖြတ်ကိရိယာတွင် စာပြန်ရေး၍ ပြန်ထုတ်ပါ။'],
+  [/^The original speech could not be removed from the film's sound in time, so the original audio is kept quietly under the Burmese voice instead\.$/,
+    'မူလစကားပြောကို အချိန်မီ မဖယ်ရှားနိုင်သဖြင့် မူလအသံကို မြန်မာအသံအောက်တွင် တိုးညှင်းစွာ ထားလိုက်ပါသည်။'],
+  [/^Daily limit reached: ([\d.]+) of your (\d+) minutes left today, this video is ([\d.]+) minutes\.$/,
+    'ယနေ့ကန့်သတ်ချက် ပြည့်သွားပြီ — သင့်ထံ ကျန်ချိန် $2 မိနစ်အနက် $1 မိနစ်သာ ကျန်ပြီး ဤဗီဒီယိုမှာ $3 မိနစ် ရှည်ပါသည်။'],
+  [/^(The Gemini voice service's|All Gemini voice models have used up their) daily request limit.*$/,
+    'Gemini အသံဝန်ဆောင်မှု၏ ယနေ့ တောင်းဆိုမှုကန့်သတ်ချက် ပြည့်သွားပါပြီ။ နောက်မှ ပြန်ကြိုးစားပါ။'],
+  [/^You already have videos processing\. Wait for one to finish\.$/, 'သင့်ဗီဒီယိုများ လုပ်ဆောင်နေဆဲ ဖြစ်သည်။ တစ်ခုပြီးဆုံးသည်အထိ စောင့်ပါ။'],
+  [/^Wrong email or password\.$/, 'အီးမေးလ် သို့မဟုတ် စကားဝှက် မှားနေပါသည်။'],
+  [/^That email is already registered\.$/, 'ဤအီးမေးလ်ဖြင့် စာရင်းသွင်းပြီးသားဖြစ်ပါသည်။'],
+  [/^Enter a valid email address\.$/, 'မှန်ကန်သော အီးမေးလ်လိပ်စာ ထည့်ပါ။'],
+  [/^Password must be at least 8 characters\.$/, 'စကားဝှက်သည် အနည်းဆုံး အက္ခရာ ၈ လုံး ရှိရပါမည်။'],
+  [/^Sign-ups are closed\.$/, 'အကောင့်သစ်ဖွင့်ခြင်း ယာယီပိတ်ထားပါသည်။'],
+  [/^That file doesn't look like a valid video\.$/, 'ဤဖိုင်သည် မှန်ကန်သော ဗီဒီယိုဖိုင်နှင့် မတူပါ။'],
+  [/^Videos can be at most ([\d.]+) minutes long\.$/, 'ဗီဒီယိုသည် အများဆုံး $1 မိနစ်သာ ရှည်နိုင်ပါသည်။'],
+  [/^File is larger than (\d+) MB\.$/, 'ဖိုင်အရွယ်အစားသည် $1 MB ထက် ကြီးနေသည်။'],
+  [/^Link expired\. Reload the page to get a new one\.$/, 'လင့်ခ် သက်တမ်းကုန်ပြီ။ စာမျက်နှာကို ပြန်ဖွင့်၍ အသစ်ရယူပါ။'],
+  [/^We've reached today's capacity\. Please try again tomorrow\.$/, 'ယနေ့ လက်ခံနိုင်သည့်ပမာဏ ပြည့်သွားပြီ။ မနက်ဖြန် ပြန်ကြိုးစားပါ။'],
+  [/^We're temporarily not accepting new (videos|work)\. Please try again later\.$/, 'ယာယီ အသစ်မလက်ခံနိုင်ပါ။ နောက်မှ ပြန်ကြိုးစားပါ။'],
+  [/^No video file provided\.$/, 'ဗီဒီယိုဖိုင် မပါဝင်ပါ။'],
+  [/^Recap generation failed: (.*)$/, 'ဗီဒီယိုထုတ်လုပ်မှု မအောင်မြင်ပါ — $1'],
+];
+
+export function makeTr(lang) {
+  const fill = (s, vars) => (vars ? s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m)) : s);
+  const tr = (s, vars) => fill(lang === 'my' ? (MY[s] ?? s) : s, vars);
+  // translate a text that came from the server (or a client sentence): exact match, then patterns, else unchanged
+  const trs = (s) => {
+    if (!s || lang !== 'my') return s;
+    if (MY[s]) return MY[s];
+    for (const [re, out] of SERVER) {
+      const m = s.match(re);
+      if (m) return out.replace(/\$(\d)/g, (x, i) => m[Number(i)] ?? '');
+    }
+    return s;
+  };
+  return { tr, trs };
+}
+
+export const LangContext = createContext({ lang: 'en', setLang: () => {}, tr: (s) => s, trs: (s) => s });
+export const useI18n = () => useContext(LangContext);
+
+const initialLang = () => {
+  try {
+    const saved = localStorage.getItem('lang');
+    if (saved === 'my' || saved === 'en') return saved;
+  } catch (e) { /* storage blocked */ }
+  return (typeof navigator !== 'undefined' && /^(my|mya|bur)/i.test(navigator.language || '')) ? 'my' : 'en';
+};
+
+export function LangProvider({ children }) {
+  const [lang, setLangState] = useState(initialLang);
+  const setLang = (l) => {
+    setLangState(l);
+    try { localStorage.setItem('lang', l); } catch (e) { /* ignore */ }
+  };
+  const value = useMemo(() => ({ lang, setLang, ...makeTr(lang) }), [lang]);
+  return <LangContext.Provider value={value}>{children}</LangContext.Provider>;
+}
+
+export function LangSwitch() {
+  const { lang, setLang } = useI18n();
+  return (
+    <span className="inline-flex rounded-lg overflow-hidden border border-slate-700 text-xs">
+      {[['my', 'မြန်မာ'], ['en', 'English']].map(([k, label]) => (
+        <button key={k} type="button" onClick={() => setLang(k)}
+          className={`px-2.5 py-1 ${lang === k ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>{label}</button>
+      ))}
+    </span>
+  );
+}

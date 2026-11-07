@@ -42,7 +42,7 @@ real_piece = gemini_dub._dub_piece
 tried = []
 
 
-def fake_piece(path, offset, target, attempts, cuts=None, mode="recap", chunk_no=0):
+def fake_piece(path, offset, target, attempts, cuts=None, mode="recap", chunk_no=0, roster=None):
     length = gemini_dub._duration(path)
     tried.append((round(offset), round(length)))
     if length > 50 or (offset >= 30 and length < 40):   # whole piece refused; second half refused too

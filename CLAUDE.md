@@ -139,6 +139,11 @@ Upload form: **Recap video** (one narrator voice, as before) or **Full movie / d
   without emotion direction -> other pool model for that line only -> milder wording (`fit_text.soften`) -> silent clip of the predicted length + warning (`silent`
   lines are not cached/fitted); any other single-line failure after retries is treated the same; if > max(5, 25%) of lines end silent the job fails (service down);
   (3) pre-fit / fit rounds are optional: errors are logged and skipped. Still fatal: cancel, daily quota of ALL models, hard time limit (`JobTooSlow`).
+- **Character identity across chunks (2026-11-07 night 9)**: voice drift ("Tom is Kore early, Charon later") came from the same person getting different
+  labels in different 75 s chunks, not from the TTS. `SPEAKER_MODE=roster` (default): one whole-film pass (`diarize_full`) lists the characters and turns first; every
+  chunk then labels lines with those ids (`apply_diarization(trust_labels=True)`). `SPEAKER_MODE=unify` = old per-chunk labels merged by one text request. Measured on
+  samples/recap.mp4 (2 runs each): run-to-run agreement of who-is-who 0.919 roster vs 0.887 unify, +~20 s. `merge_minor_speakers` never merges across genders.
+  Not verified by ear on a long film; remaining causes: wrong gender/identity from Gemini, mid-job TTS model switch. Fix by hand in the editor (merge into / voice per character).
 Not done: per-line speaker change re-casts only on re-render; no voice preview per character; emotion quality unverified; Demucs path unchanged/untested here.
 
 ### Progress UI
@@ -250,3 +255,5 @@ Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user 
 - 2026-11-07 (night 7): full-mode default original sound = speech removed (Demucs, cached, time-limited, fallback); minor-character merge + editor merge control;
   Gemini refusals split/skipped; vertical flip removed from the UI. Real full-mode run: 508 s video in 380 s.
 - 2026-11-07 (night 8): voice content_blocked ladder + silent-line fallback, optional steps can't fail the job, `JobTooSlow` stays fatal.
+- 2026-11-07 (night 9): whole-film speaker roster pass for stable character voices; app language setting Myanmar/English (`frontend/src/i18n.jsx`: `tr()` for UI text,
+  `trs()` for server texts via regex table; choice kept in localStorage; Burmese wording AI-written, needs native review; new UI strings must be added to `MY` there).

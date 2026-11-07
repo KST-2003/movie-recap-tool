@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useI18n } from './i18n.jsx';
 
 const TEMPOS = [null, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5];
 const DEFAULT_MODEL = { a: 0.16, b: 0.7 };
@@ -26,6 +27,7 @@ const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
  * Edits are applied with one re-render; only changed lines are re-voiced.
  */
 export default function Editor({ project, videoRef, busy, onApply, voices = [] }) {
+  const { tr } = useI18n();
   const duration = project.source_duration;
   const model = project.voice_model || DEFAULT_MODEL;
   const predict = (text) => model.a * syllables(text) + model.b;
@@ -164,10 +166,10 @@ export default function Editor({ project, videoRef, busy, onApply, voices = [] }
   const selVoice = sel ? voiceLen(sel, index) : 0;
   const fitRatio = selVoice / Math.max(selSlot - 0.1, 0.2);
   const tone = fitRatio > 1.35 ? 'text-red-400' : fitRatio > 1.02 ? 'text-amber-400' : fitRatio < 0.8 ? 'text-sky-400' : 'text-emerald-400';
-  const fitNote = fitRatio > 1.35 ? 'too long: voice rushes or the video slows'
-    : fitRatio > 1.02 ? 'slightly long: small speed-up'
-    : fitRatio < 0.8 ? `${(selSlot - 0.1 - selVoice).toFixed(1)}s of silence: add words or shorten the scene`
-    : 'fits the scene';
+  const fitNote = fitRatio > 1.35 ? tr('too long: voice rushes or the video slows')
+    : fitRatio > 1.02 ? tr('slightly long: small speed-up')
+    : fitRatio < 0.8 ? tr('{s}s of silence: add words or shorten the scene', { s: (selSlot - 0.1 - selVoice).toFixed(1) })
+    : tr('fits the scene');
   const total = lines.reduce((sum, l, i) => sum + Math.max(slotOf(i), voiceLen(l, i) + 0.1), 0);
 
   return (
@@ -212,7 +214,7 @@ export default function Editor({ project, videoRef, busy, onApply, voices = [] }
                     style={{ left: l.start * pps + 1, width: Math.max(slot * pps - 2, 6) }}
                     title={l.text}
                   >
-                    <span className="line-clamp-2 break-words">{l.text || '(empty line: type text below)'}</span>
+                    <span className="line-clamp-2 break-words">{l.text || tr('(empty line: type text below)')}</span>
                     {/* left handle = this line's start */}
                     <div
                       onPointerDown={(e) => beginDrag(e, i)} onPointerMove={moveDrag} onPointerUp={endDrag} onClick={(e) => e.stopPropagation()}
@@ -232,7 +234,7 @@ export default function Editor({ project, videoRef, busy, onApply, voices = [] }
                     key={l.key}
                     className={`absolute top-0 h-6 rounded-md text-[10px] px-1 flex items-center ${over ? 'bg-red-500/70 text-white' : 'bg-emerald-600/70 text-white'}`}
                     style={{ left: l.start * pps + 1, width: Math.max(len * pps - 2, 4), opacity: l.key === selected ? 1 : 0.7 }}
-                    title={over ? 'Voice is longer than its scene: it will speed up or the video will slow down' : 'Voice fits its scene'}
+                    title={over ? tr('Voice is longer than its scene: it will speed up or the video will slow down') : tr('Voice fits its scene')}
                   >
                     ♪ {len.toFixed(1)}s
                   </div>
@@ -246,35 +248,35 @@ export default function Editor({ project, videoRef, busy, onApply, voices = [] }
           </div>
         </div>
         <div className="flex gap-4 px-3 py-1.5 text-[10px] text-slate-500 border-t border-slate-800">
-          <span><i className="inline-block w-2 h-2 bg-purple-600 rounded-sm mr-1" />subtitle (drag the left edge to move a scene boundary)</span>
-          <span><i className="inline-block w-2 h-2 bg-red-500 rounded-sm mr-1" />voice too long</span>
-          <span><i className="inline-block w-2 h-0.5 bg-cyan-400 mr-1" />scene cut</span>
+          <span><i className="inline-block w-2 h-2 bg-purple-600 rounded-sm mr-1" />{tr('subtitle (drag the left edge to move a scene boundary)')}</span>
+          <span><i className="inline-block w-2 h-2 bg-red-500 rounded-sm mr-1" />{tr('voice too long')}</span>
+          <span><i className="inline-block w-2 h-0.5 bg-cyan-400 mr-1" />{tr('scene cut')}</span>
         </div>
       </div>
 
       {/* characters (full movie mode): one fixed voice each */}
       {speakerIds.length > 0 && !subsOnly && (
         <div className="mt-3 rounded-xl bg-slate-800/60 border border-slate-700 p-3">
-          <p className="text-xs text-slate-400 mb-2">Characters: each keeps one voice for the whole film. Change a voice, then re-render (only that character's lines are re-voiced).</p>
+          <p className="text-xs text-slate-400 mb-2">{tr("Characters: each keeps one voice for the whole film. Change a voice, then re-render (only that character's lines are re-voiced).")}</p>
           <div className="flex flex-wrap gap-3">
             {speakerIds.map((sid) => (
               <label key={sid} className="flex items-center gap-2 text-xs text-slate-300">
                 <span className="px-1.5 py-0.5 rounded bg-purple-700 text-white font-semibold">{sid}</span>
-                <span className="text-slate-500">{project.speakers[sid].gender !== 'unknown' ? project.speakers[sid].gender : ''} · {project.speakers[sid].lines} lines</span>
+                <span className="text-slate-500">{project.speakers[sid].gender !== 'unknown' ? tr(project.speakers[sid].gender) : ''} · {tr('{n} lines', { n: project.speakers[sid].lines })}</span>
                 <select
                   value={speakerVoices[sid]} onChange={(ev) => setSpeakerVoices({ ...speakerVoices, [sid]: ev.target.value })}
                   className="rounded-lg bg-slate-900 border border-slate-700 px-2 py-1 text-xs"
                 >
                   {voices.length === 0 && <option value={speakerVoices[sid]}>{speakerVoices[sid]}</option>}
-                  {voices.map((v) => <option key={v.name} value={v.name}>{v.name} ({v.gender})</option>)}
+                  {voices.map((v) => <option key={v.name} value={v.name}>{v.name} ({tr(v.gender)})</option>)}
                 </select>
                 {speakerIds.length > 1 && (
                   <select
-                    value="" title="Same person as another character? Give all these lines to that character."
+                    value="" title={tr('Same person as another character? Give all these lines to that character.')}
                     onChange={(ev) => ev.target.value && setLines(lines.map((l) => (l.speaker === sid ? { ...l, speaker: ev.target.value } : l)))}
                     className="rounded-lg bg-slate-900 border border-slate-700 px-2 py-1 text-xs text-slate-400"
                   >
-                    <option value="">merge into…</option>
+                    <option value="">{tr('merge into…')}</option>
                     {speakerIds.filter((o) => o !== sid && lines.some((l) => l.speaker === o)).map((o) => <option key={o} value={o}>{o}</option>)}
                   </select>
                 )}
@@ -289,49 +291,49 @@ export default function Editor({ project, videoRef, busy, onApply, voices = [] }
         {sel ? (
           <>
             <div className="flex items-center gap-2 text-xs mb-2">
-              <span className="text-slate-400">Line {index + 1} · {fmt(sel.start)} · slot {selSlot.toFixed(1)}s</span>
+              <span className="text-slate-400">{tr('Line {n} · {time} · slot {s}s', { n: index + 1, time: fmt(sel.start), s: selSlot.toFixed(1) })}</span>
               {speakerIds.length > 0 && (
-                <select value={sel.speaker || ''} onChange={(ev) => patch(sel.key, { speaker: ev.target.value || null })} className="rounded bg-slate-900 border border-slate-700 px-1 py-0.5 text-xs" title="Which character says this line">
+                <select value={sel.speaker || ''} onChange={(ev) => patch(sel.key, { speaker: ev.target.value || null })} className="rounded bg-slate-900 border border-slate-700 px-1 py-0.5 text-xs" title={tr('Which character says this line')}>
                   {speakerIds.map((sid) => <option key={sid} value={sid}>{sid}</option>)}
                 </select>
               )}
-              {meta[sel.key]?.emotion && meta[sel.key].emotion !== 'neutral' && <span className="text-amber-300">{meta[sel.key].emotion}</span>}
-              {!subsOnly && <span className={`ml-auto ${tone}`} title="Predicted from the text, no voice request needed">≈ {selVoice.toFixed(1)}s voice · {fitNote}</span>}
+              {meta[sel.key]?.emotion && meta[sel.key].emotion !== 'neutral' && <span className="text-amber-300">{tr(meta[sel.key].emotion)}</span>}
+              {!subsOnly && <span className={`ml-auto ${tone}`} title={tr('Predicted from the text, no voice request needed')}>{tr('≈ {s}s voice · {note}', { s: selVoice.toFixed(1), note: fitNote })}</span>}
               <button type="button" onClick={() => patch(sel.key, { start: Math.round(clamp(sel.start - 0.1, index > 0 ? lines[index - 1].start + MIN_LEN : 0, duration) * 100) / 100 })} className="px-2 py-0.5 rounded bg-slate-700">−0.1s</button>
               <button type="button" onClick={() => patch(sel.key, { start: Math.round(clamp(sel.start + 0.1, 0, (index + 1 < lines.length ? lines[index + 1].start : duration) - MIN_LEN) * 100) / 100 })} className="px-2 py-0.5 rounded bg-slate-700">+0.1s</button>
             </div>
             <textarea
-              rows={3} value={sel.text} onChange={(e) => patch(sel.key, { text: e.target.value })} placeholder="Burmese text for this line"
+              rows={3} value={sel.text} onChange={(e) => patch(sel.key, { text: e.target.value })} placeholder={tr('Burmese text for this line')}
               className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2 py-1.5 text-sm text-white outline-none focus:border-purple-500"
             />
-            {sel.source_text && <p className="text-[11px] text-slate-500 mt-1">Original: {sel.source_text}</p>}
+            {sel.source_text && <p className="text-[11px] text-slate-500 mt-1">{tr('Original: {text}', { text: sel.source_text })}</p>}
             <div className="flex flex-wrap items-center gap-1.5 mt-2 text-xs">
-              {!subsOnly && <span className="text-slate-400 mr-1">Voice speed</span>}
+              {!subsOnly && <span className="text-slate-400 mr-1">{tr('Voice speed')}</span>}
               {!subsOnly && TEMPOS.map((t) => (
                 <button
                   key={t ?? 'auto'} type="button" onClick={() => patch(sel.key, { tempo: t })}
                   className={`px-2 py-1 rounded-full ${sel.tempo === t ? 'bg-purple-600 text-white' : 'bg-slate-700 text-slate-300'}`}
-                >{t == null ? 'Auto' : `${t.toFixed(1)}x`}</button>
+                >{t == null ? tr('Auto') : `${t.toFixed(1)}x`}</button>
               ))}
-              <button type="button" onClick={remove} className="ml-auto px-3 py-1 rounded-full bg-red-900/60 text-red-200 hover:bg-red-800">Delete line</button>
+              <button type="button" onClick={remove} className="ml-auto px-3 py-1 rounded-full bg-red-900/60 text-red-200 hover:bg-red-800">{tr('Delete line')}</button>
             </div>
           </>
         ) : (
-          <p className="text-xs text-slate-400">Tap a subtitle block on the timeline to edit it, or press Split to add a line at the playhead.</p>
+          <p className="text-xs text-slate-400">{tr('Tap a subtitle block on the timeline to edit it, or press Split to add a line at the playhead.')}</p>
         )}
       </div>
 
       <div className="flex flex-wrap gap-2 mt-3">
-        <button type="button" onClick={split} className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm">✂ Split / add line at playhead</button>
+        <button type="button" onClick={split} className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm">{tr('✂ Split / add line at playhead')}</button>
         <button type="button" disabled={!dirty || busy || lines.every((l) => !l.text.trim())}
           onClick={() => onApply([...lines].sort((a, b) => a.start - b.start).map((l) => ({ id: l.id ?? null, speaker: l.speaker, start: Number(l.start), text: l.text, source_text: l.source_text, tempo: l.tempo })), voicesChanged ? speakerVoices : undefined)}
           className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 font-semibold text-sm disabled:opacity-40">
-          {busy ? 'Re-rendering…' : 'Apply changes & re-render'}
+          {busy ? tr('Re-rendering…') : tr('Apply changes & re-render')}
         </button>
         {dirty && !busy && (
-          <button type="button" onClick={() => { setLines(initial); setSelected(initial[0]?.key ?? null); setSpeakerVoices(Object.fromEntries(speakerIds.map((s) => [s, project.speakers[s].voice]))); }} className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm">Reset</button>
+          <button type="button" onClick={() => { setLines(initial); setSelected(initial[0]?.key ?? null); setSpeakerVoices(Object.fromEntries(speakerIds.map((s) => [s, project.speakers[s].voice]))); }} className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm">{tr('Reset')}</button>
         )}
-        <span className="self-center text-xs text-slate-500">Only changed lines are re-voiced. Estimated length ≈ {fmt(total)}.</span>
+        <span className="self-center text-xs text-slate-500">{tr('Only changed lines are re-voiced. Estimated length ≈ {t}.', { t: fmt(total) })}</span>
       </div>
     </fieldset>
   );
