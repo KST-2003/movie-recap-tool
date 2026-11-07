@@ -77,6 +77,13 @@ falling back to one request per sentence. Edits: unchanged lines come from the c
 Listened to the 8-sentence cut clips on 2026-11-07: they sound right, so **batching is now ON by default** (`TTS_BULK=0` turns it off).
 Still to verify: batches longer than 8 sentences (16 split fine by the numbers, not listened to), voice consistency on a full 10-min job.
 
+### Pre-fit (before any voice)
+Real run: 39 of 41 first-pass lines were too long for their scene (Gemini ignores the char budget in the prompt). `prefit_segments`
+predicts every line's voice length with `duration_model` and shortens the ones predicted too long in bulk (LLM, ~20 lines per
+request, answers verified by prediction) BEFORE the first voice pass, so most lines are voiced once. Lengthening waits for real
+lengths (post-voice fit). The uvicorn access log hides the `GET /api/jobs/<id>` polling lines. On restart, jobs left
+queued/running by the previous process (inline mode) are marked failed so they stop counting against the active-job limit.
+
 ### Progress UI
 The source video previews as soon as a file is chosen; on Generate the player shows a spinner overlay + Cancel and a step
 checklist (upload %, subtitles/cuts, translate, voice, fit, render) with the live stage text and an elapsed timer. Backend progress:
@@ -175,3 +182,4 @@ Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user 
 - 2026-11-07 (night): bulk voice requests ON by default after listening test.
 - 2026-11-07 (late): batched fit rewrites + bulk voice for rewrites (was minutes at 62%), 75 s transcription chunks, instant preview +
   step checklist + elapsed timer + upload progress.
+- 2026-11-07 (night 2): pre-fit shortening before voice, TTS timeout 60 s + visible retries, orphaned jobs cleaned on startup, quiet polling logs.

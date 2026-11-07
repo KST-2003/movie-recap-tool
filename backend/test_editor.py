@@ -113,7 +113,7 @@ job3 = wait(r.json()["job_id"])
 assert job3["status"] == "done", job3.get("error")
 s3 = job3["result"]["project"]["segments"]
 print("rewrite requests (lines each):", rewrite_calls)
-assert len(rewrite_calls) <= 4 and max(rewrite_calls) >= 3, "lines must be rewritten in bulk, not one request per line"
+assert len(rewrite_calls) <= 8 and max(rewrite_calls) >= 3, "lines must be rewritten in bulk, not one request per line"
 print("fitted durations:", [(s["id"], s["audio_dur"], s.get("slot")) for s in s3])
 assert s3[2]["audio_dur"] > proj["segments"][2]["audio_dur"] + 0.3, "short line must be lengthened"
 assert s3[1]["audio_dur"] < proj["segments"][1]["audio_dur"] / 2, "long line must be shortened"

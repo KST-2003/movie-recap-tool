@@ -268,61 +268,94 @@ def voice_many(texts: list[str], paths: list[str], voice: str, model: dict, job_
     return durs
 
 
-def fit_segments_to_slots(segments, video_duration, job_id, voice, target_language, temp_paths, model):
-    """Make each voice line last about as long as the original speech of its scene, by rewriting the SCRIPT:
-    too long -> shortened, too short -> lengthened with faithful detail (no dead air). Voice speed is only the last
-    resort and is handled by the timeline. Dead air the SOURCE really has is kept: the target is the speech length.
+def _slot_bounds(segments, i, video_duration):
+    sg = segments[i]
+    nxt = segments[i + 1]["start"] if i + 1 < len(segments) else video_duration
+    slot = max(nxt - sg["start"], 0.4)
+    speech = min(sg["end"] - sg["start"], slot) if sg.get("end") else slot
+    return max(slot - BREATH, 0.4), max(speech - BREATH, 0.4)   # (must not run into next line, as long as the speaker)
 
-    Built for speed: ALL lines that need it go to the LLM in one request per ~20 lines (not one request per line),
-    each rewrite is checked with the duration model before any voice is paid for (bad ones are re-asked, text only),
-    and the accepted rewrites are voiced together in batched TTS requests."""
-    def bounds(i):
-        sg = segments[i]
-        nxt = segments[i + 1]["start"] if i + 1 < len(segments) else video_duration
-        slot = max(nxt - sg["start"], 0.4)
-        speech = min(sg["end"] - sg["start"], slot) if sg.get("end") else slot
-        return max(slot - BREATH, 0.4), max(speech - BREATH, 0.4)   # (must not run into next line, as long as the speaker)
 
-    def plan(i):
-        upper, want = bounds(i)
-        dur = segments[i]["audio_dur"]
-        if dur > upper * 1.05:
-            return "shorten", upper * 0.95
-        if dur < want * FIT_FILL and want - dur >= FIT_MIN_GAP:
-            return "lengthen", want
-        return None
+def _plan(dur, upper, want, lengthen=True):
+    if dur > upper * 1.05:
+        return "shorten", upper * 0.95
+    if lengthen and dur < want * FIT_FILL and want - dur >= FIT_MIN_GAP:
+        return "lengthen", want
+    return None
 
+
+def _rewrite_lines(segments, todo, model, language, job_id):
+    """todo: {index: (mode, target seconds)}. Asks the LLM for all of them in bulk (~20 lines per request) and checks
+    every answer with the duration model; answers that miss the target are re-asked once (text only, no voice).
+    Returns {index: new text}."""
     def target_chars(text, seconds):
         syll = max((seconds - model["b"]) / model["a"], 1.0)
         return max(4, int(syll * len(text) / max(duration_model.syllables(text), 1)))
 
+    current = {i: segments[i]["translated_text"] for i in todo}
+    pending = dict(todo)
+    for _ask in range(2):
+        items = [{"id": i, "source": segments[i].get("source_text", ""), "current": current[i], "mode": mode,
+                  "target_chars": target_chars(current[i], tgt)} for i, (mode, tgt) in pending.items()]
+        result = fit_text.rewrite_many(items, language)
+        check_cancelled(job_id)
+        pending = {}
+        for i, (mode, tgt) in todo.items():
+            new = result.get(i)
+            if not new:
+                continue
+            current[i] = new
+            pred = duration_model.predict(new, model)
+            if abs(pred - tgt) > 0.15 * tgt:
+                pending[i] = ("shorten" if pred > tgt else "lengthen", tgt)
+        if not pending:
+            break
+    return current
+
+
+def prefit_segments(segments, video_duration, job_id, target_language, model):
+    """BEFORE any voice is made: shorten lines the duration model predicts will overrun their scene. Most lines
+    then need only one voice request instead of two. (Lengthening waits for real voice lengths: too risky to guess.)"""
+    todo = {}
+    for i, sg in enumerate(segments):
+        upper, want = _slot_bounds(segments, i, video_duration)
+        plan = _plan(duration_model.predict(sg["translated_text"], model), upper, want, lengthen=False)
+        if plan:
+            todo[i] = plan
+    print(f"  pre-fit: {len(todo)} of {len(segments)} lines predicted too long for their scene", flush=True)
+    if not todo:
+        return
+    new = _rewrite_lines(segments, todo, model, target_language, job_id)
+    kept = 0
+    for i in todo:
+        if new[i] != segments[i]["translated_text"] and duration_model.predict(new[i], model) < duration_model.predict(
+                segments[i]["translated_text"], model):
+            segments[i]["translated_text"] = new[i]
+            kept += 1
+    print(f"  pre-fit: {kept} lines shortened before voicing", flush=True)
+
+
+def fit_segments_to_slots(segments, video_duration, job_id, voice, target_language, temp_paths, model):
+    """AFTER voicing, with real lengths: make each voice line last about as long as the original speech of its scene,
+    by rewriting the SCRIPT: too long -> shortened, too short -> lengthened with faithful detail (no dead air).
+    Voice speed is only the last resort and is handled by the timeline. Dead air the SOURCE really has is kept.
+
+    Built for speed: lines go to the LLM in bulk, each rewrite is checked with the duration model before any voice is
+    paid for, and accepted rewrites are voiced together in batched TTS requests."""
     for round_no in range(FIT_ROUNDS):
-        todo = {i: plan(i) for i in range(len(segments)) if plan(i)}
+        todo = {}
+        for i in range(len(segments)):
+            upper, want = _slot_bounds(segments, i, video_duration)
+            plan = _plan(segments[i]["audio_dur"], upper, want)
+            if plan:
+                todo[i] = plan
         if not todo:
             break
         set_job(job_id, stage=f"Fitting lines to their scenes (round {round_no + 1}/{FIT_ROUNDS}): {len(todo)} lines",
                 progress=62 + round_no * 3)
         print(f"  fit round {round_no + 1}: {len(todo)} of {len(segments)} lines need rewriting", flush=True)
-        current = {i: segments[i]["translated_text"] for i in todo}
-        pending = dict(todo)
-        for _ask in range(2):   # LLM rounds, verified by the duration model (cheap) before any voice request
-            items = [{"id": i, "source": segments[i].get("source_text", ""), "current": current[i], "mode": mode,
-                      "target_chars": target_chars(current[i], tgt)} for i, (mode, tgt) in pending.items()]
-            result = fit_text.rewrite_many(items, target_language)
-            check_cancelled(job_id)
-            pending = {}
-            for i, (mode, tgt) in todo.items():
-                new = result.get(i)
-                if i not in result or not new:
-                    continue
-                current[i] = new
-                pred = duration_model.predict(new, model)
-                if abs(pred - tgt) > 0.15 * tgt:
-                    pending[i] = ("shorten" if pred > tgt else "lengthen", tgt)
-            if not pending:
-                break
-        # only voice rewrites the model expects to be an improvement
-        voiced = []
+        current = _rewrite_lines(segments, todo, model, target_language, job_id)
+        voiced = []   # only voice rewrites the model expects to be an improvement
         for i, (mode, tgt) in todo.items():
             if current[i] == segments[i]["translated_text"]:
                 continue
@@ -346,8 +379,8 @@ def fit_segments_to_slots(segments, video_duration, job_id, voice, target_langua
         durs = voice_many([current[i] for i in voiced], paths, voice, model, job_id, prog)
         changed = 0
         for i, path, new_dur in zip(voiced, paths, durs):
-            mode, tgt = todo[i]
-            upper, want = bounds(i)
+            mode, _tgt = todo[i]
+            upper, want = _slot_bounds(segments, i, video_duration)
             dur = segments[i]["audio_dur"]
             better = (new_dur < dur) if mode == "shorten" else (
                 new_dur > dur and new_dur <= upper * 1.05 and abs(new_dur - want) < abs(dur - want))
@@ -447,6 +480,13 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                     print(f"  {name} transcribe/translate failed ({exc}); trying {order[i + 1]}", flush=True)
         segments.sort(key=lambda s: s["start"])
 
+        # 3b. Shorten lines that will not fit their scene BEFORE paying for any voice.
+        voice_model = dict(edit["voice_model"]) if edit and edit.get("voice_model") else dict(duration_model.DEFAULT)
+        if p["fit_translation"] and fit_available() and not edit:
+            set_job(job_id, stage="Shortening long lines to fit their scenes", progress=33)
+            with pipeline_stage("Pre-fit Translation"):
+                prefit_segments(segments, video_duration, job_id, p["target_language"], voice_model)
+
         # 4. Voice-over.
         with pipeline_stage(f"Voiceover ({tts_provider()})"):
             if tts_provider() == "gemini":
@@ -458,7 +498,6 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                 set_job(job_id, stage=f"Voice-over {done[0]}/{len(segments)}",
                         progress=35 + int(25 * done[0] / len(segments)))
 
-            voice_model = dict(edit["voice_model"]) if edit and edit.get("voice_model") else dict(duration_model.DEFAULT)
             todo, paths = [], {}   # lines that really need the voice: unchanged lines come from the clip cache
             for i, sg in enumerate(segments):
                 path = os.path.join(OUTPUT_DIR, f"voice_{job_id}_{i + 1}{audio_ext()}")

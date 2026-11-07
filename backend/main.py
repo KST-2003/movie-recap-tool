@@ -21,6 +21,18 @@ from common import media_duration, tts_provider
 from db import Job, Session, User, active_jobs, used_seconds_today
 from voices import VOICES, VOICE_NAMES
 
+import logging
+
+
+class _QuietPolling(logging.Filter):
+    """The page polls /api/jobs/<id> every 1.5 s; those lines bury everything useful in the terminal."""
+    def filter(self, record):
+        msg = record.getMessage()
+        return not ("GET /api/jobs/" in msg and '" 200' in msg)
+
+
+logging.getLogger("uvicorn.access").addFilter(_QuietPolling())
+
 app = FastAPI(title="RedNote Video Recap Backend", version="3.0.0")
 app.add_middleware(
     CORSMiddleware,
@@ -47,8 +59,25 @@ def _cleanup_loop():
         time.sleep(3600)
 
 
+def _fail_orphaned_jobs():
+    """Jobs run in this process when there is no Redis queue, so a restart kills them. Without this they stay
+    'running' forever and count against the user's active-job limit."""
+    from config import QUEUE_MODE
+    if QUEUE_MODE != "inline":
+        return  # with RQ the jobs live in Redis and the workers keep running
+    with Session() as s:
+        stuck = s.execute(select(Job).where(Job.status.in_(("queued", "running")))).scalars().all()
+        for job in stuck:
+            job.status, job.stage, job.charged_seconds = "error", "Interrupted", 0.0
+            job.error = "The server was restarted while this video was processing. Please upload it again."
+        s.commit()
+        if stuck:
+            print(f"[startup] marked {len(stuck)} interrupted job(s) as failed", flush=True)
+
+
 @app.on_event("startup")
 def _startup():
+    _fail_orphaned_jobs()
     if storage.BACKEND == "local":
         threading.Thread(target=_cleanup_loop, daemon=True).start()
 

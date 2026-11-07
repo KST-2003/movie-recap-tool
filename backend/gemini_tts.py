@@ -24,7 +24,7 @@ def _get_client():
         # attempts=1: the SDK's own retry can sleep for the server's whole "retry in 16h" hint and look like a hang.
         # We retry transient errors ourselves (short, bounded) and fail fast on quota errors.
         _client = genai.Client(http_options=types.HttpOptions(
-            timeout=int(os.getenv("GEMINI_HTTP_TIMEOUT_MS", "120000")),
+            timeout=int(os.getenv("GEMINI_HTTP_TIMEOUT_MS", "60000")),
             retry_options=types.HttpRetryOptions(attempts=1)))  # reads GEMINI_API_KEY / GOOGLE_API_KEY
     return _client
 
@@ -54,5 +54,6 @@ def synthesize_to_file(text: str, path: str, voice: str | None = None, retries: 
                 transient = False
             if not transient or attempt == retries - 1:
                 break
+            print(f"  Gemini TTS slow/busy ({exc.__class__.__name__}: {str(exc)[:120]}); retry {attempt + 1}/{retries - 1}", flush=True)
             time.sleep(2 * (attempt + 1))
     raise RuntimeError(f"Gemini TTS failed: {last}") from last
