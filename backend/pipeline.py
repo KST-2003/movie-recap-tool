@@ -177,8 +177,16 @@ def set_job(job_id: str, **fields):
         raise JobCancelled(job_id)
 
 
+JOB_HARD_LIMIT = float(os.getenv("JOB_HARD_LIMIT_SECONDS", "720"))   # a job that runs longer than this fails cleanly
+_job_started: dict[str, float] = {}
+
+
 def check_cancelled(job_id: str):
-    """Cheap DB look so long loops stop spending TTS/CPU after Cancel."""
+    """Cheap DB look so long loops stop spending TTS/CPU after Cancel (or once the hard time limit has passed)."""
+    started = _job_started.get(job_id)
+    if started and time.time() - started > JOB_HARD_LIMIT:
+        raise RuntimeError(f"This video took longer than {JOB_HARD_LIMIT / 60:.0f} minutes (Gemini was slow or busy). "
+                           "Please try again; nothing was charged.")
     with Session() as sess:
         job = sess.get(Job, job_id)
         if job is not None and job.status == "cancelled":
@@ -288,7 +296,7 @@ def _plan(dur, upper, want, lengthen=True):
     return None
 
 
-def _rewrite_lines(segments, todo, model, language, job_id):
+def _rewrite_lines(segments, todo, model, language, job_id, time_left=None):
     """todo: {index: (mode, target seconds)}. Asks the LLM for all of them in bulk (~20 lines per request) and checks
     every answer with the duration model; answers that miss the target are re-asked once (text only, no voice).
     Returns {index: new text}."""
@@ -312,7 +320,7 @@ def _rewrite_lines(segments, todo, model, language, job_id):
             pred = duration_model.predict(new, model)
             if abs(pred - tgt) > 0.15 * tgt:
                 pending[i] = ("shorten" if pred > tgt else "lengthen", tgt)
-        if not pending:
+        if not pending or (time_left and time_left() < 60):
             break
     return current
 
@@ -332,7 +340,7 @@ def prefit_segments(segments, video_duration, job_id, target_language, model, ti
     if time_left and time_left() < 45:
         print("  pre-fit skipped: time budget", flush=True)
         return
-    new = _rewrite_lines(segments, todo, model, target_language, job_id)
+    new = _rewrite_lines(segments, todo, model, target_language, job_id, time_left)
     kept = 0
     for i in todo:
         if new[i] != segments[i]["translated_text"] and duration_model.predict(new[i], model) < duration_model.predict(
@@ -364,7 +372,7 @@ def fit_segments_to_slots(segments, video_duration, job_id, voice, target_langua
         set_job(job_id, stage=f"Fitting lines to their scenes (round {round_no + 1}/{FIT_ROUNDS}): {len(todo)} lines",
                 progress=62 + round_no * 3)
         print(f"  fit round {round_no + 1}: {len(todo)} of {len(segments)} lines need rewriting", flush=True)
-        current = _rewrite_lines(segments, todo, model, target_language, job_id)
+        current = _rewrite_lines(segments, todo, model, target_language, job_id, time_left)
         voiced = []   # only voice rewrites the model expects to be an improvement
         for i, (mode, tgt) in todo.items():
             if current[i] == segments[i]["translated_text"]:
@@ -405,6 +413,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
     srt_filename = f"recap_output_{job_id}.srt"
     output_path = os.path.join(OUTPUT_DIR, output_filename)
     t0 = time.time()
+    _job_started[job_id] = t0
     temp_paths: list[str] = []
     bg_state: dict = {}
     bg_thread = None
@@ -482,6 +491,8 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                 "gemini": lambda: gemini_dub.dub(video_path, p["target_language"], retries=2, scene_cuts=scene_cut_times),
             }
             order = [primary] + [n for n in ("elevenlabs", "gemini", "local") if n != primary]  # local last: slow, weakest Burmese
+            if os.getenv("DUB_FALLBACK", "").lower() not in ("1", "true"):
+                order = [primary]  # fail fast: ElevenLabs costs credits and the local model takes many minutes
             if not os.getenv("ELEVENLABS_API_KEY"):
                 order = [n for n in order if n != "elevenlabs"]
             if edit:
@@ -644,6 +655,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
         print(f"[job {job_id}] FAILED: {exc}", flush=True)
         update_job(job_id, status="error", error=f"Recap generation failed: {exc}")
     finally:
+        _job_started.pop(job_id, None)
         if bg_thread:
             bg_thread.join(timeout=5)
             cleanup_separation(OUTPUT_DIR, job_id)

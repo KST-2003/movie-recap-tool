@@ -193,3 +193,5 @@ Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user 
   step checklist + elapsed timer + upload progress.
 - 2026-11-07 (night 2): pre-fit shortening before voice, TTS timeout 60 s + visible retries, orphaned jobs cleaned on startup, quiet polling logs.
 - 2026-11-07 (night 3): time budget + skip of optional fitting, bench_10min.py (local floor 95 s for 10 min), LLM rewrite parallelism 8.
+- 2026-11-07 (night 4): hard job limit (`JOB_HARD_LIMIT_SECONDS`=720, fails cleanly, refunded), no silent ElevenLabs/local fallback unless
+  `DUB_FALLBACK=1`, second LLM ask skipped when budget is low.
