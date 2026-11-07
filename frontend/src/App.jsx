@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import Editor from './Editor.jsx';
+import VoiceLibrary from './VoiceLibrary.jsx';
 import { LangSwitch, useI18n } from './i18n.jsx';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
@@ -125,6 +126,7 @@ function App() {
   const [voiceType, setVoiceType] = useState('Kore');
   const [voices, setVoices] = useState([]);
   const [looks, setLooks] = useState([]);
+  const [showLibrary, setShowLibrary] = useState(false);
   const [voiceGender, setVoiceGender] = useState('female');
   const [playing, setPlaying] = useState(null);
   const audioRef = useRef(null);
@@ -351,6 +353,10 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white p-6 font-sans">
+      {showLibrary && (
+        <VoiceLibrary voices={voices} looks={looks} selected={voiceType} playing={playing} onPlay={playSample}
+          onSelect={(v) => { setVoiceType(v.name); setVoiceGender(v.gender); }} onClose={() => setShowLibrary(false)} apiBase={API_BASE} />
+      )}
       <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl">
         
         {/* Header */}
@@ -418,7 +424,7 @@ function App() {
               <p className="text-xs text-slate-400">{tr('No voice samples available: the default voice will be used.')}</p>
             )}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              {voices.filter((v) => v.gender === voiceGender).map((v) => (
+              {[...voices.filter((v) => v.gender === voiceGender).slice(0, 4), ...voices.filter((v) => v.gender === voiceGender).slice(4).filter((v) => v.name === voiceType)].map((v) => (
                 <div
                   key={v.name}
                   className={`p-2 rounded-xl border transition-all ${
@@ -442,26 +448,9 @@ function App() {
                 </div>
               ))}
             </div>
-            {looks.length > 0 && (
-              <details className="mt-4">
-                <summary className="cursor-pointer text-sm font-semibold text-purple-200">{tr('Character looks: babies, old people, monsters, animals, robots… (samples)')}</summary>
-                <p className="text-xs text-slate-400 mt-2">{tr('Samples of what Gemini can do with one voice plus a performance instruction. Listen here; choosing them for a character is coming next.')}</p>
-                {['age', 'creature', 'machine', 'animal', 'mood'].map((g) => (
-                  <div key={g} className="mt-3">
-                    <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">{tr(g)}</div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                      {looks.filter((l) => l.group === g).map((l) => (
-                        <button key={l.id} type="button" onClick={() => playSample({ name: `look:${l.id}`, sample_url: l.sample_url })}
-                          className="p-2 rounded-xl border border-slate-800 bg-slate-800/50 hover:bg-slate-800 text-left">
-                          <span className="font-semibold text-sm block">{playing === `look:${l.id}` ? '■ ' : '▶ '}{tr(l.label)}</span>
-                          <span className="text-xs text-slate-400">{l.voice}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </details>
-            )}
+            <button type="button" onClick={() => setShowLibrary(true)} className="mt-3 w-full py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm text-purple-200">
+              {tr('See more voices ({n}) · search & categories →', { n: voices.length + looks.length })}
+            </button>
           </div>
 
           {/* Feature Toggles (Checkboxes) */}
