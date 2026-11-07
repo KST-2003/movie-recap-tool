@@ -158,6 +158,7 @@ Upload form: **Recap video** (one narrator voice, as before) or **Full movie / d
   audio's pitch (film music/effects make it unreliable: hero measured 184 Hz). Only 12 of ~70 emotional lines get a direction (cap) - grouping same-emotion lines per request is the open idea.
   Tests: `test_voice_fixes.py`.
 Editor (night 10): each character has its own colour (timeline subtitle blocks, badges, line speaker select) and a 🔊 sample button next to its voice.
+Editor (night 10c): selected line has one-click character chips (change ONE line's character; the character itself stays), character rows show live line counts, "move all lines to…" shows the chosen target, a hint says changes need Apply. Changing a character/voice always needs a TTS request for the changed lines (other voice = new audio); an instant preview button (1 request, clip cached for Apply) is NOT built yet.
 Not done: per-line speaker change re-casts only on re-render; no voice preview per character; emotion quality unverified; Demucs path unchanged/untested here.
 
 ### Progress UI
@@ -274,3 +275,4 @@ Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user 
 - 2026-11-07 (night 9b): subtitle blur only while the source subtitle is on screen; stricter watermark detection (no more blurred empty corners).
 - 2026-11-07 (night 10): mislabel merge (system-panel lines no longer a female character), emotion pitch-drift guard, age-aware voice casting.
 - 2026-11-07 (night 10b): editor: colour per character on the timeline, voice sample button per character.
+- 2026-11-07 (night 10c): editor: per-line character chips, live counts, move-all select value, apply hint.

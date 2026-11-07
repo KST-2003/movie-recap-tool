@@ -50,6 +50,8 @@ export default function Editor({ project, videoRef, busy, onApply, voices = [], 
   const subsOnly = project.output === 'subtitles';
   const colorOf = (sid) => (sid && speakerIds.includes(sid) ? PALETTE[speakerIds.indexOf(sid) % PALETTE.length] : PALETTE[0]);
   const [speakerVoices, setSpeakerVoices] = useState(() => Object.fromEntries(speakerIds.map((s) => [s, project.speakers[s].voice])));
+  const [movedTo, setMovedTo] = useState({}); // character -> character its lines were moved to (shown in the 'move all lines' select)
+  const liveCount = (sid) => lines.filter((l) => l.speaker === sid).length;
   const voicesChanged = speakerIds.some((s) => speakerVoices[s] !== project.speakers[s].voice);
   const dirty = JSON.stringify(lines) !== JSON.stringify(initial) || voicesChanged;
 
@@ -263,9 +265,9 @@ export default function Editor({ project, videoRef, busy, onApply, voices = [], 
           <p className="text-xs text-slate-400 mb-2">{tr("Characters: each keeps one voice for the whole film. Change a voice, then re-render (only that character's lines are re-voiced).")}</p>
           <div className="flex flex-wrap gap-3">
             {speakerIds.map((sid) => (
-              <label key={sid} className="flex items-center gap-2 text-xs text-slate-300">
+              <label key={sid} className={`flex items-center gap-2 text-xs text-slate-300 ${liveCount(sid) === 0 ? 'opacity-50' : ''}`}>
                 <span className="px-1.5 py-0.5 rounded text-white font-semibold" style={{ backgroundColor: colorOf(sid) }}>{sid}</span>
-                <span className="text-slate-500">{project.speakers[sid].gender !== 'unknown' ? tr(project.speakers[sid].gender) : ''} · {tr('{n} lines', { n: project.speakers[sid].lines })}</span>
+                <span className="text-slate-500">{project.speakers[sid].gender !== 'unknown' ? tr(project.speakers[sid].gender) : ''} · {tr('{n} lines', { n: liveCount(sid) })}</span>
                 <select
                   value={speakerVoices[sid]} onChange={(ev) => setSpeakerVoices({ ...speakerVoices, [sid]: ev.target.value })}
                   className="rounded-lg bg-slate-900 border border-slate-700 px-2 py-1 text-xs"
@@ -284,12 +286,17 @@ export default function Editor({ project, videoRef, busy, onApply, voices = [], 
                 })()}
                 {speakerIds.length > 1 && (
                   <select
-                    value="" title={tr('Same person as another character? Give all these lines to that character.')}
-                    onChange={(ev) => ev.target.value && setLines(lines.map((l) => (l.speaker === sid ? { ...l, speaker: ev.target.value } : l)))}
+                    value={liveCount(sid) === 0 ? (movedTo[sid] || '') : ''} title={tr('Same person as another character? Give all these lines to that character.')}
+                    onChange={(ev) => {
+                      const to = ev.target.value;
+                      if (!to) return;
+                      setLines(lines.map((l) => (l.speaker === sid ? { ...l, speaker: to } : l)));
+                      setMovedTo({ ...movedTo, [sid]: to });
+                    }}
                     className="rounded-lg bg-slate-900 border border-slate-700 px-2 py-1 text-xs text-slate-400"
                   >
-                    <option value="">{tr('merge into…')}</option>
-                    {speakerIds.filter((o) => o !== sid && lines.some((l) => l.speaker === o)).map((o) => <option key={o} value={o}>{o}</option>)}
+                    <option value="">{tr('move all lines to…')}</option>
+                    {speakerIds.filter((o) => o !== sid && (lines.some((l) => l.speaker === o) || movedTo[sid] === o)).map((o) => <option key={o} value={o}>{o}</option>)}
                   </select>
                 )}
               </label>
@@ -305,9 +312,14 @@ export default function Editor({ project, videoRef, busy, onApply, voices = [], 
             <div className="flex items-center gap-2 text-xs mb-2">
               <span className="text-slate-400">{tr('Line {n} · {time} · slot {s}s', { n: index + 1, time: fmt(sel.start), s: selSlot.toFixed(1) })}</span>
               {speakerIds.length > 0 && (
-                <select value={sel.speaker || ''} onChange={(ev) => patch(sel.key, { speaker: ev.target.value || null })} className="rounded border border-slate-700 px-1 py-0.5 text-xs text-white" style={{ backgroundColor: colorOf(sel.speaker) }} title={tr('Which character says this line')}>
-                  {speakerIds.map((sid) => <option key={sid} value={sid}>{sid}</option>)}
-                </select>
+                <span className="flex items-center gap-1" title={tr('Which character says this line')}>
+                  {speakerIds.map((sid) => (
+                    <button key={sid} type="button" onClick={() => patch(sel.key, { speaker: sid })}
+                      title={`${sid}: ${speakerVoices[sid]}`}
+                      className={`w-6 h-6 rounded-md text-[11px] font-semibold text-white ${sel.speaker === sid ? 'ring-2 ring-white' : 'opacity-50 hover:opacity-100'}`}
+                      style={{ backgroundColor: colorOf(sid) }}>{sid}</button>
+                  ))}
+                </span>
               )}
               {meta[sel.key]?.emotion && meta[sel.key].emotion !== 'neutral' && <span className="text-amber-300">{tr(meta[sel.key].emotion)}</span>}
               {!subsOnly && <span className={`ml-auto ${tone}`} title={tr('Predicted from the text, no voice request needed')}>{tr('≈ {s}s voice · {note}', { s: selVoice.toFixed(1), note: fitNote })}</span>}
@@ -343,8 +355,9 @@ export default function Editor({ project, videoRef, busy, onApply, voices = [], 
           {busy ? tr('Re-rendering…') : tr('Apply changes & re-render')}
         </button>
         {dirty && !busy && (
-          <button type="button" onClick={() => { setLines(initial); setSelected(initial[0]?.key ?? null); setSpeakerVoices(Object.fromEntries(speakerIds.map((s) => [s, project.speakers[s].voice]))); }} className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm">{tr('Reset')}</button>
+          <button type="button" onClick={() => { setLines(initial); setSelected(initial[0]?.key ?? null); setSpeakerVoices(Object.fromEntries(speakerIds.map((s) => [s, project.speakers[s].voice]))); setMovedTo({}); }} className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm">{tr('Reset')}</button>
         )}
+        {dirty && !busy && <span className="self-center text-xs text-amber-300">{tr('Not applied yet: press "Apply changes & re-render" to hear it.')}</span>}
         <span className="self-center text-xs text-slate-500">{tr('Only changed lines are re-voiced. Estimated length ≈ {t}.', { t: fmt(total) })}</span>
       </div>
     </fieldset>
