@@ -144,6 +144,11 @@ Upload form: **Recap video** (one narrator voice, as before) or **Full movie / d
   chunk then labels lines with those ids (`apply_diarization(trust_labels=True)`). `SPEAKER_MODE=unify` = old per-chunk labels merged by one text request. Measured on
   samples/recap.mp4 (2 runs each): run-to-run agreement of who-is-who 0.919 roster vs 0.887 unify, +~20 s. `merge_minor_speakers` never merges across genders.
   Not verified by ear on a long film; remaining causes: wrong gender/identity from Gemini, mid-job TTS model switch. Fix by hand in the editor (merge into / voice per character).
+- **Blur only where there is something to blur (2026-11-07 night 9)**: the source-subtitle blur is now time-gated. After the band is found, `subtitle_detect.subtitle_windows`
+  scans ONLY the band (ffmpeg crop, 1 sample per max(0.5 s, length/700), 8 band images stacked per detector call, detection only): 502 s video = 8.7 s. The windows
+  (source seconds, stored in `project.fx.subtitle_windows`, reused by editor re-renders) become an `enable=between(t,..)` on the blur overlay, applied to the SOURCE
+  stream before it is cut into scenes (`recap_engine._render_single`, `pre_blur`). Watermark rule tightened (small box <= 45% x 12%, stable text in >= 60% of frames,
+  confidence >= 0.8): wide strips of texture were being blurred as "watermarks". `test_blur_windows.py` checks it offline. Not handled: watermarks that jump around.
 Not done: per-line speaker change re-casts only on re-render; no voice preview per character; emotion quality unverified; Demucs path unchanged/untested here.
 
 ### Progress UI
@@ -257,3 +262,4 @@ Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user 
 - 2026-11-07 (night 8): voice content_blocked ladder + silent-line fallback, optional steps can't fail the job, `JobTooSlow` stays fatal.
 - 2026-11-07 (night 9): whole-film speaker roster pass for stable character voices; app language setting Myanmar/English (`frontend/src/i18n.jsx`: `tr()` for UI text,
   `trs()` for server texts via regex table; choice kept in localStorage; Burmese wording AI-written, needs native review; new UI strings must be added to `MY` there).
+- 2026-11-07 (night 9b): subtitle blur only while the source subtitle is on screen; stricter watermark detection (no more blurred empty corners).

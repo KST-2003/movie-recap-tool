@@ -30,7 +30,7 @@ from fit_text import available as fit_available
 from scene_cuts import detect_cuts
 from recap_engine import (BREATH, EffectOptions, SyncOptions, has_audio, plan_source_timing, plan_timeline, probe_video,
                           render, write_srt)
-from subtitle_detect import detect_text_regions, to_pixels
+from subtitle_detect import detect_text_regions, subtitle_windows, to_pixels
 
 
 class ElevenLabsRateLimited(RuntimeError):
@@ -531,6 +531,8 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
             fx = edit.get("fx") or {}
             if fx.get("subtitle_rect"):
                 fx_kwargs["subtitle_rect"] = tuple(fx["subtitle_rect"])
+            if fx.get("subtitle_windows") is not None:
+                fx_kwargs["subtitle_windows"] = [tuple(w) for w in fx["subtitle_windows"]]
             fx_kwargs["watermark_rects"] = [tuple(r) for r in fx.get("watermark_rects", [])]
             if fx.get("caption_px"):
                 fx_kwargs["caption_px"] = int(fx["caption_px"])
@@ -546,6 +548,11 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                     fx_kwargs["watermark_rects"] = [
                         to_pixels(r, info["width"], info["height"], 0.01, 0.005) for r in found["watermarks"]
                     ]
+                    if found["subtitle"] and p["blur_subtitles"]:   # blur only while a subtitle is really there
+                        wins = subtitle_windows(video_path, video_duration, found["subtitle"])
+                        if wins is not None:
+                            fx_kwargs["subtitle_windows"] = wins
+                            print(f"  subtitle on screen in {len(wins)} windows ({sum(b - a for a, b in wins):.0f}s of {video_duration:.0f}s)", flush=True)
                     print(f"  subtitles: {found['subtitle']}  watermarks: {len(found['watermarks'])}", flush=True)
                 except Exception as exc:  # OCR unavailable: fall back to the classic lower-third strip
                     print(f"  detection failed ({exc}); using fixed lower-third", flush=True)
@@ -808,7 +815,8 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
             "speakers": speakers,
             "fx": {"subtitle_rect": list(fx_kwargs["subtitle_rect"]) if fx_kwargs.get("subtitle_rect") else None,
                    "caption_px": fx_kwargs.get("caption_px"),
-                   "watermark_rects": [list(r) for r in fx_kwargs.get("watermark_rects", [])]},
+                   "watermark_rects": [list(r) for r in fx_kwargs.get("watermark_rects", [])],
+                   "subtitle_windows": [list(w) for w in fx_kwargs["subtitle_windows"]] if fx_kwargs.get("subtitle_windows") is not None else None},
             "segments": [
                 {"id": i, "start": round(sg["start"], 2), "text": sg["translated_text"],
                  "source_text": sg.get("source_text", ""), "tempo": sg.get("tempo"),

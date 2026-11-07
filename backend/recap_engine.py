@@ -50,6 +50,7 @@ class EffectOptions:
     captions: bool = True
     subtitle_rect: tuple | None = None  # pixel (x, y, w, h) of detected source subtitles; None = nothing to blur
     watermark_rects: list = field(default_factory=list)  # detected static-text watermarks, pixel rects
+    subtitle_windows: list | None = None  # [(start, end)] SOURCE seconds when the source subtitle is really on screen; None = blur the band all the time
     background_path: str | None = None  # separated music/effects track to keep under the new voice
     background_volume: float = 0.35
     duck_background: bool = False     # lower the background track while the new voice speaks (sidechain compression)
@@ -377,12 +378,16 @@ def probe_video(path: str) -> dict:
             "fps": float(num) / float(den or 1), "duration": float(info["format"]["duration"])}
 
 
-def _blur_region(rect, src: str, name: str) -> str:
+def _blur_region(rect, src: str, name: str, windows: list | None = None) -> str:
+    """Blur `rect`; with `windows` [(a, b)] only while the stream time t is inside one of them."""
     x, y, w, h = rect
     r = max(1, min(int(min(w, h) / 4) - 1, 30))  # chroma planes are half size
+    enable = ""
+    if windows is not None:
+        enable = ":enable='" + ("+".join(f"between(t,{a:.2f},{b:.2f})" for a, b in windows) or "0") + "'"
     return (f"[{src}]split=2[{name}_m][{name}_s];"
             f"[{name}_s]crop={w}:{h}:{x}:{y},boxblur={r}:2[{name}_b];"
-            f"[{name}_m][{name}_b]overlay={x}:{y}[{name}_o]")
+            f"[{name}_m][{name}_b]overlay={x}:{y}{enable}[{name}_o]")
 
 
 _LOGO_POS = {
@@ -433,8 +438,15 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
     # 1. Retime every scene to its voice-over, then join.
     afmt = "aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=" + ("stereo" if fx.source_audio else "mono")
     labels = []
+    # Source subtitle blurred only while it is on screen: blur the SOURCE stream (source time) before it is cut into scenes.
+    pre_blur = bool(fx.blur_subtitles and fx.subtitle_rect and fx.subtitle_windows is not None)
+    if pre_blur:
+        local = [(max(a - src_offset, 0.0), b - src_offset) for a, b in fx.subtitle_windows if b - src_offset > 0]
+        f.append(_blur_region(fx.subtitle_rect, "0:v", "bs", local))
+        f.append(f"[bs_o]split={len(scenes)}" + "".join(f"[sv{n}]" for n in range(len(scenes))) if len(scenes) > 1
+                 else "[bs_o]null[sv0]")
     for n, sc in enumerate(scenes):
-        v = f"[0:v]trim=start={sc.src_start:.3f}:end={sc.src_end:.3f},setpts=(PTS-STARTPTS)/{sc.video_speed:.5f},fps={fps:.3f}"
+        v = f"[{'sv' + str(n) if pre_blur else '0:v'}]trim=start={sc.src_start:.3f}:end={sc.src_end:.3f},setpts=(PTS-STARTPTS)/{sc.video_speed:.5f},fps={fps:.3f}"
         if sc.freeze > 0.001:
             v += f",tpad=stop_mode=clone:stop_duration={sc.freeze:.3f}"
         f.append(f"{v}[v{n}]")
@@ -478,7 +490,7 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
         cur = name
 
     # 2. Effects, then captions last so they are never flipped, graded or sped up.
-    if fx.blur_subtitles and fx.subtitle_rect:
+    if fx.blur_subtitles and fx.subtitle_rect and not pre_blur:
         f.append(_blur_region(fx.subtitle_rect, cur, "bs"))
         cur = "bs_o"
     if fx.blur_watermark:
