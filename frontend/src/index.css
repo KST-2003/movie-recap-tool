@@ -6,3 +6,8 @@ body {
   margin: 0;
   background-color: #020617;
 }
+
+/* mobile: nothing may be wider than the screen; long <select> options are cut instead of stretching the page */
+html, body { overflow-x: hidden; }
+select, input, textarea { max-width: 100%; min-width: 0; }
+select { text-overflow: ellipsis; }

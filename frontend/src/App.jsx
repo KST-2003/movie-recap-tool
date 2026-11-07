@@ -516,9 +516,9 @@ function App() {
                 </div>
                 {outputKind === 'dub' && (
                   <>
-                    <label className="flex items-center gap-2">
+                    <label className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                       <span>{tr('Original music & sounds')}</span>
-                      <select value={bgMode} onChange={(e) => setBgMode(e.target.value)} className="rounded-lg bg-slate-900 border border-slate-700 px-2 py-1 text-sm">
+                      <select value={bgMode} onChange={(e) => setBgMode(e.target.value)} className="w-full sm:w-auto min-w-0 sm:max-w-md rounded-lg bg-slate-900 border border-slate-700 px-2 py-1 text-sm">
                         <option value="separate">{tr('Keep music & sound effects, remove the original speech (recommended)')}</option>
                         <option value="original">{tr('Keep everything, lowered (original speech stays faintly audible)')}</option>
                         <option value="off">{tr('Remove all original sound')}</option>

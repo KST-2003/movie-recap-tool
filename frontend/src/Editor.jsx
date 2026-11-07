@@ -265,7 +265,7 @@ export default function Editor({ project, videoRef, busy, onApply, voices = [], 
           <p className="text-xs text-slate-400 mb-2">{tr("Characters: each keeps one voice for the whole film. Change a voice, then re-render (only that character's lines are re-voiced).")}</p>
           <div className="flex flex-wrap gap-3">
             {speakerIds.map((sid) => (
-              <label key={sid} className={`flex items-center gap-2 text-xs text-slate-300 ${liveCount(sid) === 0 ? 'opacity-50' : ''}`}>
+              <label key={sid} className={`flex flex-wrap items-center gap-2 text-xs text-slate-300 ${liveCount(sid) === 0 ? 'opacity-50' : ''}`}>
                 <span className="px-1.5 py-0.5 rounded text-white font-semibold" style={{ backgroundColor: colorOf(sid) }}>{sid}</span>
                 <span className="text-slate-500">{project.speakers[sid].gender !== 'unknown' ? tr(project.speakers[sid].gender) : ''} · {tr('{n} lines', { n: liveCount(sid) })}</span>
                 <select
