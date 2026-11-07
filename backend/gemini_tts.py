@@ -1,7 +1,10 @@
 """Gemini text-to-speech (Google AI Studio API key). Output is a 24 kHz mono WAV file."""
 import base64
+import json
 import os
+import re
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 
 MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-3.8-flash-tts")  # Flash-Lite does not support Burmese
 DEFAULT_VOICE = os.getenv("GEMINI_VOICE", "Kore")
@@ -9,6 +12,45 @@ DEFAULT_VOICE = os.getenv("GEMINI_VOICE", "Kore")
 # Off by default: if the model reads it aloud it would ruin every clip. Compare with test_tts_style.py first.
 STYLE = os.getenv("TTS_STYLE", "").strip()
 _client = None
+BLOCK_FILE = os.path.join(os.getenv("DATA_DIR", "data"), "tts_blocked.json")  # shared by API and worker processes
+
+
+class QuotaExceeded(RuntimeError):
+    """Gemini's daily request limit is used up. Retrying only wastes time: stop the job, refuse new ones."""
+
+
+def blocked_for() -> float:
+    """Seconds until the daily voice limit resets (0 when voice requests may be sent)."""
+    try:
+        with open(BLOCK_FILE) as f:
+            return max(0.0, json.load(f)["until"] - time.time())
+    except Exception:
+        return 0.0
+
+
+def _block(error_text: str):
+    m = re.search(r"retry in (?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?", error_text)
+    secs = (int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60 + int(m.group(3) or 0)) if m else 0
+    try:
+        os.makedirs(os.path.dirname(BLOCK_FILE), exist_ok=True)
+        with open(BLOCK_FILE, "w") as f:
+            json.dump({"until": time.time() + (secs or 3600)}, f)
+    except OSError:
+        pass
+
+
+def quota_message() -> str:
+    left = blocked_for()
+    return (f"The Gemini voice service's daily request limit is used up (resets in about {int(left // 3600)}h "
+            f"{int(left % 3600 // 60)}m). Upgrade the Gemini tier or try again later.")
+# The SDK's own HTTP timeout did not stop a voice request that never answered, so every request runs in a pool thread
+# and we stop waiting after a deadline we control (the hung thread is abandoned; we retry on a fresh one).
+_pool = ThreadPoolExecutor(max_workers=64, thread_name_prefix="tts")
+
+
+def _deadline(text: str) -> float:
+    """Seconds to wait for one request: a few sentences take 10-20 s; scale with length, bounded."""
+    return float(os.getenv("GEMINI_TTS_REQUEST_TIMEOUT", "0")) or min(150.0, 40.0 + len(text) / 15.0)
 
 
 def available() -> bool:
@@ -31,15 +73,24 @@ def _get_client():
 
 def synthesize_to_file(text: str, path: str, voice: str | None = None, retries: int = 3) -> None:
     voice = voice or DEFAULT_VOICE
+    if blocked_for() > 0:
+        raise QuotaExceeded(quota_message())
     last: Exception | None = None
     for attempt in range(retries):
         try:
-            interaction = _get_client().interactions.create(
+            started = time.monotonic()
+            client = _get_client()
+            future = _pool.submit(lambda: client.interactions.create(
                 model=MODEL,
                 input=f"{STYLE}\n\n{text}" if STYLE else text,
                 response_format={"type": "audio"},
                 generation_config={"speech_config": [{"voice": voice}]},
-            )
+            ))
+            try:
+                interaction = future.result(timeout=_deadline(text))
+            except FutureTimeout:
+                raise TimeoutError(f"timeout: no answer from Gemini TTS after {_deadline(text):.0f}s") from None
+            print(f"  TTS ok: {len(text)} chars in {time.monotonic() - started:.1f}s", flush=True)
             audio = interaction.output_audio
             if audio is None or not audio.data:
                 raise RuntimeError("Gemini returned no audio.")
@@ -51,7 +102,8 @@ def synthesize_to_file(text: str, path: str, voice: str | None = None, retries: 
             text_err = err_l = str(exc).lower()
             transient = any(k in text_err for k in ("429", "500", "503", "resource_exhausted", "unavailable", "timeout", "too_many_requests"))
             if "per day" in err_l or "perday" in err_l:  # daily quota: retrying is pointless
-                transient = False
+                _block(str(exc))
+                raise QuotaExceeded(quota_message()) from exc
             if not transient or attempt == retries - 1:
                 break
             print(f"  Gemini TTS slow/busy ({exc.__class__.__name__}: {str(exc)[:120]}); retry {attempt + 1}/{retries - 1}", flush=True)

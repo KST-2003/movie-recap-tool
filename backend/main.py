@@ -211,6 +211,7 @@ def create_job(
         raise HTTPException(status_code=503, detail="We're temporarily not accepting new videos. Please try again later.")
     if not video_file:
         raise HTTPException(status_code=400, detail="No video file provided.")
+    _refuse_if_voice_limit()
     if tts_provider() == "gemini" and voice_type != "su" and voice_type not in VOICE_NAMES:
         raise HTTPException(status_code=400, detail=f"Unknown voice: {voice_type}")
     if tts_provider() == "elevenlabs" and voice_type != "su":
@@ -259,6 +260,14 @@ def create_job(
         raise
     jobs_queue.enqueue(job_id)
     return {"job_id": job_id}
+
+
+def _refuse_if_voice_limit():
+    """Don't accept work (and spend minutes + other quotas) while Gemini's daily voice limit is used up."""
+    if tts_provider() == "gemini":
+        import gemini_tts
+        if gemini_tts.blocked_for() > 0:
+            raise HTTPException(status_code=503, detail=gemini_tts.quota_message())
 
 
 def _file_url(key: str, download: bool) -> str:
@@ -353,6 +362,7 @@ def rerender(job_id: str, body: RerenderBody, user: User = Depends(auth.current_
         if active_jobs(s, user.id) >= MAX_ACTIVE_JOBS_PER_USER:
             raise HTTPException(status_code=429, detail="You already have videos processing. Wait for one to finish.")
     project = ((job.data or {}).get("result") or {}).get("project")
+    _refuse_if_voice_limit()
     if job.status != "done" or not project:
         raise HTTPException(status_code=400, detail="This video can't be edited (finish it first, or it was made before the editor existed).")
     if storage.BACKEND == "local" and not os.path.isfile(job.input_key):

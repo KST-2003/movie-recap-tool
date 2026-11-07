@@ -267,8 +267,8 @@ def voice_many(texts: list[str], paths: list[str], voice: str, model: dict, job_
                 group(idx[:half])
                 group(idx[half:])
                 return
-            except JobCancelled:
-                raise
+            except (JobCancelled, gemini_tts.QuotaExceeded):
+                raise   # cancelled, or the daily limit is used up: more requests would only be refused
             except Exception as exc:
                 print(f"  bulk voice failed ({exc}); using one request each", flush=True)
         for i in idx:
@@ -510,7 +510,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
         # 3b. Shorten lines that will not fit their scene BEFORE paying for any voice.
         voice_model = dict(edit["voice_model"]) if edit and edit.get("voice_model") else dict(duration_model.DEFAULT)
         if p["fit_translation"] and fit_available() and not edit:
-            set_job(job_id, stage="Shortening long lines to fit their scenes", progress=33)
+            set_job(job_id, stage="Shortening long lines to fit their scenes", progress=31)
             with pipeline_stage("Pre-fit Translation"):
                 prefit_segments(segments, video_duration, job_id, p["target_language"], voice_model, time_left)
 
@@ -525,6 +525,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                 set_job(job_id, stage=f"Voice-over {done[0]}/{len(segments)}",
                         progress=35 + int(25 * done[0] / len(segments)))
 
+            set_job(job_id, stage=f"Voice-over 0/{len(segments)}", progress=35)  # show the new step right away
             todo, paths = [], {}   # lines that really need the voice: unchanged lines come from the clip cache
             for i, sg in enumerate(segments):
                 path = os.path.join(OUTPUT_DIR, f"voice_{job_id}_{i + 1}{audio_ext()}")
@@ -649,6 +650,9 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
         )
     except JobCancelled:
         print(f"[job {job_id}] cancelled by the user", flush=True)
+    except gemini_tts.QuotaExceeded as exc:
+        print(f"[job {job_id}] stopped: {exc}", flush=True)
+        update_job(job_id, status="error", error=str(exc))
     except ElevenLabsRateLimited:
         update_job(job_id, status="error", error="ElevenLabs rate-limited this dubbing request. Please retry later.")
     except Exception as exc:

@@ -47,7 +47,8 @@ function AuthScreen({ onAuth }) {
 const STEPS = [
   { label: 'Uploading your video', from: -1, to: 0 },
   { label: 'Finding subtitles and scene cuts', from: 0, to: 10 },
-  { label: 'Transcribing and translating to Burmese', from: 10, to: 35 },
+  { label: 'Transcribing and translating to Burmese', from: 10, to: 30 },
+  { label: 'Shortening long lines to fit their scenes', from: 30, to: 35 },
   { label: 'Generating the Burmese voice-over', from: 35, to: 62 },
   { label: 'Fitting each line to its scene', from: 62, to: 75 },
   { label: 'Rendering the final video', from: 75, to: 100 },
