@@ -133,6 +133,10 @@ class Chooser:
     def get(self) -> str:
         return self.current
 
+    def other(self, model: str) -> str | None:
+        """Another model with requests left (for ONE line whose text `model` refused; the job keeps its own model)."""
+        return next((m for m, _, _ in models() if m != model and remaining(m) > 0), None)
+
     def failed(self, model: str):
         """`model` ran out of requests: switch (raises QuotaExceeded when no model is left)."""
         with self.lock:

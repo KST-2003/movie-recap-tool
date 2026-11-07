@@ -15,6 +15,10 @@ _client = None
 BLOCK_FILE = os.path.join(os.getenv("DATA_DIR", "data"), "tts_blocked.json")  # shared by API and worker processes
 
 
+class ContentBlocked(RuntimeError):
+    """Gemini refused THIS text for a policy reason (400 content_blocked). Retrying the same request is pointless."""
+
+
 class QuotaExceeded(RuntimeError):
     """Gemini's daily request limit is used up. Retrying only wastes time: stop the job, refuse new ones."""
 
@@ -138,6 +142,8 @@ def synthesize_to_file(text: str, path: str, voice: str | None = None, retries: 
             if "per day" in err_l or "perday" in err_l:  # daily quota: retrying is pointless
                 _block(str(exc), model)
                 raise QuotaExceeded(quota_message(model)) from exc
+            if "content_blocked" in err_l or "blocked for an unspecified policy" in err_l or "request blocked" in err_l:
+                raise ContentBlocked(str(exc)[:200]) from exc
             if not transient or attempt == retries - 1:
                 break
             print(f"  Gemini TTS slow/busy ({exc.__class__.__name__}: {str(exc)[:120]}); retry {attempt + 1}/{retries - 1}", flush=True)

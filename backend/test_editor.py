@@ -50,7 +50,7 @@ def fake_dub(path, target, **kw):
 gemini_dub.dub = fake_dub
 calls = []
 real_synth = pipeline.synthesize
-pipeline.synthesize = lambda text, voice, path, chooser=None, style=None: (calls.append(text), real_synth(text, voice, path))[1]
+pipeline.synthesize = lambda text, voice, path, chooser=None, style=None, ladder=True: (calls.append(text), real_synth(text, voice, path))[1]
 
 client = TestClient(app)
 tok = client.post("/api/auth/register", json={"email": "t@example.com", "password": "password123"}).json()["token"]

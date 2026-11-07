@@ -59,6 +59,54 @@ assert len(segs) == 1 and segs[0]["start"] == 0, segs
 assert abs(sum(b - a for a, b in skipped) - 30) < 0.2 and min(a for a, _ in skipped) > 29.9, skipped
 print("refused audio ok: split in halves, first half kept, second half skipped and reported", skipped)
 
+# --- voice service refuses a text (content_blocked): ladder = no emotion -> other model -> milder wording -> silent line
+import gemini_tts  # noqa: E402
+import fit_text  # noqa: E402
+import tts_pool  # noqa: E402
+
+ch = tts_pool.Chooser(5)
+job_model = ch.get()
+attempts_log = []
+
+
+def fake_tts(text, path, voice=None, retries=3, model=None):
+    attempts_log.append((model, text))
+    blocked = (("BADSTYLE" in text and text.startswith("Say "))
+               or ("BADMODEL" in text and model == job_model)
+               or ("BADSOFT" in text)
+               or ("BADALL" in text))
+    if blocked:
+        raise gemini_tts.ContentBlocked("content_blocked")
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=duration=1", path], check=True)
+
+
+real_stf, real_tp, real_soften = gemini_tts.synthesize_to_file, pipeline.tts_provider, fit_text.soften
+gemini_tts.synthesize_to_file, pipeline.tts_provider = fake_tts, (lambda: "gemini")
+fit_text.soften = lambda text, lang: text.replace("BADSOFT", "mild") if "BADSOFT" in text else text
+out = f"{tmp}/blk.wav"
+for text, style in (("BADSTYLE line", "angrily"), ("BADMODEL line", None), ("BADSOFT line", None)):
+    attempts_log.clear()
+    pipeline.synthesize(text, "Puck", out, ch, style)
+    print("  ladder:", text, "->", [(m.split("-")[1] + "-" + m.split("-")[2], t[:18]) for m, t in attempts_log])
+assert ch.get() == job_model, "the job keeps its own model; the other model was used for one line only"
+try:
+    pipeline.synthesize("BADALL line", "Puck", out, ch, None)
+    raise AssertionError("must raise LineBlocked")
+except pipeline.LineBlocked:
+    pass
+try:
+    pipeline.synthesize("BADALL line", "Puck", out, ch, None, ladder=False)
+    raise AssertionError("a group must fail fast")
+except gemini_tts.ContentBlocked:
+    pass
+blocked_list = []
+paths = [f"{tmp}/b0.wav", f"{tmp}/b1.wav"]
+durs = pipeline.voice_many(["fine line", "BADALL line"], paths, "Puck", dict(duration_model_default := {"a": 0.16, "b": 0.7}),
+                           "none", None, ch, None, blocked_list)
+assert blocked_list == [1] and durs[1] >= 0.8 and os.path.getsize(paths[1]) > 0, (blocked_list, durs)
+gemini_tts.synthesize_to_file, pipeline.tts_provider, fit_text.soften = real_stf, real_tp, real_soften
+print("refusal ladder ok: emotion dropped, other model, milder wording, then a silent line instead of a failed job")
+
 # --- an 18 s video with a tone
 video = f"{tmp}/in.mp4"
 subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=s=320x240:r=25:d=18",
@@ -81,7 +129,7 @@ def fake_dub(path, target, **kw):
 gemini_dub.dub = fake_dub
 calls = []
 real_synth = pipeline.synthesize
-pipeline.synthesize = lambda text, voice, path, chooser=None, style=None: (calls.append((voice, style)), real_synth(text, voice, path))[1]
+pipeline.synthesize = lambda text, voice, path, chooser=None, style=None, ladder=True: (calls.append((voice, style)), real_synth(text, voice, path))[1]
 real_provider = pipeline.tts_provider
 
 client = TestClient(app)

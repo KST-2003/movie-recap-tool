@@ -134,6 +134,11 @@ Upload form: **Recap video** (one narrator voice, as before) or **Full movie / d
   emotion directions changing the timbre of a styled line.
 - **Re-render cost (how it works today)**: a re-render skips detection/transcription/pre-fit/fit, voices only changed lines (clip cache), but ffmpeg re-renders the
   WHOLE video (~50 s parallel for 8.5 min). Idea not built: cache rendered ~40 s windows keyed by their content and re-render only the changed windows.
+- **One failure must not fail the film** (action/romance/violence will trigger refusals): (1) transcription: refused chunk -> halves -> skipped part + warning;
+  (2) voice: `ContentBlocked` (400 content_blocked, "unspecified policy reason") -> a refused GROUP falls back to single lines; a refused LINE goes down a ladder:
+  without emotion direction -> other pool model for that line only -> milder wording (`fit_text.soften`) -> silent clip of the predicted length + warning (`silent`
+  lines are not cached/fitted); any other single-line failure after retries is treated the same; if > max(5, 25%) of lines end silent the job fails (service down);
+  (3) pre-fit / fit rounds are optional: errors are logged and skipped. Still fatal: cancel, daily quota of ALL models, hard time limit (`JobTooSlow`).
 Not done: per-line speaker change re-casts only on re-render; no voice preview per character; emotion quality unverified; Demucs path unchanged/untested here.
 
 ### Progress UI
@@ -244,3 +249,4 @@ Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user 
   original subtitle; empty/timed-out Gemini answers retried (text client timeout 180 s). Real 502 s video finished in 369 s (budget 452 s).
 - 2026-11-07 (night 7): full-mode default original sound = speech removed (Demucs, cached, time-limited, fallback); minor-character merge + editor merge control;
   Gemini refusals split/skipped; vertical flip removed from the UI. Real full-mode run: 508 s video in 380 s.
+- 2026-11-07 (night 8): voice content_blocked ladder + silent-line fallback, optional steps can't fail the job, `JobTooSlow` stays fatal.

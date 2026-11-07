@@ -137,3 +137,14 @@ def rewrite_many(items: list[dict], language: str) -> dict[int, str]:
         for part in pool.map(run, chunks):
             out.update(part)
     return out
+
+
+def soften(text: str, language: str) -> str:
+    """A line the voice service refused (policy): same meaning, milder wording (no explicit violence, abuse or sex)."""
+    lang = LANGUAGE_NAMES.get(language, language)
+    system = (
+        f"You edit {lang} dubbing lines for films. A speech engine refused the line below. Rewrite it so the meaning, "
+        "names and story fact stay the same but explicit violence, gore, sexual content, slurs and strong abuse are replaced "
+        "by milder, still natural wording. Keep it about the same length and spoken style. Reply with the line only."
+    )
+    return _ask(system, text, text)

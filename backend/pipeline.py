@@ -173,6 +173,14 @@ def clip_name(text: str, voice: str, style: str | None = None) -> str:
     return hashlib.sha1(f"{voice}|{text}{'|' + style if style else ''}".encode()).hexdigest() + audio_ext()
 
 
+class JobTooSlow(RuntimeError):
+    """The job passed its hard time limit: must stop (never swallowed by the 'skip optional step' handlers)."""
+
+
+class LineBlocked(RuntimeError):
+    """Every way of voicing this line (without emotion, other model, milder wording) was refused by the voice service."""
+
+
 class JobCancelled(Exception):
     """The user pressed Cancel: stop quietly (nothing is saved, nothing is charged)."""
 
@@ -190,7 +198,7 @@ def check_cancelled(job_id: str):
     """Cheap DB look so long loops stop spending TTS/CPU after Cancel (or once the hard time limit has passed)."""
     started = _job_started.get(job_id)
     if started and time.time() - started > JOB_HARD_LIMIT:
-        raise RuntimeError(f"This video took longer than {JOB_HARD_LIMIT / 60:.0f} minutes (Gemini was slow or busy). "
+        raise JobTooSlow(f"This video took longer than {JOB_HARD_LIMIT / 60:.0f} minutes (Gemini was slow or busy). "
                            "Please try again; nothing was charged.")
     with Session() as sess:
         job = sess.get(Job, job_id)
@@ -198,7 +206,7 @@ def check_cancelled(job_id: str):
             raise JobCancelled(job_id)
 
 
-def synthesize(text: str, voice: str, path: str, chooser=None, style: str | None = None):
+def synthesize(text: str, voice: str, path: str, chooser=None, style: str | None = None, ladder: bool = True):
     if tts_provider() == "fake":  # no API: tones about as long as speech would be (tests / load tests)
         parts = [t for t in text.split("\n\n") if t.strip()] or [text]
         cmd = ["ffmpeg", "-y", "-loglevel", "error"]
@@ -213,14 +221,40 @@ def synthesize(text: str, voice: str, path: str, chooser=None, style: str | None
     if tts_provider() == "gemini":
         # "su" is the UI's default Burmese voice slot; map it to the configured Gemini voice.
         chooser = chooser or tts_pool.Chooser(1)
-        while True:
-            model = chooser.get()
-            try:
-                spoken = f"Say {style}: {text}" if style else text   # emotion for full-movie mode
-                gemini_tts.synthesize_to_file(spoken, path, None if voice == "su" else voice, model=model)
-                return media_duration(path)
-            except gemini_tts.QuotaExceeded:
-                chooser.failed(model)   # switches to the next model, or raises QuotaExceeded when none is left
+        v = None if voice == "su" else voice
+        # What to try when the voice service refuses a text (policy): 1) without the emotion direction, 2) on another model
+        # (policies differ), 3) with milder wording. A group of lines (ladder=False) just fails so its lines are tried one by one.
+        plan = [("cur", text, style)]
+        if ladder:
+            plan += ([("cur", text, None)] if style else []) + [("alt", text, None), ("cur", None, None)]
+        last = None
+        for kind, variant, st in plan:
+            if variant is None:   # milder wording (one text request)
+                try:
+                    variant = fit_text.soften(text, "my")
+                except Exception:
+                    variant = text
+                if variant.strip() == text.strip():
+                    continue
+            while True:
+                model = chooser.get() if kind == "cur" else chooser.other(chooser.get())
+                if model is None:
+                    break
+                try:
+                    gemini_tts.synthesize_to_file(f"Say {st}: {variant}" if st else variant, path, v, model=model)
+                    return media_duration(path)
+                except gemini_tts.QuotaExceeded:
+                    if kind == "cur":
+                        chooser.failed(model)   # switches to the next model, or raises QuotaExceeded when none is left
+                        continue
+                    break
+                except gemini_tts.ContentBlocked as exc:
+                    last = exc
+                    print(f"  voice service refused a line ({kind} model{', with emotion' if st else ''}); trying the next way", flush=True)
+                    break
+        if not ladder:
+            raise last or RuntimeError("voice request refused")
+        raise LineBlocked(str(last))
     response = requests.post(
         os.getenv("ELEVENLABS_TTS_URL", "http://127.0.0.1:8001/api/tts"),
         json={"text": text, "voice": voice},
@@ -266,7 +300,7 @@ def plan_batches(texts: list[str], voices: list[str], styles: list) -> list[list
 
 
 def voice_many(texts: list[str], paths: list[str], voice, model: dict, job_id: str, progress=None,
-               chooser=None, styles: list | None = None) -> list[float]:
+               chooser=None, styles: list | None = None, blocked: list | None = None) -> list[float]:
     """Voice many lines with as few requests as possible (several lines per request when TTS_BULK is on; a group
     whose audio can't be split reliably is retried as two smaller groups, then line by line). `voice` is one voice or
     a list (one per line); `styles` = emotion directions per line (None = plain) - a style the TTS reads aloud
@@ -279,7 +313,20 @@ def voice_many(texts: list[str], paths: list[str], voice, model: dict, job_id: s
 
     def single(i: int):
         check_cancelled(job_id)
-        durs[i] = synthesize(texts[i], voices[i], paths[i], chooser, styles[i])
+        try:
+            durs[i] = synthesize(texts[i], voices[i], paths[i], chooser, styles[i])
+        except (JobCancelled, gemini_tts.QuotaExceeded):
+            raise
+        except Exception as exc:   # refused every way, or failed after retries: a silent clip of the expected length, subtitle still shows
+            print(f"  line refused by the voice service, left silent: {texts[i][:40]}... ({exc})", flush=True)
+            durs[i] = max(duration_model.predict(texts[i], model), 0.8)
+            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"anullsrc=r=24000:cl=mono:d={durs[i]:.2f}",
+                            paths[i]], check=True)
+            if blocked is not None:
+                blocked.append(i)
+            if progress:
+                progress(1)
+            return
         if styles[i] and durs[i] > duration_model.predict(texts[i], model) * 1.5 + 1.0:
             print(f"  emotion '{styles[i]}' was probably read aloud ({durs[i]:.1f}s); voicing the line plainly", flush=True)
             styles[i] = None
@@ -294,7 +341,7 @@ def voice_many(texts: list[str], paths: list[str], voice, model: dict, job_id: s
             v = voices[idx[0]]
             try:
                 ok = bulk_tts.synthesize_batch([texts[i] for i in idx], v, [paths[i] for i in idx],
-                                               lambda text, path: synthesize(text, v, path, chooser), OUTPUT_DIR, model)
+                                               lambda text, path: synthesize(text, v, path, chooser, ladder=False), OUTPUT_DIR, model)
                 if ok:
                     for i in idx:
                         durs[i] = media_duration(paths[i])
@@ -400,6 +447,8 @@ def fit_segments_to_slots(segments, video_duration, job_id, voice, target_langua
     for round_no in range(FIT_ROUNDS):
         todo = {}
         for i in range(len(segments)):
+            if segments[i].get("silent"):
+                continue
             upper, want = _slot_bounds(segments, i, video_duration)
             plan = _plan(segments[i]["audio_dur"], upper, want)
             if plan:
@@ -582,7 +631,12 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
         if p["fit_translation"] and fit_available() and not edit and dub:
             set_job(job_id, stage="Shortening long lines to fit their scenes", progress=31)
             with pipeline_stage("Pre-fit Translation"):
-                prefit_segments(segments, video_duration, job_id, p["target_language"], voice_model, time_left)
+                try:
+                    prefit_segments(segments, video_duration, job_id, p["target_language"], voice_model, time_left)
+                except (JobCancelled, JobTooSlow, gemini_tts.QuotaExceeded):
+                    raise
+                except Exception as exc:   # optional polishing: the film is still made without it
+                    print(f"  pre-fit failed ({exc}); continuing without it", flush=True)
 
         # 3c. Casting: every line gets its voice. Full movie: one fixed voice per character (the most talkative one gets
         # the voice the user picked); lines with a clear emotion get a delivery direction (capped: one request each).
@@ -633,9 +687,21 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                 groups = len(plan_batches(t_texts, t_voices, t_styles))
                 chooser = (tts_pool.Chooser(groups + max(4, groups // 3), (edit or {}).get("tts_model"))
                            if tts_provider() == "gemini" and todo else None)   # + room for the fit rewrites
-                durs = voice_many(t_texts, [paths[i] for i in todo], t_voices, voice_model, job_id, _progress, chooser, t_styles)
+                blocked_idx: list[int] = []
+                durs = voice_many(t_texts, [paths[i] for i in todo], t_voices, voice_model, job_id, _progress, chooser, t_styles,
+                                  blocked_idx)
                 for i, d, st in zip(todo, durs, t_styles):
                     segments[i]["audio_path"], segments[i]["audio_dur"], segments[i]["style"] = paths[i], d, st
+                for k in blocked_idx:   # silent lines: not cached, not fitted, reported
+                    segments[todo[k]]["silent"] = True
+                    segments[todo[k]]["style"] = None
+                if len(blocked_idx) > max(5, 0.25 * len(todo)):
+                    raise RuntimeError(f"The voice service failed or refused {len(blocked_idx)} of {len(todo)} lines, so the "
+                                       "film would be mostly silent. Please try again later.")
+                if blocked_idx:
+                    when = ", ".join(f"{segments[todo[k]]['start']:.0f}s" for k in blocked_idx[:8])
+                    warn.append(f"The voice service refused {len(blocked_idx)} line(s) for policy reasons, so they stay silent "
+                                f"(subtitles still show), at: {when}. Reword them in the editor and re-render.")
 
             # 5. Make each line fit its scene.
             if p["fit_translation"] and fit_available() and not edit and dub:
@@ -643,8 +709,13 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                 with pipeline_stage("Fit Translation To Timing"):
                     voice_model = duration_model.fit([(sg["translated_text"], sg["audio_dur"]) for sg in segments], voice_model)
                     print(f"  voice duration model: {voice_model['a']:.3f}s/syllable + {voice_model['b']:.2f}s", flush=True)
-                    fit_segments_to_slots(segments, video_duration, job_id, p["voice_type"], p["target_language"],
-                                          temp_paths, voice_model, time_left, chooser)
+                    try:
+                        fit_segments_to_slots(segments, video_duration, job_id, p["voice_type"], p["target_language"],
+                                              temp_paths, voice_model, time_left, chooser)
+                    except (JobCancelled, JobTooSlow, gemini_tts.QuotaExceeded):
+                        raise
+                    except Exception as exc:   # optional polishing: keep the lines as they are
+                        print(f"  fitting failed ({exc}); continuing without further fitting", flush=True)
 
             for sg in segments:  # keep rewritten (fitted) clips too
                 if "_fit" in sg["audio_path"]:
