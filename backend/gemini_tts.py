@@ -78,6 +78,21 @@ def _get_client():
     return _client
 
 
+_text_client = None
+
+
+def get_text_client():
+    """Client for text/transcription requests: these legitimately take longer than a voice request (default 180 s)."""
+    global _text_client
+    if _text_client is None:
+        from google import genai
+        from google.genai import types
+        _text_client = genai.Client(http_options=types.HttpOptions(
+            timeout=int(os.getenv("GEMINI_TEXT_TIMEOUT_MS", "180000")),
+            retry_options=types.HttpRetryOptions(attempts=1)))
+    return _text_client
+
+
 def synthesize_to_file(text: str, path: str, voice: str | None = None, retries: int = 3, model: str | None = None) -> None:
     voice = voice or DEFAULT_VOICE
     model = model or MODEL

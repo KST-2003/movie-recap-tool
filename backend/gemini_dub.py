@@ -7,7 +7,7 @@ import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from gemini_tts import _get_client
+from gemini_tts import get_text_client as _get_client
 
 MODEL = os.getenv("GEMINI_DUB_MODEL", "gemini-3.8-flash")
 CHUNK_SECONDS = float(os.getenv("GEMINI_DUB_CHUNK_SECONDS", "75"))
@@ -127,6 +127,7 @@ def _dub_chunk(audio_path: str, offset: float, target: str, attempts: int,
                 raise TimeoutError("Gemini file processing timed out.")
             time.sleep(1)
             uploaded = client.files.get(name=uploaded.name)
+        data = None
         for attempt in range(attempts):
             try:
                 response = client.models.generate_content(
@@ -136,23 +137,29 @@ def _dub_chunk(audio_path: str, offset: float, target: str, attempts: int,
                         response_mime_type="application/json", response_schema=SCHEMA, temperature=0.2,
                         thinking_config=types.ThinkingConfig(thinking_budget=THINKING_BUDGET)),
                 )
+                raw = response.text
+                if not raw or not raw.strip():   # blocked / cut off / empty answer: say why, then ask again
+                    cand = (getattr(response, "candidates", None) or [None])[0]
+                    why = getattr(cand, "finish_reason", None) or getattr(getattr(response, "prompt_feedback", None), "block_reason", None)
+                    raise ValueError(f"empty answer from Gemini (reason: {why})")
+                data = json.loads(raw)
                 break
             except Exception as exc:
                 err = str(exc).lower()
-                transient = any(k in err for k in ("429", "500", "503", "resource_exhausted", "unavailable", "timeout", "too_many_requests"))
+                transient = isinstance(exc, ValueError) or any(
+                    k in err for k in ("429", "500", "503", "resource_exhausted", "unavailable", "timeout", "timed out", "too_many_requests", "disconnected", "connection"))
                 if "per day" in err or "perday" in err:
                     transient = False
                 if not transient or attempt == attempts - 1:
-                    raise
-                wait = min(5 * 2 ** attempt, 60)
-                print(f"  Gemini busy ({exc.__class__.__name__}); retry {attempt + 1}/{attempts - 1} in {wait}s", flush=True)
+                    raise RuntimeError(f"Gemini transcription failed: {exc}") from exc
+                wait = min(5 * 2 ** attempt, 60) if not isinstance(exc, ValueError) else 2
+                print(f"  Gemini problem ({exc.__class__.__name__}: {str(exc)[:120]}); retry {attempt + 1}/{attempts - 1} in {wait}s", flush=True)
                 time.sleep(wait)
     finally:
         try:
             client.files.delete(name=uploaded.name)
         except Exception:
             pass
-    data = json.loads(response.text)
     segments = []
     for s in data.get("segments", []):
         text = (s.get("translated_text") or "").strip()

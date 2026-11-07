@@ -11,7 +11,7 @@ def available() -> bool:
 
 def _shorten_gemini(prompt: str, system: str) -> str:
     from google.genai import types
-    from gemini_tts import _get_client
+    from gemini_tts import get_text_client as _get_client
     response = _get_client().models.generate_content(
         model=os.getenv("GEMINI_DUB_MODEL", "gemini-3.8-flash"),
         contents=prompt,
@@ -108,7 +108,7 @@ def _rewrite_chunk(items: list[dict], language: str) -> dict[int, str]:
         raw = "".join(b.text for b in msg.content if b.type == "text")
     else:
         from google.genai import types
-        from gemini_tts import _get_client
+        from gemini_tts import get_text_client as _get_client
         schema = {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "integer"}, "text": {"type": "string"}},
                                              "required": ["id", "text"]}}
         response = _get_client().models.generate_content(
