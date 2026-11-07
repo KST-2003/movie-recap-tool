@@ -157,7 +157,8 @@ def voice_sample(filename: str):
     path = os.path.join(SAMPLES_DIR, f"{name}.wav")
     if name not in VOICE_NAMES or not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Sample not found.")
-    return FileResponse(path, media_type="audio/wav", filename=f"{name}-sample.wav")
+    return FileResponse(path, media_type="audio/wav", filename=f"{name}-sample.wav",
+                        headers={"Cache-Control": "public, max-age=604800"})
 
 
 LOOK_SAMPLES_DIR = "look_samples"
@@ -178,7 +179,8 @@ def look_sample(filename: str):
     path = os.path.join(LOOK_SAMPLES_DIR, f"{name}.wav")
     if name not in LOOK_IDS or not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Sample not found.")
-    return FileResponse(path, media_type="audio/wav", filename=f"{name}-sample.wav")
+    return FileResponse(path, media_type="audio/wav", filename=f"{name}-sample.wav",
+                        headers={"Cache-Control": "public, max-age=604800"})
 
 
 # ---------- jobs ----------
