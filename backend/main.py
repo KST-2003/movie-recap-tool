@@ -160,6 +160,27 @@ def voice_sample(filename: str):
     return FileResponse(path, media_type="audio/wav", filename=f"{name}-sample.wav")
 
 
+LOOK_SAMPLES_DIR = "look_samples"
+
+
+@app.get("/api/looks")
+def list_looks():
+    """Character looks (baby, monster, animal...) whose sample exists: base voice + performance instruction."""
+    from looks import LOOKS
+    return [{"id": i, "group": g, "label": lab, "voice": v, "sample_url": f"/api/look-samples/{i}.wav"}
+            for i, g, lab, v, _ in LOOKS if os.path.exists(os.path.join(LOOK_SAMPLES_DIR, f"{i}.wav"))]
+
+
+@app.get("/api/look-samples/{filename}")
+def look_sample(filename: str):
+    from looks import LOOK_IDS
+    name = filename.removesuffix(".wav")
+    path = os.path.join(LOOK_SAMPLES_DIR, f"{name}.wav")
+    if name not in LOOK_IDS or not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Sample not found.")
+    return FileResponse(path, media_type="audio/wav", filename=f"{name}-sample.wav")
+
+
 # ---------- jobs ----------
 
 def save_upload(upload: UploadFile, directory: str, max_mb: int) -> str:
