@@ -146,7 +146,6 @@ function App() {
   const [enableSubtitles, setEnableSubtitles] = useState(true); // Burmese Subtitles toggle
   const [removeWatermark, setRemoveWatermark] = useState(true);
   const [enableFlip, setEnableFlip] = useState(true);
-  const [flipVertical, setFlipVertical] = useState(false);
   // Sync policy: by default the voice is never sped up; the video slows/freezes to fit it.
   const [allowVoiceSpeedup, setAllowVoiceSpeedup] = useState(true);
   // Grading & speed
@@ -159,7 +158,7 @@ function App() {
   const [keepBackground, setKeepBackground] = useState(false);
   const [filmMode, setFilmMode] = useState('recap'); // 'recap' = one narrator voice | 'full' = characters with their own voices
   const [outputKind, setOutputKind] = useState('dub'); // 'dub' = Burmese voice-over | 'subtitles' = keep original sound, subtitles only
-  const [bgMode, setBgMode] = useState('original'); // full mode: keep the film's own music and sounds ('original' | 'separate' | 'off')
+  const [bgMode, setBgMode] = useState('separate'); // full mode: the film's own sounds ('separate' = effects kept, speech removed | 'original' = all lowered | 'off')
   const [emotionOn, setEmotionOn] = useState(true);
   const [softMusic, setSoftMusic] = useState(false);
   const [progress, setProgress] = useState({ pct: 0, stage: '' });
@@ -221,7 +220,6 @@ function App() {
     formData.append('enable_subtitles', enableSubtitles); // Sent to FastAPI backend
     formData.append('remove_watermark', removeWatermark);
     formData.append('enable_flip', enableFlip);
-    formData.append('flip_vertical', flipVertical);
     formData.append('allow_voice_speedup', allowVoiceSpeedup);
     formData.append('video_speed', videoSpeed);
     formData.append('brightness', brightness);
@@ -461,16 +459,6 @@ function App() {
               />
               <span className="text-sm text-slate-300">Horizontal Flip</span>
             </label>
-
-            <label className="flex items-center space-x-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={flipVertical}
-                onChange={(e) => setFlipVertical(e.target.checked)}
-                className="w-4 h-4 text-purple-600 rounded accent-purple-500"
-              />
-              <span className="text-sm text-slate-300">Vertical Flip</span>
-            </label>
           </div>
 
           {/* What kind of video is this? */}
@@ -507,9 +495,9 @@ function App() {
                     <label className="flex items-center gap-2">
                       <span>Original music &amp; sounds</span>
                       <select value={bgMode} onChange={(e) => setBgMode(e.target.value)} className="rounded-lg bg-slate-900 border border-slate-700 px-2 py-1 text-sm">
-                        <option value="original">Keep, lowered under the voice (fast)</option>
-                        <option value="separate">Keep music only, remove original speech (slow)</option>
-                        <option value="off">Remove</option>
+                        <option value="separate">Keep music &amp; sound effects, remove the original speech (recommended)</option>
+                        <option value="original">Keep everything, lowered (original speech stays faintly audible)</option>
+                        <option value="off">Remove all original sound</option>
                       </select>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">

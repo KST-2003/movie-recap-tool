@@ -124,6 +124,16 @@ Upload form: **Recap video** (one narrator voice, as before) or **Full movie / d
 - **Caption size**: detection now returns the original subtitle's text-line height; captions = `CAPTION_SIZE_FACTOR` (0.8) x that as font px, because drawn Burmese
   is ~1.45x taller than its font size -> about 15% taller than the original. Measured: 30sec.mov 1080x1920 line 66px -> 53px font; recap.mp4 landscape 55px -> 44px
   (the old fixed 5% of width, 64px, was far too big on landscape). Tune by eye with the env var.
+- **Original sound (corrected 2026-11-07 night 7)**: `original` keeps the WHOLE original track lowered, so the original speech stays faintly audible
+  (user heard it as "a second voice"). Full-mode default is now `separate` (Demucs `no_vocals` = music + effects, speech removed): 0.43x real time on an M2 Air
+  (13 s for 30 s audio, ~3.5-4 min for 8.5 min), runs in a thread beside transcription/voice, waited for at most ~`budget - elapsed - 0.5 x render reserve`; result cached
+  as `bgcache_<first job id>.wav` so editor re-renders do not separate again (`bg_source_job` param); on failure/timeout full mode falls back to `original` + a warning.
+- **Characters**: a real 508 s run produced 14 characters (mostly 1-3-line ones) = over-splitting. `merge_minor_speakers` folds characters with < 3 lines (and any
+  beyond 8) into the same-gender major character speaking closest in time; the merge prompt now prefers merging; editor "merge into..." moves all lines of a
+  character to another. Voices are fixed per character ID by `casting`; what can still sound inconsistent: wrong gender/identity labels from Gemini, and
+  emotion directions changing the timbre of a styled line.
+- **Re-render cost (how it works today)**: a re-render skips detection/transcription/pre-fit/fit, voices only changed lines (clip cache), but ffmpeg re-renders the
+  WHOLE video (~50 s parallel for 8.5 min). Idea not built: cache rendered ~40 s windows keyed by their content and re-render only the changed windows.
 Not done: per-line speaker change re-casts only on re-render; no voice preview per character; emotion quality unverified; Demucs path unchanged/untested here.
 
 ### Progress UI
@@ -232,3 +242,5 @@ Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user 
   for test videos; test_tts_models.py.
 - 2026-11-07 (night 6): Recap/Full modes, characters with fixed voices, emotions, subtitles-only, original sound ducked, soft tone, caption size from the
   original subtitle; empty/timed-out Gemini answers retried (text client timeout 180 s). Real 502 s video finished in 369 s (budget 452 s).
+- 2026-11-07 (night 7): full-mode default original sound = speech removed (Demucs, cached, time-limited, fallback); minor-character merge + editor merge control;
+  Gemini refusals split/skipped; vertical flip removed from the UI. Real full-mode run: 508 s video in 380 s.

@@ -1,5 +1,6 @@
 """The dubbing pipeline. Runs inside a queue worker (or an in-process thread in dev), never inside a request."""
 import hashlib
+import shutil
 import math
 import mimetypes
 import os
@@ -505,13 +506,20 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
 
         # 2. Keep the original music/effects (voice removed) — runs alongside dubbing.
         src_has_audio = has_audio(video_path)
-        bg_choice = p.get("background") or ("separate" if p.get("keep_background") else ("original" if mode == "full" else "off"))
+        bg_choice = p.get("background") or ("separate" if p.get("keep_background") else ("separate" if mode == "full" else "off"))
         if not dub or not src_has_audio:
             bg_choice = "off"
-        if bg_choice == "separate":
+        warn: list[str] = []
+        # The separated music/effects of a video are cached (an editor re-render of the same video must not run Demucs again).
+        bg_cache = os.path.join(OUTPUT_DIR, f"bgcache_{p.get('bg_source_job') or job_id}.wav")
+        if bg_choice == "separate" and os.path.isfile(bg_cache):
+            bg_state["path"] = bg_cache
+        elif bg_choice == "separate":
             def _separate():
                 try:
-                    bg_state["path"] = separate_background(video_path, OUTPUT_DIR, job_id)
+                    found_path = separate_background(video_path, OUTPUT_DIR, job_id)
+                    shutil.copyfile(found_path, bg_cache)
+                    bg_state["path"] = bg_cache
                 except Exception as exc:
                     bg_state["error"] = str(exc)
             bg_thread = threading.Thread(target=_separate, daemon=True)
@@ -669,9 +677,14 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
             bg_path, duck = video_path, True
         if bg_thread:
             set_job(job_id, stage="Separating background music", progress=70)
-            bg_thread.join()
-            if "error" in bg_state:
-                print(f"  background separation failed: {bg_state['error']}", flush=True)
+            bg_thread.join(timeout=max(budget - (time.time() - t0) - 0.5 * render_reserve, 30.0))
+            if "path" not in bg_state:
+                why = bg_state.get("error") or "it was still running when the time budget ran out"
+                print(f"  background separation failed: {why}", flush=True)
+                if mode == "full":   # the film's own sound, lowered under the voice, is better than silence
+                    bg_choice, bg_path, duck = "original", video_path, True
+                    warn.append("The original speech could not be removed from the film's sound in time, so the original "
+                                "audio is kept quietly under the Burmese voice instead.")
 
         effects = EffectOptions(
             blur_subtitles=p["blur_subtitles"],
@@ -751,7 +764,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                 "output_duration": result["duration"],
                 "subtitles_detected": bool(fx_kwargs.get("subtitle_rect")),
                 "background_kept": "path" in bg_state or bg_choice == "original",
-                "warnings": ([f"Gemini refused to transcribe {len(skipped_parts)} short part(s) of this video "
+                "warnings": warn + ([f"Gemini refused to transcribe {len(skipped_parts)} short part(s) of this video "
                               f"({', '.join(f'{a:.0f}-{b:.0f}s' for a, b in skipped_parts[:6])}); those parts have no "
                               "translation. Add lines there in the editor."] if skipped_parts else []),
                 "transcript": " ".join(s["translated_text"] for s in segments),

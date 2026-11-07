@@ -325,7 +325,8 @@ def unify_speakers(segments: list[dict]):
             ask = ("These speakers were detected separately in consecutive parts of ONE film (key = part:label). Decide which "
                    "keys are the same character (same gender and a matching voice description, consistent with the sample "
                    "lines) and give each distinct character a short id (A, B, C, ...). Keys from the SAME part with different "
-                   "labels are always different characters. When unsure, keep them separate.\n" + desc)
+                   "labels are always different characters. Main characters appear in several parts, so PREFER merging keys of the "
+                   "same gender with a similar voice and age; a film rarely has more than about 8 speaking characters.\n" + desc)
             resp = get_text_client().models.generate_content(
                 model=MODEL, contents=ask,
                 config=types.GenerateContentConfig(
@@ -349,8 +350,36 @@ def unify_speakers(segments: list[dict]):
     for sg in segments:   # one gender per character (the most frequent known one)
         known = {k: v for k, v in genders[sg["speaker"]].items() if k != "unknown"}
         sg["gender"] = max(known, key=known.get) if known else "unknown"
-    counts = {n: sum(1 for s in segments if s["speaker"] == n) for n in sorted(names.values())}
+    merge_minor_speakers(segments)
+    counts = {n: sum(1 for s in segments if s["speaker"] == n) for n in sorted({s["speaker"] for s in segments})}
     print(f"  speakers: {len(names)} characters, lines per character: {counts}", flush=True)
+
+
+MIN_CHARACTER_LINES = 3
+MAX_CHARACTERS = 8
+
+
+def merge_minor_speakers(segments: list[dict]):
+    """A character with only a line or two is most likely a main character that was mislabelled in one part of the film.
+    Fold such characters (and any beyond MAX_CHARACTERS) into the same-gender major character that speaks closest in time,
+    so the film keeps a handful of stable voices instead of one new voice per mislabel."""
+    lines: dict[str, int] = {}
+    for sg in segments:
+        lines[sg["speaker"]] = lines.get(sg["speaker"], 0) + 1
+    ranked = sorted(lines, key=lambda s: -lines[s])
+    majors = [s for s in ranked[:MAX_CHARACTERS] if lines[s] >= MIN_CHARACTER_LINES] or ranked[:1]
+    gender_of = {}
+    for sg in segments:
+        if sg["gender"] in ("male", "female"):
+            gender_of.setdefault(sg["speaker"], sg["gender"])
+    for sid in [s for s in ranked if s not in majors]:
+        g = gender_of.get(sid)
+        pool = [m for m in majors if g is None or gender_of.get(m) in (None, g)] or majors
+        for sg in segments:
+            if sg["speaker"] != sid:
+                continue
+            near = min((o for o in segments if o["speaker"] in pool), key=lambda o: abs(o["start"] - sg["start"]))
+            sg["speaker"] = near["speaker"]
 
 
 def finish_segments(segments: list[dict], cuts: list[float]) -> list[dict]:

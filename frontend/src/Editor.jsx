@@ -268,6 +268,16 @@ export default function Editor({ project, videoRef, busy, onApply, voices = [] }
                   {voices.length === 0 && <option value={speakerVoices[sid]}>{speakerVoices[sid]}</option>}
                   {voices.map((v) => <option key={v.name} value={v.name}>{v.name} ({v.gender})</option>)}
                 </select>
+                {speakerIds.length > 1 && (
+                  <select
+                    value="" title="Same person as another character? Give all these lines to that character."
+                    onChange={(ev) => ev.target.value && setLines(lines.map((l) => (l.speaker === sid ? { ...l, speaker: ev.target.value } : l)))}
+                    className="rounded-lg bg-slate-900 border border-slate-700 px-2 py-1 text-xs text-slate-400"
+                  >
+                    <option value="">merge into…</option>
+                    {speakerIds.filter((o) => o !== sid && lines.some((l) => l.speaker === o)).map((o) => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                )}
               </label>
             ))}
           </div>

@@ -390,6 +390,7 @@ def rerender(job_id: str, body: RerenderBody, user: User = Depends(auth.current_
         raise HTTPException(status_code=400, detail="Line times must be inside the video.")
     params = dict(job.params or {})
     params["voice_type"] = voice
+    params["bg_source_job"] = params.get("bg_source_job") or job_id   # re-renders reuse this video's separated background
     old = {sg["id"]: sg for sg in project["segments"]}
     speakers = {k: dict(v) for k, v in (project.get("speakers") or {}).items()}
     for sid, v in (body.speaker_voices or {}).items():

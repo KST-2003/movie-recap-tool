@@ -165,6 +165,39 @@ assert all(abs(t["output_length"] - (t["source_end"] - t["source_start"])) < 0.0
 assert job3["result"]["project"]["output"] == "subtitles"
 print("subtitles-only ok: no voice requests, output", round(dur, 1), "s with original audio")
 
+# 4b. original speech removed (Demucs, faked here): runs once, a re-render of the same video reuses it, failure falls back
+sep_calls = []
+
+
+def fake_separate(video_path, work_dir, tag, timeout=1800):
+    sep_calls.append(tag)
+    out = os.path.join(work_dir, f"{tag}_fake_bg.wav")
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=500:duration=18", out], check=True)
+    return out
+
+
+pipeline.separate_background = fake_separate
+job5 = submit(mode="full", background="separate")
+assert job5["status"] == "done" and len(sep_calls) == 1 and job5["result"]["background_kept"], (job5.get("error"), sep_calls)
+p5 = job5["result"]["project"]
+lines = [{"id": s["id"], "start": s["start"], "text": s["text"]} for s in p5["segments"]]
+lines[0]["text"] = "စာသားအသစ်။"
+r = client.post(f"/api/jobs/{job5['id']}/rerender", headers=H, json={"segments": lines})
+job6 = wait(r.json()["job_id"])
+assert job6["status"] == "done" and len(sep_calls) == 1, (job6.get("error"), sep_calls)   # cache hit: no second separation
+print("separation ok: ran once, re-render reused it")
+
+
+def broken_separate(*a, **k):
+    raise RuntimeError("demucs exploded")
+
+
+pipeline.separate_background = broken_separate
+job7 = submit(mode="full", background="separate")
+assert job7["status"] == "done", job7.get("error")
+assert any("original" in w for w in job7["result"].get("warnings", [])), job7["result"].get("warnings")
+print("separation failure -> original sound lowered under the voice + warning")
+
 # 5. recap mode is unchanged: one voice, no speakers
 before = len(calls)
 job4 = submit(mode="recap")
