@@ -87,3 +87,36 @@ def cleanup(max_age_hours: float = FILE_TTL_HOURS) -> int:
                 except OSError:
                     pass
     return removed
+
+
+# ---------- voice clip cache (so editing one line only re-voices that line) ----------
+
+def clip_path(name: str) -> str:
+    d = os.path.join(OUTPUT_DIR, "clips")
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, name)
+
+
+def put_clip(local_path: str, name: str):
+    """Keep a copy of a voice clip under `name` (copied, the local file stays)."""
+    if BACKEND == "s3":
+        _client().upload_file(local_path, BUCKET, f"clips/{name}")
+    else:
+        import shutil
+        shutil.copyfile(local_path, clip_path(name))
+
+
+def fetch_clip(name: str, dest: str) -> bool:
+    """Copy a cached clip to `dest`; False if there is none."""
+    try:
+        if BACKEND == "s3":
+            _client().download_file(BUCKET, f"clips/{name}", dest)
+            return True
+        src = clip_path(name)
+        if not os.path.isfile(src):
+            return False
+        import shutil
+        shutil.copyfile(src, dest)
+        return True
+    except Exception:
+        return False

@@ -1,4 +1,5 @@
 """The dubbing pipeline. Runs inside a queue worker (or an in-process thread in dev), never inside a request."""
+import hashlib
 import mimetypes
 import os
 import subprocess
@@ -11,6 +12,7 @@ from datetime import datetime, timezone
 import requests
 
 import bulk_tts
+import duration_model
 import gemini_dub
 import gemini_tts
 import local_dub
@@ -19,7 +21,9 @@ from common import audio_ext, dub_provider, media_duration, tts_provider
 from audio_tools import cleanup_separation, separate_background
 from config import LOGOS_DIR, OUTPUT_DIR, UPLOAD_DIR
 from db import Job, Session, update_job
-from fit_text import available as fit_available, shorten
+import fit_text
+from fit_text import available as fit_available
+from scene_cuts import detect_cuts
 from recap_engine import (BREATH, EffectOptions, SyncOptions, plan_timeline, probe_video, render, write_srt)
 from subtitle_detect import detect_text_regions, to_pixels
 
@@ -156,11 +160,29 @@ def elevenlabs_dub(video_path: str, target_language: str) -> tuple[str | None, l
     return project.get("source_language") or transcript.get("source_language"), segments
 
 TTS_WORKERS = int(os.getenv("TTS_WORKERS", "8"))
-TTS_BULK = os.getenv("TTS_BULK", "").lower() in ("1", "true")  # several sentences per TTS request (experimental)
+TTS_BULK = os.getenv("TTS_BULK", "1").lower() in ("1", "true")  # several sentences per TTS request; set TTS_BULK=0 to turn off
+
+
+def clip_name(text: str, voice: str) -> str:
+    """Cache name of a voice clip: same text + voice = same clip, so an edit only re-voices changed lines."""
+    return hashlib.sha1(f"{voice}|{text}".encode()).hexdigest() + audio_ext()
+
+
+class JobCancelled(Exception):
+    """The user pressed Cancel: stop quietly (nothing is saved, nothing is charged)."""
 
 
 def set_job(job_id: str, **fields):
-    update_job(job_id, **fields)
+    if not update_job(job_id, **fields):
+        raise JobCancelled(job_id)
+
+
+def check_cancelled(job_id: str):
+    """Cheap DB look so long loops stop spending TTS/CPU after Cancel."""
+    with Session() as sess:
+        job = sess.get(Job, job_id)
+        if job is not None and job.status == "cancelled":
+            raise JobCancelled(job_id)
 
 
 def synthesize(text: str, voice: str, path: str):
@@ -168,7 +190,7 @@ def synthesize(text: str, voice: str, path: str):
         parts = [t for t in text.split("\n\n") if t.strip()] or [text]
         cmd = ["ffmpeg", "-y", "-loglevel", "error"]
         for t in parts:
-            cmd += ["-f", "lavfi", "-i", f"sine=frequency=220:duration={max(0.8, len(t) / 12):.2f}"]
+            cmd += ["-f", "lavfi", "-i", f"sine=frequency=220:duration={max(0.8, duration_model.predict(t)):.2f}"]
             cmd += ["-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono:d=0.5"] if t is not parts[-1] else []
         n_in = len(parts) * 2 - 1
         fc = "".join(f"[{i}:a]aresample=24000,aformat=channel_layouts=mono[a{i}];" for i in range(n_in))
@@ -198,40 +220,148 @@ def synthesize(text: str, voice: str, path: str):
     return media_duration(path)
 
 
-def fit_segments_to_slots(segments, video_duration, job, voice, target_language, temp_paths,
-                          max_rounds=2, tolerance=1.05):
-    """Re-write lines whose voice-over overshoots their scene (even after the allowed speed-up),
-    so the video rarely has to slow down or freeze. Lines are fixed in parallel."""
-    def fit_one(i):
-        segment = segments[i]
-        end = segments[i + 1]["start"] if i + 1 < len(segments) else video_duration
-        budget = max(end - segment["start"] - BREATH, 0.4)
-        for round_no in range(max_rounds):
-            if segment["audio_dur"] <= budget * tolerance:
-                break
-            try:
-                new_text = shorten(segment["source_text"], segment["translated_text"], target_language,
-                                   segment["audio_dur"], budget * tolerance)
-                root, ext = os.path.splitext(segment["audio_path"])
-                new_path = f"{root}_fit{round_no}{ext}"
-                temp_paths.append(new_path)
-                new_dur = synthesize(new_text, voice, new_path)
-            except Exception as exc:  # fitting is best-effort; the engine still syncs by slowing video
-                print(f"  fit skipped for segment {i + 1}: {exc}", flush=True)
-                break
-            if new_dur >= segment["audio_dur"]:
-                break
-            print(f"  fit {i + 1}: {segment['audio_dur']:.1f}s -> {new_dur:.1f}s (budget {budget:.1f}s)", flush=True)
-            segment.update(translated_text=new_text, audio_path=new_path, audio_dur=new_dur)
+FIT_FILL = float(os.getenv("FIT_FILL_RATIO", "0.85"))   # a voice shorter than this share of the original speech gets lengthened
+FIT_MIN_GAP = float(os.getenv("FIT_MIN_GAP_SECONDS", "0.5"))  # ...but only if that leaves at least this much dead air
+FIT_ROUNDS = int(os.getenv("FIT_ROUNDS", "2"))
 
+
+def voice_many(texts: list[str], paths: list[str], voice: str, model: dict, job_id: str, progress=None) -> list[float]:
+    """Voice many lines with as few requests as possible (several lines per request when TTS_BULK is on; a group
+    whose audio can't be split reliably is retried as two smaller groups, then line by line). Returns the durations."""
+    durs = [0.0] * len(texts)
+
+    def single(i: int):
+        check_cancelled(job_id)
+        durs[i] = synthesize(texts[i], voice, paths[i])
+        storage.put_clip(paths[i], clip_name(texts[i], voice))
+        if progress:
+            progress(1)
+
+    def group(idx: list[int]):
+        check_cancelled(job_id)
+        if len(idx) > 1:
+            try:
+                ok = bulk_tts.synthesize_batch([texts[i] for i in idx], voice, [paths[i] for i in idx],
+                                               lambda text, path: synthesize(text, voice, path), OUTPUT_DIR, model)
+                if ok:
+                    for i in idx:
+                        durs[i] = media_duration(paths[i])
+                        storage.put_clip(paths[i], clip_name(texts[i], voice))
+                    if progress:
+                        progress(len(idx))
+                    return
+                print(f"  bulk voice split not trusted for {len(idx)} lines; trying two smaller groups", flush=True)
+                half = len(idx) // 2
+                group(idx[:half])
+                group(idx[half:])
+                return
+            except JobCancelled:
+                raise
+            except Exception as exc:
+                print(f"  bulk voice failed ({exc}); using one request each", flush=True)
+        for i in idx:
+            single(i)
+
+    batches = bulk_tts.make_batches(texts) if TTS_BULK else [[i] for i in range(len(texts))]
     with ThreadPoolExecutor(max_workers=TTS_WORKERS) as pool:
-        list(pool.map(fit_one, range(len(segments))))
+        list(pool.map(group, batches))
+    return durs
+
+
+def fit_segments_to_slots(segments, video_duration, job_id, voice, target_language, temp_paths, model):
+    """Make each voice line last about as long as the original speech of its scene, by rewriting the SCRIPT:
+    too long -> shortened, too short -> lengthened with faithful detail (no dead air). Voice speed is only the last
+    resort and is handled by the timeline. Dead air the SOURCE really has is kept: the target is the speech length.
+
+    Built for speed: ALL lines that need it go to the LLM in one request per ~20 lines (not one request per line),
+    each rewrite is checked with the duration model before any voice is paid for (bad ones are re-asked, text only),
+    and the accepted rewrites are voiced together in batched TTS requests."""
+    def bounds(i):
+        sg = segments[i]
+        nxt = segments[i + 1]["start"] if i + 1 < len(segments) else video_duration
+        slot = max(nxt - sg["start"], 0.4)
+        speech = min(sg["end"] - sg["start"], slot) if sg.get("end") else slot
+        return max(slot - BREATH, 0.4), max(speech - BREATH, 0.4)   # (must not run into next line, as long as the speaker)
+
+    def plan(i):
+        upper, want = bounds(i)
+        dur = segments[i]["audio_dur"]
+        if dur > upper * 1.05:
+            return "shorten", upper * 0.95
+        if dur < want * FIT_FILL and want - dur >= FIT_MIN_GAP:
+            return "lengthen", want
+        return None
+
+    def target_chars(text, seconds):
+        syll = max((seconds - model["b"]) / model["a"], 1.0)
+        return max(4, int(syll * len(text) / max(duration_model.syllables(text), 1)))
+
+    for round_no in range(FIT_ROUNDS):
+        todo = {i: plan(i) for i in range(len(segments)) if plan(i)}
+        if not todo:
+            break
+        set_job(job_id, stage=f"Fitting lines to their scenes (round {round_no + 1}/{FIT_ROUNDS}): {len(todo)} lines",
+                progress=62 + round_no * 3)
+        print(f"  fit round {round_no + 1}: {len(todo)} of {len(segments)} lines need rewriting", flush=True)
+        current = {i: segments[i]["translated_text"] for i in todo}
+        pending = dict(todo)
+        for _ask in range(2):   # LLM rounds, verified by the duration model (cheap) before any voice request
+            items = [{"id": i, "source": segments[i].get("source_text", ""), "current": current[i], "mode": mode,
+                      "target_chars": target_chars(current[i], tgt)} for i, (mode, tgt) in pending.items()]
+            result = fit_text.rewrite_many(items, target_language)
+            check_cancelled(job_id)
+            pending = {}
+            for i, (mode, tgt) in todo.items():
+                new = result.get(i)
+                if i not in result or not new:
+                    continue
+                current[i] = new
+                pred = duration_model.predict(new, model)
+                if abs(pred - tgt) > 0.15 * tgt:
+                    pending[i] = ("shorten" if pred > tgt else "lengthen", tgt)
+            if not pending:
+                break
+        # only voice rewrites the model expects to be an improvement
+        voiced = []
+        for i, (mode, tgt) in todo.items():
+            if current[i] == segments[i]["translated_text"]:
+                continue
+            pred = duration_model.predict(current[i], model)
+            if (mode == "shorten" and pred < segments[i]["audio_dur"]) or (
+                    mode == "lengthen" and pred > segments[i]["audio_dur"]):
+                voiced.append(i)
+        if not voiced:
+            break
+        paths = []
+        for i in voiced:
+            root, ext = os.path.splitext(segments[i]["audio_path"])
+            path = f"{root}_fit{round_no}{ext}"
+            temp_paths.append(path)
+            paths.append(path)
+        done = [0]
+
+        def prog(n, total=len(voiced), r=round_no):
+            done[0] += n
+            set_job(job_id, stage=f"Voicing rewritten lines {done[0]}/{total}", progress=63 + r * 3)
+        durs = voice_many([current[i] for i in voiced], paths, voice, model, job_id, prog)
+        changed = 0
+        for i, path, new_dur in zip(voiced, paths, durs):
+            mode, tgt = todo[i]
+            upper, want = bounds(i)
+            dur = segments[i]["audio_dur"]
+            better = (new_dur < dur) if mode == "shorten" else (
+                new_dur > dur and new_dur <= upper * 1.05 and abs(new_dur - want) < abs(dur - want))
+            if better:
+                segments[i].update(translated_text=current[i], audio_path=path, audio_dur=new_dur)
+                changed += 1
+        print(f"  fit round {round_no + 1}: {changed} of {len(voiced)} rewrites kept", flush=True)
 
 
 def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
     output_filename = f"recap_output_{job_id}.mp4"
     srt_filename = f"recap_output_{job_id}.srt"
     output_path = os.path.join(OUTPUT_DIR, output_filename)
+    t0 = time.time()
     temp_paths: list[str] = []
     bg_state: dict = {}
     bg_thread = None
@@ -239,9 +369,19 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
         info = probe_video(video_path)
         video_duration = media_duration(video_path)
         fx_kwargs = {}
+        edit = p.get("edit")  # set when the user edited a finished job in the editor: reuse its transcript + detection
+        cuts_pool = cuts_future = None
+        if not edit:  # scene cuts run alongside subtitle detection; they steer the transcript's segment boundaries
+            cuts_pool = ThreadPoolExecutor(max_workers=1)
+            cuts_future = cuts_pool.submit(detect_cuts, video_path)
 
         # 1. Where are the source subtitles / watermarks? Only those regions get blurred.
-        if p["blur_subtitles"] or p["remove_watermark"]:
+        if edit:
+            fx = edit.get("fx") or {}
+            if fx.get("subtitle_rect"):
+                fx_kwargs["subtitle_rect"] = tuple(fx["subtitle_rect"])
+            fx_kwargs["watermark_rects"] = [tuple(r) for r in fx.get("watermark_rects", [])]
+        elif p["blur_subtitles"] or p["remove_watermark"]:
             set_job(job_id, stage="Detecting subtitles", progress=3)
             with pipeline_stage("Subtitle Detection"):
                 try:
@@ -268,18 +408,35 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
             bg_thread = threading.Thread(target=_separate, daemon=True)
             bg_thread.start()
 
-        # 3. Transcribe + translate.
+        # 3. Transcribe + translate (an edited job brings its own transcript).
         set_job(job_id, stage="Transcribing and translating", progress=10)
+        scene_cut_times: list[float] = []
+        if cuts_future:
+            try:
+                scene_cut_times = cuts_future.result()
+                print(f"  {len(scene_cut_times)} scene cuts found", flush=True)
+            except Exception as exc:
+                print(f"  scene cut detection failed ({exc}); continuing without", flush=True)
+            cuts_pool.shutdown(wait=False)
+        if edit:
+            detected_source_language = edit.get("source_language")
+            segments = [{"start": float(e["start"]), "translated_text": e["text"].strip(),
+                         "source_text": e.get("source_text", ""), "tempo": e.get("tempo")}
+                        for e in edit["segments"] if (e.get("text") or "").strip()]
+            if not segments:
+                raise RuntimeError("The edited project has no lines.")
         with pipeline_stage("Transcribe + Translate"):
             primary = dub_provider()
             runners = {
                 "local": lambda: local_dub.dub(video_path, p["target_language"]),
                 "elevenlabs": lambda: elevenlabs_dub(video_path, p["target_language"]),
-                "gemini": lambda: gemini_dub.dub(video_path, p["target_language"], retries=2),
+                "gemini": lambda: gemini_dub.dub(video_path, p["target_language"], retries=2, scene_cuts=scene_cut_times),
             }
             order = [primary] + [n for n in ("elevenlabs", "gemini", "local") if n != primary]  # local last: slow, weakest Burmese
             if not os.getenv("ELEVENLABS_API_KEY"):
                 order = [n for n in order if n != "elevenlabs"]
+            if edit:
+                order = []
             for i, name in enumerate(order):
                 try:
                     detected_source_language, segments = runners[name]()
@@ -296,58 +453,40 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                 gemini_tts._get_client()  # create the shared client before worker threads start
             done = [0]
 
-            def _paths(index: int) -> str:
-                path = os.path.join(OUTPUT_DIR, f"voice_{job_id}_{index}{audio_ext()}")
-                temp_paths.append(path)
-                return path
-
             def _progress(count: int):
                 done[0] += count
                 set_job(job_id, stage=f"Voice-over {done[0]}/{len(segments)}",
                         progress=35 + int(25 * done[0] / len(segments)))
 
-            def _single(index: int):
-                segment = segments[index]
-                segment["audio_path"] = _paths(index + 1)
-                segment["audio_dur"] = synthesize(segment["translated_text"], p["voice_type"], segment["audio_path"])
-                _progress(1)
-
-            def _batch(indices: list[int]):
-                """One request for several sentences, cut apart; falls back to one request per sentence."""
-                if len(indices) > 1:
-                    try:
-                        outs = [_paths(i + 1) for i in indices]
-                        ok = bulk_tts.synthesize_batch(
-                            [segments[i]["translated_text"] for i in indices], p["voice_type"], outs,
-                            lambda text, path: synthesize(text, p["voice_type"], path), OUTPUT_DIR)
-                        if ok:
-                            for i, path in zip(indices, outs):
-                                segments[i]["audio_path"] = path
-                                segments[i]["audio_dur"] = media_duration(path)
-                            _progress(len(indices))
-                            return
-                        print(f"  bulk voice split not trusted for sentences {indices[0] + 1}-{indices[-1] + 1}; "
-                              "using one request each", flush=True)
-                    except Exception as exc:
-                        print(f"  bulk voice failed ({exc}); using one request each", flush=True)
-                for i in indices:
-                    _single(i)
-
-            if TTS_BULK:
-                batches = bulk_tts.make_batches([sg["translated_text"] for sg in segments])
-                print(f"  voice-over: {len(segments)} sentences in {len(batches)} request group(s)", flush=True)
-            else:
-                batches = [[i] for i in range(len(segments))]
-            with ThreadPoolExecutor(max_workers=TTS_WORKERS) as pool:
-                list(pool.map(_batch, batches))
+            voice_model = dict(edit["voice_model"]) if edit and edit.get("voice_model") else dict(duration_model.DEFAULT)
+            todo, paths = [], {}   # lines that really need the voice: unchanged lines come from the clip cache
+            for i, sg in enumerate(segments):
+                path = os.path.join(OUTPUT_DIR, f"voice_{job_id}_{i + 1}{audio_ext()}")
+                temp_paths.append(path)
+                if storage.fetch_clip(clip_name(sg["translated_text"], p["voice_type"]), path):
+                    sg["audio_path"], sg["audio_dur"] = path, media_duration(path)
+                    _progress(1)
+                else:
+                    todo.append(i)
+                    paths[i] = path
+            print(f"  voice-over: {len(todo)} lines to voice ({len(segments) - len(todo)} from cache)", flush=True)
+            durs = voice_many([segments[i]["translated_text"] for i in todo], [paths[i] for i in todo],
+                              p["voice_type"], voice_model, job_id, _progress)
+            for i, d in zip(todo, durs):
+                segments[i]["audio_path"], segments[i]["audio_dur"] = paths[i], d
 
         # 5. Make each line fit its scene.
-        if p["fit_translation"] and fit_available():
+        if p["fit_translation"] and fit_available() and not edit:
             set_job(job_id, stage="Fitting translation to scene timing", progress=62)
             with pipeline_stage("Fit Translation To Timing"):
-                fit_segments_to_slots(
-                    segments, video_duration, job_id, p["voice_type"], p["target_language"], temp_paths,
-                    tolerance=(max(p["max_voice_speedup"], 1.0) if p["allow_voice_speedup"] else 1.05) * 1.02)
+                voice_model = duration_model.fit([(sg["translated_text"], sg["audio_dur"]) for sg in segments], voice_model)
+                print(f"  voice duration model: {voice_model['a']:.3f}s/syllable + {voice_model['b']:.2f}s", flush=True)
+                fit_segments_to_slots(segments, video_duration, job_id, p["voice_type"], p["target_language"],
+                                      temp_paths, voice_model)
+
+        for sg in segments:  # keep rewritten (fitted) clips too
+            if "_fit" in sg["audio_path"]:
+                storage.put_clip(sg["audio_path"], clip_name(sg["translated_text"], p["voice_type"]))
 
         # 6. Sync timeline + render.
         set_job(job_id, stage="Building sync timeline", progress=68)
@@ -387,6 +526,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
             background_path=bg_state.get("path"),
             **fx_kwargs,
         )
+        check_cancelled(job_id)
         set_job(job_id, stage="Rendering video", progress=75)
         with pipeline_stage("FFmpeg Render"):
             result = render(video_path, segments, scenes, effects, output_path, OUTPUT_DIR, job_id)
@@ -395,11 +535,33 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
         video_key = storage.put_output(output_path)  # s3: uploads and removes the local copy
         srt_key = storage.put_output(srt_path)
 
+        voice_model = duration_model.fit([(sg["translated_text"], sg["audio_dur"]) for sg in segments], voice_model)
+        by_index = {sc.audio_index: sc for sc in scenes if sc.audio_index is not None}
+        project = {
+            "voice_model": voice_model,
+            "voice": p["voice_type"],
+            "source_language": detected_source_language,
+            "source_duration": video_duration,
+            "max_voice_speedup": p["max_voice_speedup"],
+            "cuts": scene_cut_times or (edit or {}).get("cuts", []),
+            "fx": {"subtitle_rect": list(fx_kwargs["subtitle_rect"]) if fx_kwargs.get("subtitle_rect") else None,
+                   "watermark_rects": [list(r) for r in fx_kwargs.get("watermark_rects", [])]},
+            "segments": [
+                {"id": i, "start": round(sg["start"], 2), "text": sg["translated_text"],
+                 "source_text": sg.get("source_text", ""), "tempo": sg.get("tempo"),
+                 "audio_dur": round(sg["audio_dur"], 2),
+                 **({"slot": round(sc.src_end - sc.src_start, 2), "out_start": round(sc.out_start, 2),
+                     "out_len": round(sc.out_len, 2), "action": sc.action, "applied_tempo": round(sc.tempo, 2)}
+                    if (sc := by_index.get(i)) else {})}
+                for i, sg in enumerate(segments)
+            ],
+        }
         set_job(
             job_id,
             status="done",
             stage="Done",
             progress=100,
+            run_seconds=round(time.time() - t0, 1),
             result={
                 "source_language": detected_source_language,
                 "target_language": p["target_language"],
@@ -413,15 +575,18 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                      "output_length": sc.out_len, "action": sc.action, "text": sc.text}
                     for sc in scenes
                 ],
+                "project": project,         # what the editor loads
                 "video_file": video_key,   # the API turns these into signed URLs when the client asks
                 "subtitle_file": srt_key,
             },
         )
+    except JobCancelled:
+        print(f"[job {job_id}] cancelled by the user", flush=True)
     except ElevenLabsRateLimited:
-        set_job(job_id, status="error", error="ElevenLabs rate-limited this dubbing request. Please retry later.")
+        update_job(job_id, status="error", error="ElevenLabs rate-limited this dubbing request. Please retry later.")
     except Exception as exc:
         print(f"[job {job_id}] FAILED: {exc}", flush=True)
-        set_job(job_id, status="error", error=f"Recap generation failed: {exc}")
+        update_job(job_id, status="error", error=f"Recap generation failed: {exc}")
     finally:
         if bg_thread:
             bg_thread.join(timeout=5)
@@ -441,7 +606,10 @@ def run_job_by_id(job_id: str):
         if job is None:
             return
         params, input_key, logo_key = dict(job.params or {}), job.input_key, job.logo_key
-    set_job(job_id, status="running", stage="Starting", progress=1)
+    try:
+        set_job(job_id, status="running", stage="Starting", progress=1, started_at=time.time())
+    except JobCancelled:  # cancelled while waiting in the queue
+        return
     video_path = logo_path = None
     try:
         video_path = storage.fetch(input_key)
@@ -449,15 +617,10 @@ def run_job_by_id(job_id: str):
         run_job(job_id, video_path, logo_path, params)
     except Exception as exc:  # e.g. the upload could not be fetched
         print(f"[job {job_id}] FAILED before start: {exc}", flush=True)
-        set_job(job_id, status="error", error=f"Recap generation failed: {exc}")
+        update_job(job_id, status="error", error=f"Recap generation failed: {exc}")
     finally:
-        # The source upload is no longer needed once the job ends.
-        for path in (video_path, logo_path):
-            storage.delete_local(path)
+        # Keep the stored source until the retention window ends (storage.cleanup / bucket lifecycle rule):
+        # the editor re-renders from it. Only the temporary local copies fetched from s3 are removed.
         if storage.BACKEND == "s3":
-            for key in (input_key, logo_key):
-                if key:
-                    try:
-                        storage._client().delete_object(Bucket=storage.BUCKET, Key=key)
-                    except Exception:
-                        pass
+            for path in (video_path, logo_path):
+                storage.delete_local(path)

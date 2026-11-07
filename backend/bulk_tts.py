@@ -7,6 +7,10 @@ import os
 import re
 import subprocess
 
+import numpy as np
+
+import duration_model
+
 JOINER = os.getenv("TTS_BULK_JOINER", "\n\n")      # what separates sentences in the single request
 MAX_CHARS = int(os.getenv("TTS_BULK_MAX_CHARS", "1200"))   # characters per request (tune after testing limits)
 MAX_SENTENCES = int(os.getenv("TTS_BULK_MAX_SENTENCES", "8"))
@@ -43,26 +47,69 @@ def _silences(path: str) -> tuple[float, list[tuple[float, float]]]:
     return total, list(zip(starts, ends))
 
 
-def find_spans(path: str, texts: list[str]) -> list[tuple[float, float]] | None:
-    """Return one (start, end) per sentence, or None if the split isn't trustworthy."""
+def _envelope(path: str, hop: float = 0.01) -> np.ndarray:
+    """Loudness in dB every `hop` seconds (so index * hop = time)."""
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", path, "-ac", "1", "-ar", "8000", "-f", "s16le", "-"],
+                         capture_output=True, timeout=120, check=True).stdout
+    x = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+    n = int(8000 * hop)
+    frames = x[: len(x) // n * n].reshape(-1, n)
+    return 20 * np.log10(np.sqrt((frames ** 2).mean(axis=1)) + 1e-5)
+
+
+def find_spans(path: str, texts: list[str], model: dict | None = None) -> list[tuple[float, float]] | None:
+    """One (start, end) per sentence, or None if the split isn't trustworthy.
+
+    Candidate cut points are the clearly quiet stretches of the audio (>= 0.12 s, far below speech level). All
+    boundaries are chosen together (dynamic programming): the set whose clip lengths best match the duration model's
+    prediction for each sentence, rewarding longer pauses. (Taking the N-1 longest pauses, or the quietest spot near
+    each expected boundary, both picked word gaps on real Gemini audio.)"""
     n = len(texts)
-    total, silences = _silences(path)
+    hop = 0.01
+    env = _envelope(path, hop)
+    total = len(env) * hop
     if n == 1:
         return [(0.0, total)]
-    interior = [(a, b) for a, b in silences if a > 0.15 and b < total - 0.05]
-    if len(interior) < n - 1:
+    pred = np.array([duration_model.predict(t, model) for t in texts])
+    pred *= total / pred.sum()  # the model supplies proportions only; they must add up to this audio
+    smooth = np.convolve(env, np.ones(5) / 5, mode="same")
+    quiet = np.where(smooth < np.percentile(env, 75) - 12)[0]
+    runs = [r for r in np.split(quiet, np.where(np.diff(quiet) > 1)[0] + 1) if len(r) >= 12]
+    cands = [(((r[0] + r[-1]) / 2) * hop, len(r) * hop) for r in runs]
+    cands = [(t, ln) for t, ln in cands if 0.4 < t < total - 0.3]
+    if len(cands) < n - 1:
         return None
-    gaps = sorted(sorted(interior, key=lambda s: s[1] - s[0], reverse=True)[: n - 1])
-    bounds = [0.0] + [(a + b) / 2 for a, b in gaps] + [total]
-    spans = [(a, b) for a, b in zip(bounds[:-1], bounds[1:])]
-    # Sanity: each clip's length should roughly follow its text length.
-    chars = [max(len(t), 1) for t in texts]
-    rate = total / sum(chars)
-    for (a, b), c in zip(spans, chars):
-        expected = rate * c
-        if not (0.4 * expected <= (b - a) <= 2.5 * expected):
-            return None
-    return spans
+    times = np.array([0.0] + [t for t, _ in cands] + [total])
+    reward = np.array([0.0] + [min(ln, 0.7) / 0.7 for _, ln in cands] + [0.0])
+    m = len(times)
+    MU = 0.6
+    INF = 1e9
+    best = np.full((n + 1, m), INF)   # best[k][j]: cost with k sentences placed, k-th boundary at candidate j
+    back = np.zeros((n + 1, m), dtype=int)
+    best[0][0] = 0.0
+    for k in range(1, n + 1):
+        for j in range(1, m):
+            if k < n and j == m - 1:
+                continue
+            if k == n and j != m - 1:
+                continue
+            for i in range(m):
+                if best[k - 1][i] >= INF or times[i] >= times[j] - 0.3:
+                    continue
+                ratio = (times[j] - times[i]) / pred[k - 1]
+                if not 0.5 <= ratio <= 1.9:
+                    continue
+                cost = best[k - 1][i] + (ratio - 1) ** 2 - (MU * reward[j] if k < n else 0.0)
+                if cost < best[k][j]:
+                    best[k][j], back[k][j] = cost, i
+    if best[n][m - 1] >= INF:
+        return None
+    idx, j = [m - 1], m - 1
+    for k in range(n, 0, -1):
+        j = back[k][j]
+        idx.append(j)
+    t = times[idx[::-1]]
+    return [(float(a), float(c)) for a, c in zip(t[:-1], t[1:])]
 
 
 def cut(path: str, spans: list[tuple[float, float]], out_paths: list[str]):
@@ -71,13 +118,14 @@ def cut(path: str, spans: list[tuple[float, float]], out_paths: list[str]):
                        check=True, timeout=60)
 
 
-def synthesize_batch(texts: list[str], voice: str, out_paths: list[str], speak, workdir: str) -> bool:
+def synthesize_batch(texts: list[str], voice: str, out_paths: list[str], speak, workdir: str,
+                     model: dict | None = None) -> bool:
     """`speak(text, path)` makes one audio file. Returns True when out_paths were filled from a single request."""
     joined = JOINER.join(texts)
     big = os.path.join(workdir, f"bulk_{os.getpid()}_{abs(hash(joined))}.wav")
     try:
         speak(joined, big)
-        spans = find_spans(big, texts)
+        spans = find_spans(big, texts, model)
         if spans is None:
             return False
         cut(big, spans, out_paths)

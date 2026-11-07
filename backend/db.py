@@ -32,7 +32,7 @@ class Job(Base):
     __tablename__ = "jobs"
     id = Column(String(32), primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
-    status = Column(String(16), default="queued", index=True)   # queued | running | done | error
+    status = Column(String(16), default="queued", index=True)   # queued | running | done | error | cancelled
     stage = Column(String(120), default="Queued")
     progress = Column(Integer, default=0)
     error = Column(String(2000))
@@ -50,12 +50,15 @@ Base.metadata.create_all(engine)
 _COLUMNS = {"status", "stage", "progress", "error"}
 
 
-def update_job(job_id: str, **fields):
-    """Used by the pipeline; known columns are stored directly, everything else lands in Job.data."""
+def update_job(job_id: str, **fields) -> bool:
+    """Used by the pipeline; known columns are stored directly, everything else lands in Job.data.
+    Returns False (and changes nothing) when the job was cancelled by the user in the meantime."""
     with Session() as s:
         job = s.get(Job, job_id)
         if job is None:
-            return
+            return False
+        if job.status == "cancelled" and fields.get("status") != "cancelled":
+            return False
         extra = {}
         for k, v in fields.items():
             if k in _COLUMNS:
@@ -64,11 +67,12 @@ def update_job(job_id: str, **fields):
                 extra[k] = v
         if extra:
             job.data = {**(job.data or {}), **extra}
-        if fields.get("status") in ("done", "error"):
+        if fields.get("status") in ("done", "error", "cancelled"):
             job.finished_at = utcnow()
-        if fields.get("status") == "error":
-            job.charged_seconds = 0.0  # failed jobs don't use up the allowance
+        if fields.get("status") in ("error", "cancelled"):
+            job.charged_seconds = 0.0  # failed or cancelled jobs don't use up the allowance
         s.commit()
+        return True
 
 
 def used_seconds_today(s, user_id: int | None = None) -> float:

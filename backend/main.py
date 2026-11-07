@@ -11,8 +11,8 @@ import uuid
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
-from sqlalchemy import select
+from pydantic import BaseModel, Field
+from sqlalchemy import func, select
 
 import auth
 import jobs_queue
@@ -240,9 +240,29 @@ def _file_url(key: str, download: bool) -> str:
     return f"/api/files/{name}?exp={exp}&sig={sig}" + ("&dl=1" if download else "")
 
 
+WORKERS = int(os.getenv("QUEUE_WORKERS", os.getenv("RECAP_WORKERS", "2")))  # jobs that run at the same time
+DEFAULT_JOB_SECONDS = 300.0
+
+
+def _queue_info(job: Job) -> dict:
+    """Place in line and a rough wait for a queued job: average run time of recent jobs / parallel workers."""
+    with Session() as s:
+        ahead = s.execute(select(func.count()).select_from(Job).where(
+            Job.status == "queued", Job.created_at < job.created_at)).scalar_one()
+        running = s.execute(select(func.count()).select_from(Job).where(Job.status == "running")).scalar_one()
+        recent = s.execute(select(Job.data).where(Job.status == "done").order_by(Job.finished_at.desc()).limit(20)).scalars().all()
+    runs = [d["run_seconds"] for d in recent if d and d.get("run_seconds")]
+    avg = sum(runs) / len(runs) if runs else DEFAULT_JOB_SECONDS
+    free = max(WORKERS - running, 0)
+    waiting_for = max(ahead - free + 1, 0)
+    return {"queue_position": ahead + 1, "eta_seconds": int(waiting_for * avg / WORKERS)}
+
+
 def _job_view(job: Job) -> dict:
     view = {"id": job.id, "status": job.status, "stage": job.stage, "progress": job.progress,
-            "error": job.error, **{k: v for k, v in (job.data or {}).items() if k != "result"}}
+            "error": job.error, **{k: v for k, v in (job.data or {}).items() if k not in ("result", "started_at", "run_seconds")}}
+    if job.status == "queued":
+        view.update(_queue_info(job))
     result = (job.data or {}).get("result")
     if result:
         result = dict(result)
@@ -275,3 +295,68 @@ def get_file(filename: str, exp: int, sig: str, dl: int = 0):
         raise HTTPException(status_code=404, detail="File not found (results are kept for %g hours)." % FILE_TTL_HOURS)
     media_type = "application/x-subrip" if name.endswith(".srt") else "video/mp4"
     return FileResponse(path, media_type=media_type, filename=name if dl else None)
+
+
+# ---------- editor: re-render a finished job with edited lines ----------
+
+class EditLine(BaseModel):
+    start: float = Field(ge=0)                       # source-video time where this line's scene begins
+    text: str = Field(max_length=800)
+    source_text: str = Field("", max_length=2000)
+    tempo: float | None = Field(None, ge=0.7, le=1.6)  # fixed voice speed for this line (None = automatic)
+
+
+class RerenderBody(BaseModel):
+    segments: list[EditLine] = Field(min_length=1, max_length=600)
+    voice_type: str | None = None
+
+
+@app.post("/api/jobs/{job_id}/rerender")
+def rerender(job_id: str, body: RerenderBody, user: User = Depends(auth.current_user)):
+    """New job from a finished one: same source video and settings, edited lines. Unchanged lines reuse their
+    cached voice clips, so only edited lines cost a TTS request."""
+    if MAINTENANCE_MODE:
+        raise HTTPException(status_code=503, detail="We're temporarily not accepting new work. Please try again later.")
+    with Session() as s:
+        job = s.get(Job, job_id)
+        if job is None or job.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Unknown job")
+        if active_jobs(s, user.id) >= MAX_ACTIVE_JOBS_PER_USER:
+            raise HTTPException(status_code=429, detail="You already have videos processing. Wait for one to finish.")
+    project = ((job.data or {}).get("result") or {}).get("project")
+    if job.status != "done" or not project:
+        raise HTTPException(status_code=400, detail="This video can't be edited (finish it first, or it was made before the editor existed).")
+    if storage.BACKEND == "local" and not os.path.isfile(job.input_key):
+        raise HTTPException(status_code=410, detail=f"The source video was deleted after {FILE_TTL_HOURS:g} hours. Upload it again.")
+    voice = body.voice_type or project["voice"]
+    if tts_provider() == "gemini" and voice != "su" and voice not in VOICE_NAMES:
+        raise HTTPException(status_code=400, detail=f"Unknown voice: {voice}")
+    limit = float(project["source_duration"])
+    lines = sorted((l for l in body.segments if l.text.strip()), key=lambda l: l.start)
+    if not lines or lines[-1].start > limit:
+        raise HTTPException(status_code=400, detail="Line times must be inside the video.")
+    params = dict(job.params or {})
+    params["voice_type"] = voice
+    params["edit"] = {"segments": [l.model_dump() for l in lines], "fx": project["fx"],
+                      "source_language": project.get("source_language"),
+                      "cuts": project.get("cuts", []), "voice_model": project.get("voice_model")}
+    new_id = uuid.uuid4().hex[:12]
+    with Session() as s:
+        s.add(Job(id=new_id, user_id=user.id, status="queued", params=params, data={},
+                  input_key=job.input_key, logo_key=job.logo_key, charged_seconds=0.0))
+        s.commit()
+    jobs_queue.enqueue(new_id)
+    return {"job_id": new_id}
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+def cancel_job(job_id: str, user: User = Depends(auth.current_user)):
+    """Stop a queued or running job. The worker notices at its next step and quits; nothing is charged."""
+    from db import update_job
+    with Session() as s:
+        job = s.get(Job, job_id)
+    if job is None or job.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Unknown job")
+    if job.status in ("queued", "running"):
+        update_job(job_id, status="cancelled", stage="Cancelled")
+    return {"status": "cancelled" if job.status in ("queued", "running") else job.status}

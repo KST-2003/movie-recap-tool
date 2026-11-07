@@ -25,6 +25,6 @@ MAX_ACTIVE_JOBS_PER_USER = int(os.getenv("MAX_ACTIVE_JOBS_PER_USER", "2"))
 GLOBAL_DAILY_MINUTES = float(os.getenv("GLOBAL_DAILY_MINUTES", "0"))    # 0 = unlimited; protects the API bill
 MAINTENANCE_MODE = os.getenv("MAINTENANCE_MODE", "").lower() in ("1", "true")  # kill switch for new jobs
 
-CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",") if o.strip()]
+CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000").split(",") if o.strip()]
 FILE_TTL_HOURS = float(os.getenv("FILE_TTL_HOURS", "24"))
 SIGNED_URL_SECONDS = int(os.getenv("SIGNED_URL_SECONDS", "3600"))

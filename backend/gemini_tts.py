@@ -5,6 +5,9 @@ import time
 
 MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-3.8-flash-tts")  # Flash-Lite does not support Burmese
 DEFAULT_VOICE = os.getenv("GEMINI_VOICE", "Kore")
+# Optional delivery instruction put before the text, e.g. "Read as an energetic, engaging movie-recap narrator:".
+# Off by default: if the model reads it aloud it would ruin every clip. Compare with test_tts_style.py first.
+STYLE = os.getenv("TTS_STYLE", "").strip()
 _client = None
 
 
@@ -33,7 +36,7 @@ def synthesize_to_file(text: str, path: str, voice: str | None = None, retries: 
         try:
             interaction = _get_client().interactions.create(
                 model=MODEL,
-                input=text,
+                input=f"{STYLE}\n\n{text}" if STYLE else text,
                 response_format={"type": "audio"},
                 generation_config={"speech_config": [{"voice": voice}]},
             )

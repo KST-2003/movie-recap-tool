@@ -95,7 +95,10 @@ def plan_timeline(segments: list[dict], video_duration: float, opts: SyncOptions
         sc = Scene(src_start, src_end, audio_index=i, text=segments[i]["translated_text"])
 
         tempo = 1.0
-        if opts.allow_speedup and dur + BREATH > slot:
+        manual = segments[i].get("tempo")  # editor override: fixed voice speed for this line
+        if manual:
+            tempo = min(max(float(manual), 0.7), 1.6)
+        elif opts.allow_speedup and dur + BREATH > slot:
             tempo = min(opts.max_speedup, dur / max(slot - BREATH, 0.1))
             tempo = max(tempo, 1.0)
         audio_len = dur / tempo
@@ -394,7 +397,7 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
             a = f"anullsrc=r=44100:cl=mono,atrim=end={sc.out_len:.3f}"
         else:
             a = f"[{audio_inputs[sc.audio_index]}:a]aresample=44100"
-            if sc.tempo > 1.001:
+            if abs(sc.tempo - 1.0) > 0.001:
                 a += f",atempo={sc.tempo:.4f}"
             a += f",{afmt},apad=whole_dur={sc.out_len:.3f},atrim=end={sc.out_len:.3f}"
         f.append(f"{a},{afmt},asetpts=PTS-STARTPTS[a{n}]")

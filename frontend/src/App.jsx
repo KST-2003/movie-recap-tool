@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
+import Editor from './Editor.jsx';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
@@ -39,6 +40,48 @@ function AuthScreen({ onAuth }) {
           {mode === 'login' ? 'New here? Create an account' : 'Already have an account? Log in'}
         </button>
       </form>
+    </div>
+  );
+}
+
+const STEPS = [
+  { label: 'Uploading your video', from: -1, to: 0 },
+  { label: 'Finding subtitles and scene cuts', from: 0, to: 10 },
+  { label: 'Transcribing and translating to Burmese', from: 10, to: 35 },
+  { label: 'Generating the Burmese voice-over', from: 35, to: 62 },
+  { label: 'Fitting each line to its scene', from: 62, to: 75 },
+  { label: 'Rendering the final video', from: 75, to: 100 },
+];
+const mmss = (t) => `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+
+// What is done, what is running now, what is left, so a long job never looks stuck.
+function ProcessingPanel({ upload, progress, elapsed }) {
+  const uploading = upload !== null && upload < 100;
+  const pct = uploading ? -1 : progress.pct;
+  return (
+    <div className="w-full max-w-xs mt-3 rounded-xl border border-slate-800 bg-slate-900/60 p-3 text-xs">
+      <div className="flex justify-between text-slate-400 mb-2">
+        <span>Working on your video</span>
+        <span className="font-mono">{mmss(elapsed)}</span>
+      </div>
+      <ol className="space-y-1.5">
+        {STEPS.map((st, i) => {
+          const done = i === 0 ? !uploading : pct >= st.to;
+          const active = !done && (i === 0 ? uploading : pct >= st.from && pct < st.to);
+          return (
+            <li key={st.label} className="flex items-start gap-2">
+              <span className={`mt-0.5 w-4 h-4 flex-shrink-0 rounded-full flex items-center justify-center text-[10px] ${
+                done ? 'bg-emerald-500 text-slate-900' : active ? 'border-2 border-purple-400 border-t-transparent animate-spin' : 'border border-slate-600'
+              }`}>{done ? '✓' : ''}</span>
+              <span className={done ? 'text-slate-400' : active ? 'text-white' : 'text-slate-500'}>
+                {st.label}
+                {active && <span className="block text-purple-300">{i === 0 ? `${upload}%` : progress.stage}</span>}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+      <p className="mt-2 text-[11px] text-slate-500">Longer videos can take a few minutes. You can cancel at any time.</p>
     </div>
   );
 }
@@ -117,12 +160,34 @@ function App() {
   const [notes, setNotes] = useState('');
   const [subtitleUrl, setSubtitleUrl] = useState('');
   const [timeline, setTimeline] = useState([]);
+  const [project, setProject] = useState(null); // editable lines of the finished job
+  const [jobId, setJobId] = useState('');
+  const videoRef = useRef(null);
+  const activeJob = useRef('');
+  const [upload, setUpload] = useState(null); // % uploaded while the video is being sent
+  const [elapsed, setElapsed] = useState(0);
+  const [sourceUrl, setSourceUrl] = useState('');
+  const cancelled = useRef(false);
 
   // UI Processing & Result State
   const [loading, setLoading] = useState(false);
   const [resultVideoUrl, setResultVideoUrl] = useState('');
   const [resultDownloadUrl, setResultDownloadUrl] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+
+  useEffect(() => {
+    if (!videoFile) { setSourceUrl(''); return undefined; }
+    const url = URL.createObjectURL(videoFile);
+    setSourceUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [videoFile]);
+  useEffect(() => {
+    if (!loading) return undefined;
+    setElapsed(0);
+    const t0 = Date.now();
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - t0) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [loading]);
 
   // Handle Form Submission
   const handleGenerateRecap = async (e) => {
@@ -132,10 +197,14 @@ function App() {
       return;
     }
 
+    cancelled.current = false;
+    activeJob.current = '';
     setLoading(true);
     setErrorMessage('');
+    setNotes('');
     setResultVideoUrl('');
     setTimeline([]);
+    setProject(null);
 
     const formData = new FormData();
     formData.append('video_file', videoFile);
@@ -157,38 +226,88 @@ function App() {
     formData.append('keep_background', keepBackground);
 
     try {
-      // Start a background job on the local FastAPI backend, then poll its progress.
-      const baseUrl = API_BASE;
-      const { data: started } = await axios.post(`${baseUrl}/api/jobs`, formData);
+      setUpload(0);
+      setProgress({ pct: 0, stage: 'Uploading' });
+      const { data: started } = await axios.post(`${API_BASE}/api/jobs`, formData, {
+        onUploadProgress: (e) => e.total && setUpload(Math.round((100 * e.loaded) / e.total)),
+      });
+      setUpload(null);
       setProgress({ pct: 0, stage: 'Queued' });
-
-      let job;
-      do {
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-        ({ data: job } = await axios.get(`${baseUrl}/api/jobs/${started.job_id}`));
-        setProgress({ pct: job.progress, stage: job.stage });
-      } while (job.status === 'running' || job.status === 'queued');
-
-      if (job.status === 'error') throw new Error(job.error);
-
-      const result = job.result;
-      if (result.expired) throw new Error('This result has expired. Please generate it again.');
-      setResultVideoUrl(absUrl(result.video_url));
-      setResultDownloadUrl(absUrl(result.download_url));
-      setSubtitleUrl(absUrl(result.subtitle_url));
-      setTimeline(result.timeline.filter((scene) => scene.text));
-      setNotes(
-        [
-          result.subtitles_detected ? 'Source subtitles detected and blurred.' : 'No source subtitles found, nothing blurred.',
-          keepBackground && !result.background_kept ? 'Background music separation failed; voice-only audio.' : '',
-        ].filter(Boolean).join(' ')
-      );
+      await followJob(started.job_id);
     } catch (error) {
-      console.error('Processing error:', error);
-      setErrorMessage(error.response?.data?.detail || error.message || 'ဗီဒီယို ထုတ်လုပ်ရာတွင် အမှားအယွင်း ရှိသွားပါသည်');
+      showError(error);
     } finally {
       setLoading(false);
+      setUpload(null);
       refreshAccount();
+    }
+  };
+
+  const cancelJob = async () => {
+    cancelled.current = true;
+    if (activeJob.current) {
+      try { await axios.post(`${API_BASE}/api/jobs/${activeJob.current}/cancel`); } catch (e) { /* the loop below stops anyway */ }
+    }
+  };
+
+  const showError = (error) => {
+    if (error.cancelled) {
+      setErrorMessage('');
+      setNotes(resultVideoUrl ? 'Cancelled. Your previous video is unchanged.' : '');
+      return;
+    }
+    console.error('Processing error:', error);
+    setErrorMessage(error.response?.data?.detail || error.message || 'ဗီဒီယို ထုတ်လုပ်ရာတွင် အမှားအယွင်း ရှိသွားပါသည်');
+  };
+
+  // Poll a job until it finishes, then show its result (used for new videos and for editor re-renders).
+  const followJob = async (id) => {
+    let job;
+    activeJob.current = id;
+    const stopped = () => Object.assign(new Error('Cancelled'), { cancelled: true });
+    if (cancelled.current) { await cancelJob(); throw stopped(); } // Cancel was pressed while the job was being created
+    do {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      if (cancelled.current) throw stopped();
+      ({ data: job } = await axios.get(`${API_BASE}/api/jobs/${id}`));
+      const waiting = job.status === 'queued' && job.queue_position
+        ? `Waiting in line: you are #${job.queue_position}${job.eta_seconds ? `, about ${Math.max(1, Math.ceil(job.eta_seconds / 60))} min` : ', starting soon'}`
+        : job.stage;
+      setProgress({ pct: job.progress, stage: waiting });
+    } while (job.status === 'running' || job.status === 'queued');
+
+    if (job.status === 'cancelled') throw stopped();
+    if (job.status === 'error') throw new Error(job.error);
+    const result = job.result;
+    if (result.expired) throw new Error('This result has expired. Please generate it again.');
+    setResultVideoUrl(absUrl(result.video_url));
+    setResultDownloadUrl(absUrl(result.download_url));
+    setSubtitleUrl(absUrl(result.subtitle_url));
+    setTimeline(result.timeline.filter((scene) => scene.text));
+    setProject(result.project || null);
+    setJobId(job.id);
+    setNotes(
+      [
+        result.subtitles_detected ? 'Source subtitles detected and blurred.' : 'No source subtitles found, nothing blurred.',
+        keepBackground && !result.background_kept ? 'Background music separation failed; voice-only audio.' : '',
+      ].filter(Boolean).join(' ')
+    );
+  };
+
+  const applyEdits = async (lines) => {
+    cancelled.current = false;
+    activeJob.current = '';
+    setLoading(true);
+    setErrorMessage('');
+    setNotes('');
+    try {
+      const { data } = await axios.post(`${API_BASE}/api/jobs/${jobId}/rerender`, { segments: lines });
+      setProgress({ pct: 0, stage: 'Queued' });
+      await followJob(data.job_id);
+    } catch (error) {
+      showError(error);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -422,9 +541,12 @@ function App() {
 
         {loading && (
           <div className="mt-4">
-            <div className="flex justify-between text-xs text-slate-400 mb-1">
+            <div className="flex justify-between items-center text-xs text-slate-400 mb-1">
               <span>{progress.stage}</span>
-              <span>{progress.pct}%</span>
+              <span className="flex items-center gap-3">
+                {progress.pct}%
+                <button type="button" onClick={cancelJob} className="px-2 py-0.5 rounded bg-slate-700 hover:bg-red-800 text-slate-200">Cancel</button>
+              </span>
             </div>
             <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
               <div className="h-full bg-purple-500 transition-all" style={{ width: `${progress.pct}%` }} />
@@ -440,33 +562,52 @@ function App() {
         )}
 
         {/* Preview & Download Section */}
-        {resultVideoUrl && (
+        {(resultVideoUrl || (loading && sourceUrl)) && (
           <div className="mt-8 border-t border-slate-800 pt-6">
             <h2 className="text-lg font-semibold text-slate-200 mb-4">
               ၄။ ဗီဒီယို ကြည့်ရှုရန် နှင့် ဒေါင်းလုပ်လုပ်ရန် (Preview & Download)
             </h2>
             <div className="flex flex-col items-center space-y-4">
-              <video
-                src={resultVideoUrl}
-                controls
-                className="w-full max-w-xs rounded-xl border border-slate-800 shadow-lg"
-              />
-              <a
+              <div className="relative w-full max-w-xs">
+                <video
+                  ref={videoRef}
+                  src={resultVideoUrl || sourceUrl}
+                  controls={!loading}
+                  className="w-full rounded-xl border border-slate-800 shadow-lg"
+                />
+                {loading && (
+                  <div className="absolute inset-0 rounded-xl bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3 p-4 text-center">
+                    <div className="w-10 h-10 rounded-full border-4 border-slate-700 border-t-purple-400 animate-spin" />
+                    <p className="text-sm text-slate-200">{upload !== null && upload < 100 ? `Uploading ${upload}%` : progress.stage || 'Working…'}</p>
+                    <div className="w-40 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                      <div className="h-full bg-purple-500 transition-all" style={{ width: `${upload !== null && upload < 100 ? upload : progress.pct}%` }} />
+                    </div>
+                    <button type="button" onClick={cancelJob} className="mt-1 px-4 py-1.5 rounded-full bg-slate-700 hover:bg-red-800 text-sm">
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+              {loading && <ProcessingPanel upload={upload} progress={progress} elapsed={elapsed} />}
+              {resultVideoUrl && <a
                 href={resultDownloadUrl}
                 download
                 className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl text-sm transition-all shadow-md"
               >
                 📥 ဗီဒီယို သိမ်းဆည်းမည် (Download MP4)
-              </a>
-              <a
+              </a>}
+              {resultVideoUrl && <a
                 href={subtitleUrl}
                 download
                 className="px-6 py-2.5 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-xl text-sm transition-all"
               >
                 Download subtitles (.srt)
-              </a>
+              </a>}
               {notes && <p className="text-xs text-slate-400">{notes}</p>}
-              {timeline.length > 0 && (
+              {project && (
+                <Editor key={jobId} project={project} videoRef={videoRef} busy={loading} onApply={applyEdits} />
+              )}
+              {!project && timeline.length > 0 && (
                 <ul className="w-full text-xs text-slate-400 space-y-1">
                   {timeline.map((scene, i) => (
                     <li key={i}>
