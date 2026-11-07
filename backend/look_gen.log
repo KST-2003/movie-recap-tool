@@ -32,3 +32,23 @@ FAILED ghost Gemini TTS failed: timeout: no answer from Gemini TTS after 52s
   Gemini TTS slow/busy (TimeoutError: timeout: no answer from Gemini TTS after 51s); retry 1/2
   Gemini TTS slow/busy (TimeoutError: timeout: no answer from Gemini TTS after 51s); retry 2/2
 FAILED witch Gemini TTS failed: timeout: no answer from Gemini TTS after 51s
+  Gemini TTS slow/busy (TimeoutError: timeout: no answer from Gemini TTS after 52s); retry 1/2
+  Gemini TTS slow/busy (TimeoutError: timeout: no answer from Gemini TTS after 52s); retry 2/2
+FAILED fairy Gemini TTS failed: timeout: no answer from Gemini TTS after 52s
+  Gemini TTS slow/busy (TimeoutError: timeout: no answer from Gemini TTS after 52s); retry 1/2
+  Gemini TTS slow/busy (TimeoutError: timeout: no answer from Gemini TTS after 52s); retry 2/2
+FAILED alien Gemini TTS failed: timeout: no answer from Gemini TTS after 52s
+  Gemini TTS slow/busy (TimeoutError: timeout: no answer from Gemini TTS after 51s); retry 1/2
+  Gemini TTS slow/busy (TimeoutError: timeout: no answer from Gemini TTS after 51s); retry 2/2
+FAILED robot Gemini TTS failed: timeout: no answer from Gemini TTS after 51s
+  Gemini TTS slow/busy (TimeoutError: timeout: no answer from Gemini TTS after 53s); retry 1/2
+  Gemini TTS slow/busy (TimeoutError: timeout: no answer from Gemini TTS after 53s); retry 2/2
+FAILED ai Gemini TTS failed: timeout: no answer from Gemini TTS after 53s
+  Gemini TTS slow/busy (TimeoutError: timeout: no answer from Gemini TTS after 51s); retry 1/2
+  Gemini TTS slow/busy (TimeoutError: timeout: no answer from Gemini TTS after 51s); retry 2/2
+FAILED cat Gemini TTS failed: timeout: no answer from Gemini TTS after 51s
+  Gemini TTS slow/busy (TimeoutError: timeout: no answer from Gemini TTS after 52s); retry 1/2
+  Gemini TTS slow/busy (TimeoutError: timeout: no answer from Gemini TTS after 52s); retry 2/2
+FAILED dog Gemini TTS failed: timeout: no answer from Gemini TTS after 52s
+  Gemini TTS slow/busy (TimeoutError: timeout: no answer from Gemini TTS after 52s); retry 1/2
+  Gemini TTS slow/busy (TimeoutError: timeout: no answer from Gemini TTS after 52s); retry 2/2

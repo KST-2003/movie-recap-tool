@@ -1,0 +1,38 @@
+  TTS ok: 177 chars in 10.1s
+ok ghost
+  TTS ok: 170 chars in 9.4s
+ok witch
+  TTS ok: 174 chars in 8.6s
+ok fairy
+  TTS ok: 181 chars in 9.7s
+ok alien
+  TTS ok: 165 chars in 11.3s
+ok robot
+  TTS ok: 194 chars in 8.0s
+ok ai
+  TTS ok: 169 chars in 7.9s
+ok cat
+  TTS ok: 178 chars in 8.8s
+ok dog
+  TTS ok: 182 chars in 7.8s
+ok small_animal
+  TTS ok: 173 chars in 6.7s
+ok bird
+  TTS ok: 166 chars in 6.8s
+ok fox
+  TTS ok: 170 chars in 9.1s
+ok bear
+  TTS ok: 174 chars in 9.5s
+ok villain
+  TTS ok: 164 chars in 8.5s
+ok hero
+  TTS ok: 161 chars in 7.7s
+ok whisper
+  TTS ok: 168 chars in 8.6s
+ok drunk
+  TTS ok: 171 chars in 9.4s
+ok sleepy
+  Gemini TTS slow/busy (TimeoutError: timeout: no answer from Gemini TTS after 52s); retry 1/2
+  Gemini TTS slow/busy (TimeoutError: timeout: no answer from Gemini TTS after 52s); retry 2/2
+FAILED announcer Gemini TTS failed: timeout: no answer from Gemini TTS after 52s
+done
