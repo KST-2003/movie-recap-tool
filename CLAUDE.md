@@ -84,6 +84,15 @@ request, answers verified by prediction) BEFORE the first voice pass, so most li
 lengths (post-voice fit). The uvicorn access log hides the `GET /api/jobs/<id>` polling lines. On restart, jobs left
 queued/running by the previous process (inline mode) are marked failed so they stop counting against the active-job limit.
 
+### Time budget (product requirement: a 10-min video must finish in <= 10 min)
+Measured floor on an M2 Air with fake Gemini (`python bench_10min.py`): 10-min 720x1280 video = **95 s** total (render 82 s,
+subtitle detection 8 s, rest seconds). That leaves ~8 min for Gemini. `run_job` computes `budget = clamp(0.9 x video length, 150,
+`JOB_BUDGET_MAX_SECONDS`=540)` and reserves `0.2 x length + 20 s` for the render; pre-fit and each fit round only start if enough
+budget is left (otherwise skipped, the timeline speeds up / slows the video instead). The log ends with `finished in Xs ... (budget
+Ys)`. Estimate for 10 min (UNVERIFIED with real Gemini): transcribe ~60 s (8 chunks of 75 s, 6 parallel), pre-fit ~30 s, voice ~80 s
+(~30 bulk groups, 8 parallel), fit rounds ~100 s, render ~100 s = 6-7 min. Risks: Gemini TTS latency / rate limits under parallel
+load, Tier 1 daily request limits (a 10-min video is ~65 Gemini requests), many users at once (needs more workers/cores).
+
 ### Progress UI
 The source video previews as soon as a file is chosen; on Generate the player shows a spinner overlay + Cancel and a step
 checklist (upload %, subtitles/cuts, translate, voice, fit, render) with the live stage text and an elapsed timer. Backend progress:
@@ -183,3 +192,4 @@ Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user 
 - 2026-11-07 (late): batched fit rewrites + bulk voice for rewrites (was minutes at 62%), 75 s transcription chunks, instant preview +
   step checklist + elapsed timer + upload progress.
 - 2026-11-07 (night 2): pre-fit shortening before voice, TTS timeout 60 s + visible retries, orphaned jobs cleaned on startup, quiet polling logs.
+- 2026-11-07 (night 3): time budget + skip of optional fitting, bench_10min.py (local floor 95 s for 10 min), LLM rewrite parallelism 8.

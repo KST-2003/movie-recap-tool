@@ -119,6 +119,19 @@ assert s3[2]["audio_dur"] > proj["segments"][2]["audio_dur"] + 0.3, "short line 
 assert s3[1]["audio_dur"] < proj["segments"][1]["audio_dur"] / 2, "long line must be shortened"
 assert all(s["applied_tempo"] <= 1.05 for s in s3[1:3]), "no voice speed-up needed after fitting"
 
+# 3c. time budget: with no time left the optional fitting is skipped, the job still finishes
+before = len(rewrite_calls)
+pipeline.JOB_BUDGET_MAX = 1.0
+with open(video, "rb") as f:
+    r = client.post("/api/jobs", headers=H, files={"video_file": ("in.mp4", f, "video/mp4")},
+                    data={"voice_type": "su", "fit_translation": "true", "enable_flip": "false",
+                          "blur_subtitles": "false", "remove_watermark": "false"})
+job4 = wait(r.json()["job_id"])
+assert job4["status"] == "done", job4.get("error")
+assert len(rewrite_calls) == before, "fitting must be skipped when the time budget is used up"
+print("budget exhausted: fitting skipped, job done")
+pipeline.JOB_BUDGET_MAX = 540.0
+
 # 4. validation + queue ETA
 bad = client.post(f"/api/jobs/{job['id']}/rerender", headers=H, json={"segments": [{"start": 999, "text": "x"}]})
 assert bad.status_code == 400, bad.text

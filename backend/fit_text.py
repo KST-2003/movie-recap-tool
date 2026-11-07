@@ -133,7 +133,7 @@ def rewrite_many(items: list[dict], language: str) -> dict[int, str]:
             print(f"  fit rewrite request failed ({exc})", flush=True)
             return {}
 
-    with ThreadPoolExecutor(max_workers=min(4, max(len(chunks), 1))) as pool:
+    with ThreadPoolExecutor(max_workers=min(8, max(len(chunks), 1))) as pool:
         for part in pool.map(run, chunks):
             out.update(part)
     return out
