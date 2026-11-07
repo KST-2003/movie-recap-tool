@@ -523,6 +523,17 @@ def fit_segments_to_slots(segments, video_duration, job_id, voice, target_langua
         print(f"  fit round {round_no + 1}: {changed} of {len(voiced)} rewrites kept", flush=True)
 
 
+def _manual_blur_pixels(rects, info: dict) -> list:
+    """User-drawn blur boxes (fractions of the frame) -> even pixel rects (x, y, w, h)."""
+    W, H = info["width"], info["height"]
+    out = []
+    for x, y, w, h in rects or []:
+        px, py = int(x * W) // 2 * 2, int(y * H) // 2 * 2
+        pw, ph = max(int(w * W) // 2 * 2, 8), max(int(h * H) // 2 * 2, 8)
+        out.append((px, py, min(pw, W - px), min(ph, H - py)))
+    return out
+
+
 def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
     output_filename = f"recap_output_{job_id}.mp4"
     srt_filename = f"recap_output_{job_id}.srt"
@@ -803,6 +814,8 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
             logo_path=logo_path,
             logo_width_frac=min(max(p["logo_size"], 0.05), 0.5),
             logo_position=p["logo_position"],
+            logo_xy=((p["logo_x"], p["logo_y"]) if p.get("logo_x", -1) >= 0 and p.get("logo_y", -1) >= 0 else None),
+            extra_blur_rects=_manual_blur_pixels(p.get("manual_blurs"), info),
             captions=p["enable_subtitles"],
             background_path=bg_state.get("path") if not duck else bg_path,
             duck_background=duck,

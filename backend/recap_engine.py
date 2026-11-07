@@ -47,6 +47,8 @@ class EffectOptions:
     logo_path: str | None = None
     logo_width_frac: float = 0.15
     logo_position: str = "top-right"
+    logo_xy: tuple | None = None  # dragged position (left, top) as fractions of the frame; overrides logo_position
+    extra_blur_rects: list = field(default_factory=list)  # user-drawn boxes, pixel rects, blurred the whole video
     captions: bool = True
     subtitle_rect: tuple | None = None  # pixel (x, y, w, h) of detected source subtitles; None = nothing to blur
     watermark_rects: list = field(default_factory=list)  # detected static-text watermarks, pixel rects
@@ -501,6 +503,9 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
                  f"[w_src]crop=trunc(iw*0.25):trunc(ih*0.12):trunc(iw*0.75):trunc(ih*0.88),boxblur=20:10[w_blur];"
                  f"[w_main][w_blur]overlay=W-w:H-h[wm1]")
         cur = "wm1"
+    for k, rect in enumerate(fx.extra_blur_rects):
+        f.append(_blur_region(rect, cur, f"bm{k}"))
+        cur = f"bm{k}_o"
     if fx.flip_h:
         chain("hflip", "fh")
     if fx.flip_v:
@@ -511,6 +516,8 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
         chain(f"setpts=PTS/{speed:.4f}", "sp")
     if logo_idx is not None:
         pos = _LOGO_POS.get(fx.logo_position, _LOGO_POS["top-right"])
+        if fx.logo_xy:
+            pos = f"{fx.logo_xy[0] * W:.0f}:{fx.logo_xy[1] * H:.0f}"
         f.append(f"[{logo_idx}:v]scale=trunc({W}*{fx.logo_width_frac:.3f}/2)*2:-2[lg]")
         f.append(f"[{cur}][lg]overlay={pos}[wl]")
         cur = "wl"

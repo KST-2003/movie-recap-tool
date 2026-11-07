@@ -1,3 +1,4 @@
+import json
 from config import (ALLOW_SIGNUP, CORS_ORIGINS, DEFAULT_DAILY_MINUTES, FILE_TTL_HOURS, GLOBAL_DAILY_MINUTES,
                     LOGOS_DIR, MAINTENANCE_MODE, MAX_ACTIVE_JOBS_PER_USER, MAX_UPLOAD_MB, MAX_VIDEO_MINUTES,
                     OUTPUT_DIR, SIGNED_URL_SECONDS, UPLOAD_DIR)
@@ -205,6 +206,20 @@ def save_upload(upload: UploadFile, directory: str, max_mb: int) -> str:
     return path
 
 
+def _clean_blurs(raw: str) -> list:
+    """Parse the preview's blur boxes; keep at most 6 sane [x, y, w, h] fractions."""
+    try:
+        rects = json.loads(raw) if raw else []
+        out = []
+        for r in rects[:6]:
+            x, y, w, h = (min(max(float(v), 0.0), 1.0) for v in r)
+            if w > 0.01 and h > 0.01:
+                out.append([x, y, min(w, 1 - x), min(h, 1 - y)])
+        return out
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid blur boxes.")
+
+
 @app.post("/api/jobs")
 def create_job(
     user: User = Depends(auth.current_user),
@@ -236,6 +251,9 @@ def create_job(
     saturation: float = Form(1.0),
     logo_position: str = Form("top-right"),
     logo_size: float = Form(0.15),
+    logo_x: float = Form(-1.0),           # dragged logo position: left edge as a fraction of video width (-1 = use logo_position)
+    logo_y: float = Form(-1.0),           # top edge as a fraction of video height
+    manual_blurs: str = Form(""),         # JSON [[x,y,w,h],...] fractions of the frame, blurred for the whole video
 ):
     if MAINTENANCE_MODE:
         raise HTTPException(status_code=503, detail="We're temporarily not accepting new videos. Please try again later.")
@@ -257,7 +275,8 @@ def create_job(
               "enable_subtitles": enable_subtitles, "remove_watermark": remove_watermark,
               "enable_flip": enable_flip, "flip_vertical": flip_vertical, "video_speed": video_speed,
               "brightness": brightness, "contrast": contrast, "saturation": saturation,
-              "logo_position": logo_position, "logo_size": logo_size}
+              "logo_position": logo_position, "logo_size": logo_size,
+              "logo_x": logo_x, "logo_y": logo_y, "manual_blurs": _clean_blurs(manual_blurs)}
 
     with Session() as s:
         if active_jobs(s, user.id) >= MAX_ACTIVE_JOBS_PER_USER:

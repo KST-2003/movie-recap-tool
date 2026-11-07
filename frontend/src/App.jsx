@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import Editor from './Editor.jsx';
 import VoiceLibrary from './VoiceLibrary.jsx';
+import PreviewStudio from './PreviewStudio.jsx';
 import { LangSwitch, useI18n } from './i18n.jsx';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
@@ -180,6 +181,15 @@ function App() {
   const [contrast, setContrast] = useState(1);
   const [saturation, setSaturation] = useState(1);
   const [logoPosition, setLogoPosition] = useState('top-right');
+  const [logoSize, setLogoSize] = useState(0.15);
+  const [logoXY, setLogoXY] = useState(null); // dragged position in the preview (fractions of the frame); null = use logoPosition
+  const [blurBoxes, setBlurBoxes] = useState([]); // user blur boxes, DISPLAYED coordinates (fractions)
+  const previewFx = { videoSpeed, brightness, contrast, saturation, logoSize, logoPosition, logoXY, blurBoxes, flip: enableFlip };
+  const changePreviewFx = (patch) => {
+    const set = { videoSpeed: setVideoSpeed, brightness: setBrightness, contrast: setContrast, saturation: setSaturation,
+      logoSize: setLogoSize, logoPosition: setLogoPosition, logoXY: setLogoXY, blurBoxes: setBlurBoxes };
+    Object.entries(patch).forEach(([k, v]) => set[k]?.(v));
+  };
   const [fitTranslation, setFitTranslation] = useState(true);
   const [keepBackground, setKeepBackground] = useState(false);
   const [filmMode, setFilmMode] = useState('recap'); // 'recap' = one narrator voice | 'full' = characters with their own voices
@@ -252,6 +262,13 @@ function App() {
     formData.append('contrast', contrast);
     formData.append('saturation', saturation);
     formData.append('logo_position', logoPosition);
+    formData.append('logo_size', logoSize);
+    if (customLogo && logoXY) {
+      formData.append('logo_x', logoXY[0]);
+      formData.append('logo_y', logoXY[1]);
+    }
+    // The render blurs before it flips, so boxes drawn on a flipped preview are mirrored back to source coordinates.
+    formData.append('manual_blurs', JSON.stringify(blurBoxes.map((b) => [enableFlip ? 1 - b.x - b.w : b.x, b.y, b.w, b.h])));
     formData.append('fit_translation', fitTranslation);
     formData.append('keep_background', keepBackground);
     formData.append('mode', filmMode);
@@ -401,6 +418,10 @@ function App() {
               />
             </div>
           </div>
+
+          {sourceUrl && !loading && !resultVideoUrl && (
+            <PreviewStudio src={sourceUrl} logoFile={customLogo} fx={previewFx} onChange={changePreviewFx} />
+          )}
 
           <div className="rounded-xl border border-purple-500/30 bg-purple-950/30 p-4">
             <p className="text-sm text-purple-200 mb-3">
@@ -582,39 +603,6 @@ function App() {
                 {tr('Allow slight voice speed-up (up to 1.35x) before slowing the video')}
               </span>
             </label>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              {[
-                ['Video speed', videoSpeed, setVideoSpeed, 0.5, 2, 0.05],
-                ['Brightness', brightness, setBrightness, -0.5, 0.5, 0.05],
-                ['Contrast', contrast, setContrast, 0.5, 1.5, 0.05],
-                ['Saturation', saturation, setSaturation, 0, 2, 0.05],
-              ].map(([label, value, setter, min, max, step]) => (
-                <label key={label} className="text-xs text-slate-400">
-                  {tr(label)}: <span className="text-slate-200">{Number(value).toFixed(2)}</span>
-                  <input
-                    type="range"
-                    min={min}
-                    max={max}
-                    step={step}
-                    value={value}
-                    onChange={(e) => setter(Number(e.target.value))}
-                    className="w-full accent-purple-500"
-                  />
-                </label>
-              ))}
-              <label className="text-xs text-slate-400">
-                {tr('Logo position')}
-                <select
-                  value={logoPosition}
-                  onChange={(e) => setLogoPosition(e.target.value)}
-                  className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-lg p-1.5 text-slate-200"
-                >
-                  {['top-right', 'top-left', 'bottom-right', 'bottom-left', 'center'].map((p) => (
-                    <option key={p} value={p}>{tr(p)}</option>
-                  ))}
-                </select>
-              </label>
-            </div>
           </div>
 
           {/* Submit Button */}
@@ -656,7 +644,7 @@ function App() {
               {tr('Preview & download')}
             </h2>
             <div className="flex flex-col items-center space-y-4">
-              <div className="relative w-full max-w-xs">
+              <div className="relative w-full max-w-xs min-h-[16rem]">
                 <video
                   ref={videoRef}
                   src={resultVideoUrl || sourceUrl}
@@ -665,12 +653,12 @@ function App() {
                 />
                 {loading && (
                   <div className="absolute inset-0 rounded-xl bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3 p-4 text-center">
-                    <div className="w-10 h-10 rounded-full border-4 border-slate-700 border-t-purple-400 animate-spin" />
+                    <div className="w-10 h-10 shrink-0 aspect-square rounded-full border-4 border-slate-700 border-t-purple-400 animate-spin" />
                     <p className="text-sm text-slate-200">{upload !== null && upload < 100 ? tr('Uploading {n}%', { n: upload }) : trs(progress.stage) || tr('Working…')}</p>
-                    <div className="w-40 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                    <div className="w-40 h-1.5 shrink-0 bg-slate-800 rounded-full overflow-hidden">
                       <div className="h-full bg-purple-500 transition-all" style={{ width: `${upload !== null && upload < 100 ? upload : progress.pct}%` }} />
                     </div>
-                    <button type="button" onClick={cancelJob} className="mt-1 px-4 py-1.5 rounded-full bg-slate-700 hover:bg-red-800 text-sm">
+                    <button type="button" onClick={cancelJob} className="mt-1 px-4 py-1.5 shrink-0 rounded-full bg-slate-700 hover:bg-red-800 text-sm">
                       {tr('Cancel')}
                     </button>
                   </div>
