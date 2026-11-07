@@ -1,0 +1,49 @@
+"""Full-movie mode: give every character ONE voice for the whole film, so voices never change between scenes.
+
+- the most talkative character (A) gets the voice the user picked, if the gender fits (or is unknown);
+- every other character gets the next unused voice of their gender (female / male lists in voices.py);
+- unknown gender takes whichever list has been used less; when a list is used up, voices are reused;
+- user overrides (the editor's "Characters" panel) always win."""
+import voices as V
+
+DEFAULT_VOICE = "Kore"
+
+
+def _gender_of(voice: str) -> str:
+    return "female" if voice in V.FEMALE else "male"
+
+
+def assign_voices(segments: list[dict], chosen_voice: str, overrides: dict | None = None) -> dict:
+    """Sets sg["voice"] on every segment and returns {speaker: {"voice", "gender", "lines"}} (A = most lines)."""
+    overrides = {k: v for k, v in (overrides or {}).items() if v in V.VOICE_NAMES}
+    chosen = DEFAULT_VOICE if chosen_voice in (None, "", "su") else chosen_voice
+    lines: dict[str, int] = {}
+    gender: dict[str, str] = {}
+    for sg in segments:
+        sid = sg.get("speaker") or "A"
+        sg["speaker"] = sid
+        lines[sid] = lines.get(sid, 0) + 1
+        if sg.get("gender") in ("male", "female"):
+            gender.setdefault(sid, sg["gender"])
+    order = sorted(lines, key=lambda s: (-lines[s], s))
+    used: list[str] = []
+    result: dict[str, dict] = {}
+    for sid in order:
+        g = gender.get(sid, "unknown")
+        if sid in overrides:
+            voice = overrides[sid]
+        elif chosen not in used and g in ("unknown", _gender_of(chosen)) and not any(
+                r["voice"] == chosen for r in result.values()):
+            voice = chosen
+        else:
+            if g == "unknown":
+                g = "female" if sum(_gender_of(u) == "female" for u in used) <= sum(_gender_of(u) == "male" for u in used) else "male"
+            pool = V.FEMALE if g == "female" else V.MALE
+            free = [v for v in pool if v not in used and v != chosen]
+            voice = free[0] if free else pool[len([u for u in used if u in pool]) % len(pool)]
+        used.append(voice)
+        result[sid] = {"voice": voice, "gender": gender.get(sid, _gender_of(voice) if sid in overrides else "unknown"),
+                       "lines": lines[sid]}
+    for sg in segments:
+        sg["voice"] = result[sg["speaker"]]["voice"]
+    return result

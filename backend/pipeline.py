@@ -15,18 +15,20 @@ import requests
 import bulk_tts
 import duration_model
 import tts_pool
+import casting
 import gemini_dub
 import gemini_tts
 import local_dub
 import storage
 from common import audio_ext, dub_provider, media_duration, tts_provider
-from audio_tools import cleanup_separation, separate_background
+from audio_tools import cleanup_separation, make_soft_tone, mix_music, separate_background
 from config import LOGOS_DIR, OUTPUT_DIR, UPLOAD_DIR
 from db import Job, Session, update_job
 import fit_text
 from fit_text import available as fit_available
 from scene_cuts import detect_cuts
-from recap_engine import (BREATH, EffectOptions, SyncOptions, plan_timeline, probe_video, render, write_srt)
+from recap_engine import (BREATH, EffectOptions, SyncOptions, has_audio, plan_source_timing, plan_timeline, probe_video,
+                          render, write_srt)
 from subtitle_detect import detect_text_regions, to_pixels
 
 
@@ -165,9 +167,9 @@ TTS_WORKERS = int(os.getenv("TTS_WORKERS", "8"))
 TTS_BULK = os.getenv("TTS_BULK", "1").lower() in ("1", "true")  # several sentences per TTS request; set TTS_BULK=0 to turn off
 
 
-def clip_name(text: str, voice: str) -> str:
-    """Cache name of a voice clip: same text + voice = same clip, so an edit only re-voices changed lines."""
-    return hashlib.sha1(f"{voice}|{text}".encode()).hexdigest() + audio_ext()
+def clip_name(text: str, voice: str, style: str | None = None) -> str:
+    """Cache name of a voice clip: same text + voice (+ delivery style) = same clip, so an edit only re-voices changed lines."""
+    return hashlib.sha1(f"{voice}|{text}{'|' + style if style else ''}".encode()).hexdigest() + audio_ext()
 
 
 class JobCancelled(Exception):
@@ -195,7 +197,7 @@ def check_cancelled(job_id: str):
             raise JobCancelled(job_id)
 
 
-def synthesize(text: str, voice: str, path: str, chooser=None):
+def synthesize(text: str, voice: str, path: str, chooser=None, style: str | None = None):
     if tts_provider() == "fake":  # no API: tones about as long as speech would be (tests / load tests)
         parts = [t for t in text.split("\n\n") if t.strip()] or [text]
         cmd = ["ffmpeg", "-y", "-loglevel", "error"]
@@ -213,7 +215,8 @@ def synthesize(text: str, voice: str, path: str, chooser=None):
         while True:
             model = chooser.get()
             try:
-                gemini_tts.synthesize_to_file(text, path, None if voice == "su" else voice, model=model)
+                spoken = f"Say {style}: {text}" if style else text   # emotion for full-movie mode
+                gemini_tts.synthesize_to_file(spoken, path, None if voice == "su" else voice, model=model)
                 return media_duration(path)
             except gemini_tts.QuotaExceeded:
                 chooser.failed(model)   # switches to the next model, or raises QuotaExceeded when none is left
@@ -239,35 +242,62 @@ def synthesize(text: str, voice: str, path: str, chooser=None):
 FIT_FILL = float(os.getenv("FIT_FILL_RATIO", "0.85"))   # a voice shorter than this share of the original speech gets lengthened
 FIT_MIN_GAP = float(os.getenv("FIT_MIN_GAP_SECONDS", "0.5"))  # ...but only if that leaves at least this much dead air
 FIT_ROUNDS = int(os.getenv("FIT_ROUNDS", "2"))
+# Drawn Burmese text is ~1.45x taller than its font size (stacked letters): 0.8 makes our captions ~15% taller than the
+# original subtitle's text box ("slightly bigger"). Tune with CAPTION_SIZE_FACTOR after looking at a result.
+CAPTION_SIZE_FACTOR = float(os.getenv("CAPTION_SIZE_FACTOR", "0.8"))
+EMOTION_MAX = int(os.getenv("EMOTION_MAX_LINES", "12"))   # emotional lines are voiced one per request: cap them (quota + time)
 # Time budget: a video must be finished in about its own length (hard cap JOB_BUDGET_MAX seconds). The optional
 # polishing steps (pre-fit, fit rounds) only start if enough budget is left AFTER reserving time for the render.
 JOB_BUDGET_MAX = float(os.getenv("JOB_BUDGET_MAX_SECONDS", "540"))
 RENDER_SECONDS_PER_VIDEO_SECOND = float(os.getenv("RENDER_SECONDS_PER_VIDEO_SECOND", "0.2"))   # measured 0.14 on an M2 Air
 
 
-def voice_many(texts: list[str], paths: list[str], voice: str, model: dict, job_id: str, progress=None,
-               chooser=None) -> list[float]:
+def plan_batches(texts: list[str], voices: list[str], styles: list) -> list[list[int]]:
+    """Which lines go into which TTS request: lines of the same voice share requests (several sentences each);
+    lines with an emotion direction are voiced one per request (the direction applies to a single line)."""
+    plain = [i for i in range(len(texts)) if not styles[i]]
+    batches: list[list[int]] = []
+    for v in dict.fromkeys(voices[i] for i in plain):
+        idxs = [i for i in plain if voices[i] == v]
+        sub = bulk_tts.make_batches([texts[i] for i in idxs]) if TTS_BULK else [[k] for k in range(len(idxs))]
+        batches += [[idxs[k] for k in b] for b in sub]
+    return batches + [[i] for i in range(len(texts)) if styles[i]]
+
+
+def voice_many(texts: list[str], paths: list[str], voice, model: dict, job_id: str, progress=None,
+               chooser=None, styles: list | None = None) -> list[float]:
     """Voice many lines with as few requests as possible (several lines per request when TTS_BULK is on; a group
-    whose audio can't be split reliably is retried as two smaller groups, then line by line). Returns the durations."""
-    durs = [0.0] * len(texts)
+    whose audio can't be split reliably is retried as two smaller groups, then line by line). `voice` is one voice or
+    a list (one per line); `styles` = emotion directions per line (None = plain) - a style the TTS reads aloud
+    instead of acting is detected by the clip length and dropped (written back into `styles`). Returns the durations."""
+    n = len(texts)
+    voices = list(voice) if isinstance(voice, (list, tuple)) else [voice] * n
+    if styles is None:
+        styles = [None] * n
+    durs = [0.0] * n
 
     def single(i: int):
         check_cancelled(job_id)
-        durs[i] = synthesize(texts[i], voice, paths[i], chooser)
-        storage.put_clip(paths[i], clip_name(texts[i], voice))
+        durs[i] = synthesize(texts[i], voices[i], paths[i], chooser, styles[i])
+        if styles[i] and durs[i] > duration_model.predict(texts[i], model) * 1.5 + 1.0:
+            print(f"  emotion '{styles[i]}' was probably read aloud ({durs[i]:.1f}s); voicing the line plainly", flush=True)
+            styles[i] = None
+            durs[i] = synthesize(texts[i], voices[i], paths[i], chooser, None)
+        storage.put_clip(paths[i], clip_name(texts[i], voices[i], styles[i]))
         if progress:
             progress(1)
 
     def group(idx: list[int]):
         check_cancelled(job_id)
         if len(idx) > 1:
+            v = voices[idx[0]]
             try:
-                ok = bulk_tts.synthesize_batch([texts[i] for i in idx], voice, [paths[i] for i in idx],
-                                               lambda text, path: synthesize(text, voice, path, chooser), OUTPUT_DIR, model)
+                ok = bulk_tts.synthesize_batch([texts[i] for i in idx], v, [paths[i] for i in idx],
+                                               lambda text, path: synthesize(text, v, path, chooser), OUTPUT_DIR, model)
                 if ok:
                     for i in idx:
                         durs[i] = media_duration(paths[i])
-                        storage.put_clip(paths[i], clip_name(texts[i], voice))
+                        storage.put_clip(paths[i], clip_name(texts[i], voices[i]))
                     if progress:
                         progress(len(idx))
                     return
@@ -283,9 +313,8 @@ def voice_many(texts: list[str], paths: list[str], voice: str, model: dict, job_
         for i in idx:
             single(i)
 
-    batches = bulk_tts.make_batches(texts) if TTS_BULK else [[i] for i in range(len(texts))]
     with ThreadPoolExecutor(max_workers=TTS_WORKERS) as pool:
-        list(pool.map(group, batches))
+        list(pool.map(group, plan_batches(texts, voices, styles)))
     return durs
 
 
@@ -404,16 +433,18 @@ def fit_segments_to_slots(segments, video_duration, job_id, voice, target_langua
         def prog(n, total=len(voiced), r=round_no):
             done[0] += n
             set_job(job_id, stage=f"Voicing rewritten lines {done[0]}/{total}", progress=63 + r * 3)
-        durs = voice_many([current[i] for i in voiced], paths, voice, model, job_id, prog, chooser)
+        fit_styles = [segments[i].get("style") for i in voiced]
+        durs = voice_many([current[i] for i in voiced], paths, [segments[i]["voice"] for i in voiced], model, job_id,
+                          prog, chooser, fit_styles)
         changed = 0
-        for i, path, new_dur in zip(voiced, paths, durs):
+        for i, path, new_dur, new_style in zip(voiced, paths, durs, fit_styles):
             mode, _tgt = todo[i]
             upper, want = _slot_bounds(segments, i, video_duration)
             dur = segments[i]["audio_dur"]
             better = (new_dur < dur) if mode == "shorten" else (
                 new_dur > dur and new_dur <= upper * 1.05 and abs(new_dur - want) < abs(dur - want))
             if better:
-                segments[i].update(translated_text=current[i], audio_path=path, audio_dur=new_dur)
+                segments[i].update(translated_text=current[i], audio_path=path, audio_dur=new_dur, style=new_style)
                 changed += 1
         print(f"  fit round {round_no + 1}: {changed} of {len(voiced)} rewrites kept", flush=True)
 
@@ -425,6 +456,8 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
     t0 = time.time()
     _job_started[job_id] = t0
     temp_paths: list[str] = []
+    mode = p.get("mode", "recap")               # "recap" (one narrator voice) | "full" (characters, emotions, original sound)
+    dub = p.get("output", "dub") != "subtitles"  # False: keep the original audio, only add Burmese subtitles
     bg_state: dict = {}
     bg_thread = None
     try:
@@ -449,6 +482,8 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
             if fx.get("subtitle_rect"):
                 fx_kwargs["subtitle_rect"] = tuple(fx["subtitle_rect"])
             fx_kwargs["watermark_rects"] = [tuple(r) for r in fx.get("watermark_rects", [])]
+            if fx.get("caption_px"):
+                fx_kwargs["caption_px"] = int(fx["caption_px"])
         elif p["blur_subtitles"] or p["remove_watermark"]:
             set_job(job_id, stage="Detecting subtitles", progress=3)
             with pipeline_stage("Subtitle Detection"):
@@ -456,6 +491,8 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                     found = detect_text_regions(video_path, video_duration)
                     if found["subtitle"]:
                         fx_kwargs["subtitle_rect"] = to_pixels(found["subtitle"], info["width"], info["height"])
+                        if found.get("line_height"):   # our captions: only slightly bigger than the original ones
+                            fx_kwargs["caption_px"] = int(found["line_height"] * info["height"] * CAPTION_SIZE_FACTOR)
                     fx_kwargs["watermark_rects"] = [
                         to_pixels(r, info["width"], info["height"], 0.01, 0.005) for r in found["watermarks"]
                     ]
@@ -467,7 +504,11 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
         set_job(job_id, subtitles_detected=bool(fx_kwargs.get("subtitle_rect")))
 
         # 2. Keep the original music/effects (voice removed) — runs alongside dubbing.
-        if p["keep_background"]:
+        src_has_audio = has_audio(video_path)
+        bg_choice = p.get("background") or ("separate" if p.get("keep_background") else ("original" if mode == "full" else "off"))
+        if not dub or not src_has_audio:
+            bg_choice = "off"
+        if bg_choice == "separate":
             def _separate():
                 try:
                     bg_state["path"] = separate_background(video_path, OUTPUT_DIR, job_id)
@@ -489,8 +530,13 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
         if edit:
             detected_source_language = edit.get("source_language")
             segments = [{"start": float(e["start"]), "translated_text": e["text"].strip(),
-                         "source_text": e.get("source_text", ""), "tempo": e.get("tempo")}
+                         "source_text": e.get("source_text", ""), "tempo": e.get("tempo"),
+                         "speaker": e.get("speaker"), "emotion": e.get("emotion"), "style": e.get("style"),
+                         "gender": ((edit.get("speakers") or {}).get(e.get("speaker")) or {}).get("gender")}
                         for e in edit["segments"] if (e.get("text") or "").strip()]
+            for k, sg in enumerate(segments):   # a line added in the editor speaks with the previous line's character
+                if not sg["speaker"] and mode == "full":
+                    sg["speaker"] = segments[k - 1]["speaker"] if k else None
             if not segments:
                 raise RuntimeError("The edited project has no lines.")
         with pipeline_stage("Transcribe + Translate"):
@@ -500,6 +546,10 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                 "elevenlabs": lambda: elevenlabs_dub(video_path, p["target_language"]),
                 "gemini": lambda: gemini_dub.dub(video_path, p["target_language"], retries=2, scene_cuts=scene_cut_times),
             }
+            if mode == "full":
+                runners["gemini"] = lambda: gemini_dub.dub(video_path, p["target_language"], retries=2,
+                                                           scene_cuts=scene_cut_times, mode="full")
+                primary = "gemini"   # only the Gemini path knows speakers, emotions and the natural-Burmese rules
             order = [primary] + [n for n in ("elevenlabs", "gemini", "local") if n != primary]  # local last: slow, weakest Burmese
             if os.getenv("DUB_FALLBACK", "").lower() not in ("1", "true"):
                 order = [primary]  # fail fast: ElevenLabs costs credits and the local model takes many minutes
@@ -519,58 +569,86 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
 
         # 3b. Shorten lines that will not fit their scene BEFORE paying for any voice.
         voice_model = dict(edit["voice_model"]) if edit and edit.get("voice_model") else dict(duration_model.DEFAULT)
-        if p["fit_translation"] and fit_available() and not edit:
+        if p["fit_translation"] and fit_available() and not edit and dub:
             set_job(job_id, stage="Shortening long lines to fit their scenes", progress=31)
             with pipeline_stage("Pre-fit Translation"):
                 prefit_segments(segments, video_duration, job_id, p["target_language"], voice_model, time_left)
 
-        # 4. Voice-over.
-        with pipeline_stage(f"Voiceover ({tts_provider()})"):
-            if tts_provider() == "gemini":
-                gemini_tts._get_client()  # create the shared client before worker threads start
-            done = [0]
+        # 3c. Casting: every line gets its voice. Full movie: one fixed voice per character (the most talkative one gets
+        # the voice the user picked); lines with a clear emotion get a delivery direction (capped: one request each).
+        speakers = None
+        chooser = None
+        if mode == "full" and dub:
+            speakers = casting.assign_voices(segments, p["voice_type"],
+                                             {sid: v["voice"] for sid, v in ((edit or {}).get("speakers") or {}).items()})
+            print("  casting: " + ", ".join(f"{sid}={v['voice']} ({v['lines']} lines)" for sid, v in speakers.items()), flush=True)
+            if p.get("emotion", True) and tts_provider() in ("gemini", "fake") and not edit:
+                cand = [i for i, sg in enumerate(segments) if gemini_dub.EMOTIONS.get(sg.get("emotion") or "neutral")]
+                if len(cand) > EMOTION_MAX:
+                    cand = [cand[int(k * len(cand) / EMOTION_MAX)] for k in range(EMOTION_MAX)]
+                for i in cand:
+                    segments[i]["style"] = gemini_dub.EMOTIONS[segments[i]["emotion"]]
+                print(f"  emotions: {len(cand)} lines get a delivery direction", flush=True)
+        else:
+            for sg in segments:
+                sg["voice"] = p["voice_type"]
 
-            def _progress(count: int):
-                done[0] += count
-                set_job(job_id, stage=f"Voice-over {done[0]}/{len(segments)}",
-                        progress=35 + int(25 * done[0] / len(segments)))
+        if dub:
+            # 4. Voice-over.
+            with pipeline_stage(f"Voiceover ({tts_provider()})"):
+                if tts_provider() == "gemini":
+                    gemini_tts._get_client()  # create the shared client before worker threads start
+                done = [0]
 
-            set_job(job_id, stage=f"Voice-over 0/{len(segments)}", progress=35)  # show the new step right away
-            todo, paths = [], {}   # lines that really need the voice: unchanged lines come from the clip cache
-            for i, sg in enumerate(segments):
-                path = os.path.join(OUTPUT_DIR, f"voice_{job_id}_{i + 1}{audio_ext()}")
-                temp_paths.append(path)
-                if storage.fetch_clip(clip_name(sg["translated_text"], p["voice_type"]), path):
-                    sg["audio_path"], sg["audio_dur"] = path, media_duration(path)
-                    _progress(1)
-                else:
-                    todo.append(i)
-                    paths[i] = path
-            print(f"  voice-over: {len(todo)} lines to voice ({len(segments) - len(todo)} from cache)", flush=True)
-            groups = math.ceil(len(todo) / bulk_tts.MAX_SENTENCES) if TTS_BULK else len(todo)
-            chooser = (tts_pool.Chooser(groups + max(4, groups // 3), (edit or {}).get("tts_model"))
-                       if tts_provider() == "gemini" and todo else None)   # + room for the fit rewrites
-            durs = voice_many([segments[i]["translated_text"] for i in todo], [paths[i] for i in todo],
-                              p["voice_type"], voice_model, job_id, _progress, chooser)
-            for i, d in zip(todo, durs):
-                segments[i]["audio_path"], segments[i]["audio_dur"] = paths[i], d
+                def _progress(count: int):
+                    done[0] += count
+                    set_job(job_id, stage=f"Voice-over {done[0]}/{len(segments)}",
+                            progress=35 + int(25 * done[0] / len(segments)))
 
-        # 5. Make each line fit its scene.
-        if p["fit_translation"] and fit_available() and not edit:
-            set_job(job_id, stage="Fitting translation to scene timing", progress=62)
-            with pipeline_stage("Fit Translation To Timing"):
-                voice_model = duration_model.fit([(sg["translated_text"], sg["audio_dur"]) for sg in segments], voice_model)
-                print(f"  voice duration model: {voice_model['a']:.3f}s/syllable + {voice_model['b']:.2f}s", flush=True)
-                fit_segments_to_slots(segments, video_duration, job_id, p["voice_type"], p["target_language"],
-                                      temp_paths, voice_model, time_left, chooser)
+                set_job(job_id, stage=f"Voice-over 0/{len(segments)}", progress=35)  # show the new step right away
+                todo, paths = [], {}   # lines that really need the voice: unchanged lines come from the clip cache
+                for i, sg in enumerate(segments):
+                    path = os.path.join(OUTPUT_DIR, f"voice_{job_id}_{i + 1}{audio_ext()}")
+                    temp_paths.append(path)
+                    if storage.fetch_clip(clip_name(sg["translated_text"], sg["voice"], sg.get("style")), path):
+                        sg["audio_path"], sg["audio_dur"] = path, media_duration(path)
+                        _progress(1)
+                    else:
+                        todo.append(i)
+                        paths[i] = path
+                print(f"  voice-over: {len(todo)} lines to voice ({len(segments) - len(todo)} from cache)", flush=True)
+                t_texts = [segments[i]["translated_text"] for i in todo]
+                t_voices = [segments[i]["voice"] for i in todo]
+                t_styles = [segments[i].get("style") for i in todo]
+                groups = len(plan_batches(t_texts, t_voices, t_styles))
+                chooser = (tts_pool.Chooser(groups + max(4, groups // 3), (edit or {}).get("tts_model"))
+                           if tts_provider() == "gemini" and todo else None)   # + room for the fit rewrites
+                durs = voice_many(t_texts, [paths[i] for i in todo], t_voices, voice_model, job_id, _progress, chooser, t_styles)
+                for i, d, st in zip(todo, durs, t_styles):
+                    segments[i]["audio_path"], segments[i]["audio_dur"], segments[i]["style"] = paths[i], d, st
 
-        for sg in segments:  # keep rewritten (fitted) clips too
-            if "_fit" in sg["audio_path"]:
-                storage.put_clip(sg["audio_path"], clip_name(sg["translated_text"], p["voice_type"]))
+            # 5. Make each line fit its scene.
+            if p["fit_translation"] and fit_available() and not edit and dub:
+                set_job(job_id, stage="Fitting translation to scene timing", progress=62)
+                with pipeline_stage("Fit Translation To Timing"):
+                    voice_model = duration_model.fit([(sg["translated_text"], sg["audio_dur"]) for sg in segments], voice_model)
+                    print(f"  voice duration model: {voice_model['a']:.3f}s/syllable + {voice_model['b']:.2f}s", flush=True)
+                    fit_segments_to_slots(segments, video_duration, job_id, p["voice_type"], p["target_language"],
+                                          temp_paths, voice_model, time_left, chooser)
+
+            for sg in segments:  # keep rewritten (fitted) clips too
+                if "_fit" in sg["audio_path"]:
+                    storage.put_clip(sg["audio_path"], clip_name(sg["translated_text"], sg["voice"], sg.get("style")))
+
+        else:   # subtitles only: no voice, the video keeps its own sound and timing
+            for k, sg in enumerate(segments):
+                nxt = segments[k + 1]["start"] if k + 1 < len(segments) else video_duration
+                sg["audio_path"] = ""
+                sg["audio_dur"] = round(max(min((sg.get("end") or nxt) - sg["start"], nxt - sg["start"]), 0.2), 2)
 
         # 6. Sync timeline + render.
         set_job(job_id, stage="Building sync timeline", progress=68)
-        scenes = plan_timeline(
+        scenes = plan_source_timing(segments, video_duration) if not dub else plan_timeline(
             segments,
             video_duration,
             SyncOptions(
@@ -584,6 +662,9 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                 print(f"  src {scene.src_start:.2f}-{scene.src_end:.2f}s -> out {scene.out_start:.2f}s "
                       f"+{scene.out_len:.2f}s [{scene.action}]", flush=True)
 
+        bg_path, duck = bg_state.get("path"), False
+        if bg_choice == "original":   # keep the film's own music and sounds, lowered while the characters speak
+            bg_path, duck = video_path, True
         if bg_thread:
             set_job(job_id, stage="Separating background music", progress=70)
             bg_thread.join()
@@ -603,13 +684,24 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
             logo_width_frac=min(max(p["logo_size"], 0.05), 0.5),
             logo_position=p["logo_position"],
             captions=p["enable_subtitles"],
-            background_path=bg_state.get("path"),
+            background_path=bg_state.get("path") if not duck else bg_path,
+            duck_background=duck,
+            background_volume=0.5 if duck else 0.35,
+            source_audio=(not dub and src_has_audio),
             **fx_kwargs,
         )
         check_cancelled(job_id)
         set_job(job_id, stage="Rendering video", progress=75)
         with pipeline_stage("FFmpeg Render"):
             result = render(video_path, segments, scenes, effects, output_path, OUTPUT_DIR, job_id)
+            if p.get("soft_music"):   # optional quiet pad under everything
+                try:
+                    tone = os.path.join(OUTPUT_DIR, f"{job_id}_tone.wav")
+                    temp_paths.append(tone)
+                    make_soft_tone(tone, result["duration"])
+                    mix_music(output_path, tone)
+                except Exception as exc:
+                    print(f"  soft music failed ({exc}); continuing without", flush=True)
         srt_path = os.path.join(OUTPUT_DIR, srt_filename)
         write_srt(result["cues"], srt_path)
         video_key = storage.put_output(output_path)  # s3: uploads and removes the local copy
@@ -625,11 +717,17 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
             "source_duration": video_duration,
             "max_voice_speedup": p["max_voice_speedup"],
             "cuts": scene_cut_times or (edit or {}).get("cuts", []),
+            "mode": mode,
+            "output": "dub" if dub else "subtitles",
+            "speakers": speakers,
             "fx": {"subtitle_rect": list(fx_kwargs["subtitle_rect"]) if fx_kwargs.get("subtitle_rect") else None,
+                   "caption_px": fx_kwargs.get("caption_px"),
                    "watermark_rects": [list(r) for r in fx_kwargs.get("watermark_rects", [])]},
             "segments": [
                 {"id": i, "start": round(sg["start"], 2), "text": sg["translated_text"],
                  "source_text": sg.get("source_text", ""), "tempo": sg.get("tempo"),
+                 "speaker": sg.get("speaker") if mode == "full" else None, "emotion": sg.get("emotion"),
+                 "style": sg.get("style"),
                  "audio_dur": round(sg["audio_dur"], 2),
                  **({"slot": round(sc.src_end - sc.src_start, 2), "out_start": round(sc.out_start, 2),
                      "out_len": round(sc.out_len, 2), "action": sc.action, "applied_tempo": round(sc.tempo, 2)}
@@ -650,7 +748,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                 "source_duration": video_duration,
                 "output_duration": result["duration"],
                 "subtitles_detected": bool(fx_kwargs.get("subtitle_rect")),
-                "background_kept": "path" in bg_state,
+                "background_kept": "path" in bg_state or bg_choice == "original",
                 "transcript": " ".join(s["translated_text"] for s in segments),
                 "timeline": [
                     {"source_start": sc.src_start, "source_end": sc.src_end, "output_start": sc.out_start,

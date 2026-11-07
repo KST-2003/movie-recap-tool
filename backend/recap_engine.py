@@ -52,6 +52,9 @@ class EffectOptions:
     watermark_rects: list = field(default_factory=list)  # detected static-text watermarks, pixel rects
     background_path: str | None = None  # separated music/effects track to keep under the new voice
     background_volume: float = 0.35
+    duck_background: bool = False     # lower the background track while the new voice speaks (sidechain compression)
+    source_audio: bool = False        # no dubbing: keep the video's own audio (subtitles-only mode)
+    caption_px: int | None = None     # caption font size in px (set from the original subtitle height); None = default
 
 
 @dataclass
@@ -229,10 +232,12 @@ def _wrap(draw, text: str, fonts: "Fonts", max_w: int) -> list[str]:
     return lines
 
 
-def render_caption(text: str, path: str, width: int, height: int, max_lines: int = 3):
+def render_caption(text: str, path: str, width: int, height: int, max_lines: int = 3, size_px: int | None = None):
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     size = max(int(width * 0.05), 18)
+    if size_px:  # match the original subtitle (slightly bigger), within sane bounds
+        size = int(min(max(size_px, width * 0.035), width * 0.075))
     max_w = int(width * 0.88)
     while True:
         fonts = Fonts(size)
@@ -296,7 +301,8 @@ def write_srt(cues, path: str):
             f.write(f"{n}\n{_srt_time(a)} --> {_srt_time(b)}\n{text}\n\n")
 
 
-def build_caption_track(cues, total_len: float, work_dir: str, tag: str, width: int, height: int) -> str:
+def build_caption_track(cues, total_len: float, work_dir: str, tag: str, width: int, height: int,
+                        size_px: int | None = None) -> str:
     """One concat-demuxer playlist of caption PNGs, so FFmpeg needs a single overlay input."""
     blank = os.path.join(work_dir, f"{tag}_blank.png")
     Image.new("RGBA", (width, height), (0, 0, 0, 0)).save(blank)
@@ -308,7 +314,7 @@ def build_caption_track(cues, total_len: float, work_dir: str, tag: str, width: 
         if a - t > 0.001:
             lines += [f"file '{blank}'", f"duration {a - t:.3f}"]
         png = os.path.join(work_dir, f"{tag}_cap_{n}.png")
-        render_caption(text, png, width, height)
+        render_caption(text, png, width, height, size_px=size_px)
         files.append(png)
         lines += [f"file '{png}'", f"duration {b - a:.3f}"]
         t = b
@@ -320,6 +326,45 @@ def build_caption_track(cues, total_len: float, work_dir: str, tag: str, width: 
 
 
 # ---------- render ----------
+
+def has_audio(path: str) -> bool:
+    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=index",
+                          "-of", "csv=p=0", path], capture_output=True, text=True, timeout=30)
+    return bool(out.stdout.strip())
+
+
+def plan_source_timing(segments: list[dict], video_duration: float) -> list[Scene]:
+    """Subtitles-only mode: the video keeps its own timing (no slow-down, no freeze). One scene per line; the caption
+    is shown while the original speaker talks (end - start from the transcript)."""
+    order = sorted(range(len(segments)), key=lambda i: segments[i]["start"])
+    starts, kept = [], []
+    for i in order:
+        s = min(max(0.0, segments[i]["start"]), video_duration)
+        if starts and s <= starts[-1] + MIN_SCENE:
+            continue
+        starts.append(s)
+        kept.append(i)
+    scenes: list[Scene] = []
+    if not kept or starts[0] > MIN_SCENE:
+        lead = starts[0] if kept else video_duration
+        scenes.append(Scene(0.0, lead, out_len=lead))
+    elif kept:
+        starts[0] = 0.0
+    for n, i in enumerate(kept):
+        a = starts[n]
+        b = starts[n + 1] if n + 1 < len(kept) else video_duration
+        slot = max(b - a, MIN_SCENE)
+        speech = (segments[i].get("end") or (a + slot * 0.9)) - segments[i]["start"]
+        sc = Scene(a, b, audio_index=i, text=segments[i]["translated_text"], out_len=slot)
+        sc.audio_len = min(max(speech, 0.8), max(slot - 0.05, 0.3))
+        sc.action = "source"
+        scenes.append(sc)
+    t = 0.0
+    for sc in scenes:
+        sc.out_start = t
+        t += sc.out_len
+    return scenes
+
 
 def probe_video(path: str) -> dict:
     out = subprocess.run(
@@ -359,7 +404,7 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
     audio_inputs: dict[int, int] = {}
     nxt = 1
     for sc in scenes:
-        if sc.audio_index is not None:
+        if sc.audio_index is not None and not fx.source_audio and segments[sc.audio_index].get("audio_path"):
             cmd += ["-i", segments[sc.audio_index]["audio_path"]]
             audio_inputs[sc.audio_index] = nxt
             nxt += 1
@@ -379,21 +424,24 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
     cap_idx, cap_files = None, []
     if fx.captions and cue_list:
         cap_h = int(H * 0.22)
-        playlist, cap_files = build_caption_track(cue_list, total_len, work_dir, tag, W, cap_h)
+        playlist, cap_files = build_caption_track(cue_list, total_len, work_dir, tag, W, cap_h, fx.caption_px)
         cmd += ["-f", "concat", "-safe", "0", "-i", playlist]
         cap_idx = nxt
         nxt += 1
 
     f = []
     # 1. Retime every scene to its voice-over, then join.
-    afmt = "aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=mono"
+    afmt = "aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=" + ("stereo" if fx.source_audio else "mono")
     labels = []
     for n, sc in enumerate(scenes):
         v = f"[0:v]trim=start={sc.src_start:.3f}:end={sc.src_end:.3f},setpts=(PTS-STARTPTS)/{sc.video_speed:.5f},fps={fps:.3f}"
         if sc.freeze > 0.001:
             v += f",tpad=stop_mode=clone:stop_duration={sc.freeze:.3f}"
         f.append(f"{v}[v{n}]")
-        if sc.audio_index is None:
+        if fx.source_audio:   # subtitles only: the picture and its own sound stay in sync, untouched
+            a = (f"[0:a]atrim=start={sc.src_start:.3f}:end={sc.src_end:.3f},asetpts=PTS-STARTPTS,aresample=44100,"
+                 f"{afmt},apad=whole_dur={sc.out_len:.3f},atrim=end={sc.out_len:.3f}")
+        elif sc.audio_index is None or sc.audio_index not in audio_inputs:
             a = f"anullsrc=r=44100:cl=mono,atrim=end={sc.out_len:.3f}"
         else:
             a = f"[{audio_inputs[sc.audio_index]}:a]aresample=44100"
@@ -415,7 +463,12 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
         f.append(f"{''.join(f'[b{n}]' for n in range(len(scenes)))}concat=n={len(scenes)}:v=0:a=1[bgcat]")
         f.append("[acat]aformat=channel_layouts=stereo[vo]")
         f.append(f"[bgcat]volume={fx.background_volume:.3f}[bgq]")
-        f.append("[vo][bgq]amix=inputs=2:normalize=0:duration=first[acat2]")
+        if fx.duck_background:   # the background dips whenever the voice speaks, then comes back
+            f.append("[vo]asplit=2[vo1][vo2]")
+            f.append("[bgq][vo1]sidechaincompress=threshold=0.02:ratio=12:attack=10:release=350[bgd]")
+            f.append("[vo2][bgd]amix=inputs=2:normalize=0:duration=first[acat2]")
+        else:
+            f.append("[vo][bgq]amix=inputs=2:normalize=0:duration=first[acat2]")
         acat = "acat2"
     cur = "vcat"
 

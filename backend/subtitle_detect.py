@@ -79,7 +79,7 @@ def detect_text_regions(video_path: str, duration: float, min_conf: float = 0.45
         persistent = len(seen) / n_frames
         changing = len(distinct) >= max(2, 0.4 * len(bs))
         if changing and persistent >= 0.3 and width >= 0.15:
-            bands.append((x0, y0, x1, y1))
+            bands.append((x0, y0, x1, y1, sorted(b[4] - b[2] for b in bs)[len(bs) // 2]))  # + typical text-line height
             texts += [b[5] for b in bs]
         elif not changing and persistent >= 0.7:
             watermarks.append((x0, y0, x1, y1))
@@ -97,7 +97,10 @@ def detect_text_regions(video_path: str, duration: float, min_conf: float = 0.45
         best = max(groups, key=lambda g: sum((r[2] - r[0]) * (r[3] - r[1]) for r in g))
         subtitle = (min(r[0] for r in best), min(r[1] for r in best),
                     max(r[2] for r in best), max(r[3] for r in best))
-    return {"subtitle": subtitle, "watermarks": watermarks, "texts": texts}
+        line_height = sorted(r[4] for r in best)[len(best) // 2]   # fraction of the frame height
+    else:
+        line_height = None
+    return {"subtitle": subtitle, "watermarks": watermarks, "texts": texts, "line_height": line_height}
 
 
 def to_pixels(rect, w: int, h: int, pad_x: float = 0.03, pad_y: float = 0.012):

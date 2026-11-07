@@ -25,13 +25,13 @@ const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
  *  - tap a block to edit its text, voice speed or delete it; "Split" adds a line at the playhead
  * Edits are applied with one re-render; only changed lines are re-voiced.
  */
-export default function Editor({ project, videoRef, busy, onApply }) {
+export default function Editor({ project, videoRef, busy, onApply, voices = [] }) {
   const duration = project.source_duration;
   const model = project.voice_model || DEFAULT_MODEL;
   const predict = (text) => model.a * syllables(text) + model.b;
   const cuts = project.cuts || [];
   const initial = useMemo(
-    () => project.segments.map((s) => ({ key: String(s.id), start: s.start, text: s.text, source_text: s.source_text || '', tempo: s.tempo ?? null })),
+    () => project.segments.map((s) => ({ key: String(s.id), id: s.id, speaker: s.speaker || null, start: s.start, text: s.text, source_text: s.source_text || '', tempo: s.tempo ?? null })),
     [project]
   );
   const meta = useMemo(() => Object.fromEntries(project.segments.map((s) => [String(s.id), s])), [project]);
@@ -42,7 +42,11 @@ export default function Editor({ project, videoRef, busy, onApply }) {
   const [playing, setPlaying] = useState(false);
   const scroller = useRef(null);
   const nextKey = useRef(1);
-  const dirty = JSON.stringify(lines) !== JSON.stringify(initial);
+  const speakerIds = Object.keys(project.speakers || {});
+  const subsOnly = project.output === 'subtitles';
+  const [speakerVoices, setSpeakerVoices] = useState(() => Object.fromEntries(speakerIds.map((s) => [s, project.speakers[s].voice])));
+  const voicesChanged = speakerIds.some((s) => speakerVoices[s] !== project.speakers[s].voice);
+  const dirty = JSON.stringify(lines) !== JSON.stringify(initial) || voicesChanged;
 
   // ----- output time (what the video element plays) <-> source time (what the timeline shows) -----
   const timed = useMemo(() => project.segments.filter((s) => s.out_start != null).sort((a, b) => a.out_start - b.out_start), [project]);
@@ -219,7 +223,7 @@ export default function Editor({ project, videoRef, busy, onApply }) {
               })}
             </div>
             {/* voice track */}
-            <div className="relative h-6 mt-1 mb-2">
+            {!subsOnly && <div className="relative h-6 mt-1 mb-2">
               {lines.map((l, i) => {
                 const len = voiceLen(l, i);
                 const over = len > slotOf(i) * 1.02;
@@ -234,7 +238,7 @@ export default function Editor({ project, videoRef, busy, onApply }) {
                   </div>
                 );
               })}
-            </div>
+            </div>}
             {/* playhead */}
             <div className="absolute top-0 bottom-0 w-0.5 bg-white pointer-events-none" style={{ left: srcT * pps }}>
               <div className="w-2.5 h-2.5 rounded-full bg-white -ml-1" />
@@ -248,13 +252,41 @@ export default function Editor({ project, videoRef, busy, onApply }) {
         </div>
       </div>
 
+      {/* characters (full movie mode): one fixed voice each */}
+      {speakerIds.length > 0 && !subsOnly && (
+        <div className="mt-3 rounded-xl bg-slate-800/60 border border-slate-700 p-3">
+          <p className="text-xs text-slate-400 mb-2">Characters: each keeps one voice for the whole film. Change a voice, then re-render (only that character's lines are re-voiced).</p>
+          <div className="flex flex-wrap gap-3">
+            {speakerIds.map((sid) => (
+              <label key={sid} className="flex items-center gap-2 text-xs text-slate-300">
+                <span className="px-1.5 py-0.5 rounded bg-purple-700 text-white font-semibold">{sid}</span>
+                <span className="text-slate-500">{project.speakers[sid].gender !== 'unknown' ? project.speakers[sid].gender : ''} · {project.speakers[sid].lines} lines</span>
+                <select
+                  value={speakerVoices[sid]} onChange={(ev) => setSpeakerVoices({ ...speakerVoices, [sid]: ev.target.value })}
+                  className="rounded-lg bg-slate-900 border border-slate-700 px-2 py-1 text-xs"
+                >
+                  {voices.length === 0 && <option value={speakerVoices[sid]}>{speakerVoices[sid]}</option>}
+                  {voices.map((v) => <option key={v.name} value={v.name}>{v.name} ({v.gender})</option>)}
+                </select>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* selected line */}
       <div className="mt-3 rounded-xl bg-slate-800/60 border border-slate-700 p-3">
         {sel ? (
           <>
             <div className="flex items-center gap-2 text-xs mb-2">
               <span className="text-slate-400">Line {index + 1} · {fmt(sel.start)} · slot {selSlot.toFixed(1)}s</span>
-              <span className={`ml-auto ${tone}`} title="Predicted from the text, no voice request needed">≈ {selVoice.toFixed(1)}s voice · {fitNote}</span>
+              {speakerIds.length > 0 && (
+                <select value={sel.speaker || ''} onChange={(ev) => patch(sel.key, { speaker: ev.target.value || null })} className="rounded bg-slate-900 border border-slate-700 px-1 py-0.5 text-xs" title="Which character says this line">
+                  {speakerIds.map((sid) => <option key={sid} value={sid}>{sid}</option>)}
+                </select>
+              )}
+              {meta[sel.key]?.emotion && meta[sel.key].emotion !== 'neutral' && <span className="text-amber-300">{meta[sel.key].emotion}</span>}
+              {!subsOnly && <span className={`ml-auto ${tone}`} title="Predicted from the text, no voice request needed">≈ {selVoice.toFixed(1)}s voice · {fitNote}</span>}
               <button type="button" onClick={() => patch(sel.key, { start: Math.round(clamp(sel.start - 0.1, index > 0 ? lines[index - 1].start + MIN_LEN : 0, duration) * 100) / 100 })} className="px-2 py-0.5 rounded bg-slate-700">−0.1s</button>
               <button type="button" onClick={() => patch(sel.key, { start: Math.round(clamp(sel.start + 0.1, 0, (index + 1 < lines.length ? lines[index + 1].start : duration) - MIN_LEN) * 100) / 100 })} className="px-2 py-0.5 rounded bg-slate-700">+0.1s</button>
             </div>
@@ -264,8 +296,8 @@ export default function Editor({ project, videoRef, busy, onApply }) {
             />
             {sel.source_text && <p className="text-[11px] text-slate-500 mt-1">Original: {sel.source_text}</p>}
             <div className="flex flex-wrap items-center gap-1.5 mt-2 text-xs">
-              <span className="text-slate-400 mr-1">Voice speed</span>
-              {TEMPOS.map((t) => (
+              {!subsOnly && <span className="text-slate-400 mr-1">Voice speed</span>}
+              {!subsOnly && TEMPOS.map((t) => (
                 <button
                   key={t ?? 'auto'} type="button" onClick={() => patch(sel.key, { tempo: t })}
                   className={`px-2 py-1 rounded-full ${sel.tempo === t ? 'bg-purple-600 text-white' : 'bg-slate-700 text-slate-300'}`}
@@ -282,12 +314,12 @@ export default function Editor({ project, videoRef, busy, onApply }) {
       <div className="flex flex-wrap gap-2 mt-3">
         <button type="button" onClick={split} className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm">✂ Split / add line at playhead</button>
         <button type="button" disabled={!dirty || busy || lines.every((l) => !l.text.trim())}
-          onClick={() => onApply([...lines].sort((a, b) => a.start - b.start).map((l) => ({ start: Number(l.start), text: l.text, source_text: l.source_text, tempo: l.tempo })))}
+          onClick={() => onApply([...lines].sort((a, b) => a.start - b.start).map((l) => ({ id: l.id ?? null, speaker: l.speaker, start: Number(l.start), text: l.text, source_text: l.source_text, tempo: l.tempo })), voicesChanged ? speakerVoices : undefined)}
           className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 font-semibold text-sm disabled:opacity-40">
           {busy ? 'Re-rendering…' : 'Apply changes & re-render'}
         </button>
         {dirty && !busy && (
-          <button type="button" onClick={() => { setLines(initial); setSelected(initial[0]?.key ?? null); }} className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm">Reset</button>
+          <button type="button" onClick={() => { setLines(initial); setSelected(initial[0]?.key ?? null); setSpeakerVoices(Object.fromEntries(speakerIds.map((s) => [s, project.speakers[s].voice]))); }} className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm">Reset</button>
         )}
         <span className="self-center text-xs text-slate-500">Only changed lines are re-voiced. Estimated length ≈ {fmt(total)}.</span>
       </div>

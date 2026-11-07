@@ -106,6 +106,26 @@ for edits (`project.tts_model`), and switches mid-video only when a model is exh
 share). Bulk groups are now up to 12 sentences / 1800 chars (fewer requests; 16 split fine on real audio; 12 not yet listened to).
 Not done: spreading ONE video over several models for speed (voice would change mid-video), fallback text models, Google Cloud TTS.
 
+### Two modes (2026-11-07 night 6)
+Upload form: **Recap video** (one narrator voice, as before) or **Full movie / drama** (`mode=full`). Full mode, all untested on real Gemini
+(offline-tested with `python test_modes.py`):
+- **Translation**: separate prompt (`gemini_dub._prompt_full`, `FULL_TONE`): natural, neutral spoken Burmese, meaning not words, politeness per
+  character pair, no literal idioms (user's bad examples ဆင်းရဲတယ် / ဒီလူတွေ / ခွေးလိုရုန်းရ are in the prompt as "don't"). Needs a listening/reading check.
+- **Characters**: transcript adds speaker/gender/age/voice-description/emotion per line. Chunks are transcribed in parallel, so labels are per chunk
+  ("2:S1"); `unify_speakers` merges them into whole-film characters A, B, ... with ONE text request (fallback: gender+age groups).
+  `casting.assign_voices`: A (most lines) gets the user's voice if the gender fits, others the next unused voice of their gender (14 female, 16 male);
+  editor "Characters" panel changes a voice (`speaker_voices` in `/rerender`), only that character is re-voiced (clip cache key = voice+text+style).
+- **Voice requests**: `plan_batches` groups lines per voice (bulk), emotional lines go one per request (`EMOTION_MAX_LINES`=12; direction "Say <adverb>: text";
+  if the clip is far longer than predicted the direction was read aloud -> line re-voiced plainly). Roughly 15-40 requests per film at 9/min/model.
+- **Output**: "Burmese voice-over + subtitles" or "subtitles only" (`output=subtitles`: no TTS, original audio + timing untouched, `plan_source_timing`).
+- **Original sound**: `background=original` (default in full mode: source audio under the voice, sidechain-ducked, fast; original speech stays faintly audible),
+  `separate` (Demucs, slow, music only), `off`. Recap keeps the old `keep_background` checkbox.
+- **Soft tone** (any mode, optional): generated A-minor pad mixed after render (`audio_tools.make_soft_tone/mix_music`); no music licence needed.
+- **Caption size**: detection now returns the original subtitle's text-line height; captions = `CAPTION_SIZE_FACTOR` (0.8) x that as font px, because drawn Burmese
+  is ~1.45x taller than its font size -> about 15% taller than the original. Measured: 30sec.mov 1080x1920 line 66px -> 53px font; recap.mp4 landscape 55px -> 44px
+  (the old fixed 5% of width, 64px, was far too big on landscape). Tune by eye with the env var.
+Not done: per-line speaker change re-casts only on re-render; no voice preview per character; emotion quality unverified; Demucs path unchanged/untested here.
+
 ### Progress UI
 The source video previews as soon as a file is chosen; on Generate the player shows a spinner overlay + Cancel and a step
 checklist (upload %, subtitles/cuts, translate, voice, fit, render) with the live stage text and an elapsed timer. Backend progress:
@@ -210,3 +230,5 @@ Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user 
   `DUB_FALLBACK=1`, second LLM ask skipped when budget is low.
 - 2026-11-07 (night 5): TTS model pool with per-minute limiter and daily counters, 5 models, per-model blocks, WAV header fix; samples/ folder
   for test videos; test_tts_models.py.
+- 2026-11-07 (night 6): Recap/Full modes, characters with fixed voices, emotions, subtitles-only, original sound ducked, soft tone, caption size from the
+  original subtitle; empty/timed-out Gemini answers retried (text client timeout 180 s). Real 502 s video finished in 369 s (budget 452 s).

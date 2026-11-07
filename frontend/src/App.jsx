@@ -56,7 +56,7 @@ const STEPS = [
 const mmss = (t) => `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
 
 // What is done, what is running now, what is left, so a long job never looks stuck.
-function ProcessingPanel({ upload, progress, elapsed }) {
+function ProcessingPanel({ upload, progress, elapsed, subsOnly }) {
   const uploading = upload !== null && upload < 100;
   const pct = uploading ? -1 : progress.pct;
   return (
@@ -66,7 +66,7 @@ function ProcessingPanel({ upload, progress, elapsed }) {
         <span className="font-mono">{mmss(elapsed)}</span>
       </div>
       <ol className="space-y-1.5">
-        {STEPS.map((st, i) => {
+        {STEPS.map((st, i) => (subsOnly && i >= 3 && i <= 5 ? null : (st && { st, i }))).filter(Boolean).map(({ st, i }) => {
           const done = i === 0 ? !uploading : pct >= st.to;
           const active = !done && (i === 0 ? uploading : pct >= st.from && pct < st.to);
           return (
@@ -157,6 +157,11 @@ function App() {
   const [logoPosition, setLogoPosition] = useState('top-right');
   const [fitTranslation, setFitTranslation] = useState(true);
   const [keepBackground, setKeepBackground] = useState(false);
+  const [filmMode, setFilmMode] = useState('recap'); // 'recap' = one narrator voice | 'full' = characters with their own voices
+  const [outputKind, setOutputKind] = useState('dub'); // 'dub' = Burmese voice-over | 'subtitles' = keep original sound, subtitles only
+  const [bgMode, setBgMode] = useState('original'); // full mode: keep the film's own music and sounds ('original' | 'separate' | 'off')
+  const [emotionOn, setEmotionOn] = useState(true);
+  const [softMusic, setSoftMusic] = useState(false);
   const [progress, setProgress] = useState({ pct: 0, stage: '' });
   const [notes, setNotes] = useState('');
   const [subtitleUrl, setSubtitleUrl] = useState('');
@@ -225,6 +230,11 @@ function App() {
     formData.append('logo_position', logoPosition);
     formData.append('fit_translation', fitTranslation);
     formData.append('keep_background', keepBackground);
+    formData.append('mode', filmMode);
+    formData.append('output', filmMode === 'full' ? outputKind : 'dub');
+    if (filmMode === 'full') formData.append('background', bgMode);
+    formData.append('emotion', emotionOn);
+    formData.append('soft_music', softMusic);
 
     try {
       setUpload(0);
@@ -295,14 +305,14 @@ function App() {
     );
   };
 
-  const applyEdits = async (lines) => {
+  const applyEdits = async (lines, speakerVoices) => {
     cancelled.current = false;
     activeJob.current = '';
     setLoading(true);
     setErrorMessage('');
     setNotes('');
     try {
-      const { data } = await axios.post(`${API_BASE}/api/jobs/${jobId}/rerender`, { segments: lines });
+      const { data } = await axios.post(`${API_BASE}/api/jobs/${jobId}/rerender`, { segments: lines, speaker_voices: speakerVoices || undefined });
       setProgress({ pct: 0, stage: 'Queued' });
       await followJob(data.job_id);
     } catch (error) {
@@ -462,6 +472,59 @@ function App() {
             </label>
           </div>
 
+          {/* What kind of video is this? */}
+          <div className="rounded-xl border border-slate-800 bg-slate-800/30 p-4 space-y-3">
+            <div className="flex gap-2">
+              {[['recap', 'Recap video', 'One narrator voice'], ['full', 'Full movie / drama', 'A voice for each character']].map(([k, title, sub]) => (
+                <button
+                  key={k} type="button" onClick={() => setFilmMode(k)}
+                  className={`flex-1 rounded-xl px-3 py-2 text-left border ${filmMode === k ? 'border-purple-400 bg-purple-600/30' : 'border-slate-700 bg-slate-800/50'}`}
+                >
+                  <span className="block text-sm font-semibold text-white">{title}</span>
+                  <span className="block text-xs text-slate-400">{sub}</span>
+                </button>
+              ))}
+            </div>
+            {filmMode === 'full' && (
+              <div className="space-y-3 text-sm text-slate-300">
+                <p className="text-xs text-slate-400">
+                  Each character is detected and gets one fixed voice for the whole film (the main character uses the voice you pick below).
+                  The translation is rewritten as natural, neutral spoken Burmese, not word for word.
+                </p>
+                <div className="flex gap-4 flex-wrap">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="outputKind" checked={outputKind === 'dub'} onChange={() => setOutputKind('dub')} className="accent-purple-500" />
+                    Burmese voice-over + subtitles
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="outputKind" checked={outputKind === 'subtitles'} onChange={() => setOutputKind('subtitles')} className="accent-purple-500" />
+                    Burmese subtitles only (original sound stays)
+                  </label>
+                </div>
+                {outputKind === 'dub' && (
+                  <>
+                    <label className="flex items-center gap-2">
+                      <span>Original music &amp; sounds</span>
+                      <select value={bgMode} onChange={(e) => setBgMode(e.target.value)} className="rounded-lg bg-slate-900 border border-slate-700 px-2 py-1 text-sm">
+                        <option value="original">Keep, lowered under the voice (fast)</option>
+                        <option value="separate">Keep music only, remove original speech (slow)</option>
+                        <option value="off">Remove</option>
+                      </select>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={emotionOn} onChange={(e) => setEmotionOn(e.target.checked)} className="w-4 h-4 accent-purple-500" />
+                      Add emotion to the voices (angry, sad, scared…; a few key lines)
+                    </label>
+                  </>
+                )}
+              </div>
+            )}
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-300">
+              <input type="checkbox" checked={softMusic} onChange={(e) => setSoftMusic(e.target.checked)} className="w-4 h-4 accent-purple-500" />
+              Add a soft background tone (optional)
+            </label>
+          </div>
+
           {/* Sync policy + editing tools */}
           <div className="rounded-xl border border-slate-800 bg-slate-800/30 p-4 space-y-4">
             <label className="flex items-center space-x-3 cursor-pointer">
@@ -475,7 +538,7 @@ function App() {
                 Tighten long translations to fit each scene (uses Gemini; only the lines that overrun are rewritten)
               </span>
             </label>
-            <label className="flex items-center space-x-3 cursor-pointer">
+            {filmMode === 'recap' && <label className="flex items-center space-x-3 cursor-pointer">
               <input
                 type="checkbox"
                 checked={keepBackground}
@@ -483,7 +546,7 @@ function App() {
                 className="w-4 h-4 accent-purple-500"
               />
               <span className="text-sm text-slate-300">Keep original background music and effects (slower)</span>
-            </label>
+            </label>}
             <label className="flex items-center space-x-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -589,7 +652,7 @@ function App() {
                   </div>
                 )}
               </div>
-              {loading && <ProcessingPanel upload={upload} progress={progress} elapsed={elapsed} />}
+              {loading && <ProcessingPanel upload={upload} progress={progress} elapsed={elapsed} subsOnly={(project ? project.output : (filmMode === 'full' ? outputKind : 'dub')) === 'subtitles'} />}
               {resultVideoUrl && <a
                 href={resultDownloadUrl}
                 download
@@ -606,7 +669,7 @@ function App() {
               </a>}
               {notes && <p className="text-xs text-slate-400">{notes}</p>}
               {project && (
-                <Editor key={jobId} project={project} videoRef={videoRef} busy={loading} onApply={applyEdits} />
+                <Editor key={jobId} project={project} videoRef={videoRef} busy={loading} voices={voices} onApply={applyEdits} />
               )}
               {!project && timeline.length > 0 && (
                 <ul className="w-full text-xs text-slate-400 space-y-1">

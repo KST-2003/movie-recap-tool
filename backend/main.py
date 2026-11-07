@@ -194,6 +194,12 @@ def create_job(
     min_video_speed: float = Form(0.85),
     fit_translation: bool = Form(True),
     keep_background: bool = Form(False),
+    # product modes
+    mode: str = Form("recap"),            # recap: one narrator voice | full: characters with their own voices + emotions
+    output: str = Form("dub"),            # dub: Burmese voice-over | subtitles: keep the original sound, Burmese subtitles only
+    background: str = Form(""),           # "", original (lowered under the voice), separate (Demucs), off
+    soft_music: bool = Form(False),       # optional quiet generated pad under everything
+    emotion: bool = Form(True),           # full mode: voice lines with a delivery direction (angry, sad, ...)
     # effects
     blur_subtitles: bool = Form(True),
     enable_subtitles: bool = Form(True),
@@ -211,7 +217,10 @@ def create_job(
         raise HTTPException(status_code=503, detail="We're temporarily not accepting new videos. Please try again later.")
     if not video_file:
         raise HTTPException(status_code=400, detail="No video file provided.")
-    _refuse_if_voice_limit()
+    if mode not in ("recap", "full") or output not in ("dub", "subtitles") or background not in ("", "original", "separate", "off"):
+        raise HTTPException(status_code=400, detail="Unknown mode, output or background option.")
+    if output == "dub":
+        _refuse_if_voice_limit()
     if tts_provider() == "gemini" and voice_type != "su" and voice_type not in VOICE_NAMES:
         raise HTTPException(status_code=400, detail=f"Unknown voice: {voice_type}")
     if tts_provider() == "elevenlabs" and voice_type != "su":
@@ -219,7 +228,8 @@ def create_job(
     params = {"voice_type": voice_type, "target_language": target_language,
               "allow_voice_speedup": allow_voice_speedup, "max_voice_speedup": max_voice_speedup,
               "min_video_speed": min_video_speed, "fit_translation": fit_translation,
-              "keep_background": keep_background, "blur_subtitles": blur_subtitles,
+              "keep_background": keep_background, "mode": mode, "output": output, "background": background,
+              "soft_music": soft_music, "emotion": emotion, "blur_subtitles": blur_subtitles,
               "enable_subtitles": enable_subtitles, "remove_watermark": remove_watermark,
               "enable_flip": enable_flip, "flip_vertical": flip_vertical, "video_speed": video_speed,
               "brightness": brightness, "contrast": contrast, "saturation": saturation,
@@ -338,6 +348,8 @@ def get_file(filename: str, exp: int, sig: str, dl: int = 0):
 # ---------- editor: re-render a finished job with edited lines ----------
 
 class EditLine(BaseModel):
+    id: int | None = None                            # id of the project line this edit comes from (None = new line)
+    speaker: str | None = Field(None, max_length=8)   # full mode: which character speaks (None = same as before / previous line)
     start: float = Field(ge=0)                       # source-video time where this line's scene begins
     text: str = Field(max_length=800)
     source_text: str = Field("", max_length=2000)
@@ -347,6 +359,7 @@ class EditLine(BaseModel):
 class RerenderBody(BaseModel):
     segments: list[EditLine] = Field(min_length=1, max_length=600)
     voice_type: str | None = None
+    speaker_voices: dict[str, str] | None = None     # full mode: new voice per character
 
 
 @app.post("/api/jobs/{job_id}/rerender")
@@ -362,7 +375,8 @@ def rerender(job_id: str, body: RerenderBody, user: User = Depends(auth.current_
         if active_jobs(s, user.id) >= MAX_ACTIVE_JOBS_PER_USER:
             raise HTTPException(status_code=429, detail="You already have videos processing. Wait for one to finish.")
     project = ((job.data or {}).get("result") or {}).get("project")
-    _refuse_if_voice_limit()
+    if (job.params or {}).get("output", "dub") == "dub":
+        _refuse_if_voice_limit()
     if job.status != "done" or not project:
         raise HTTPException(status_code=400, detail="This video can't be edited (finish it first, or it was made before the editor existed).")
     if storage.BACKEND == "local" and not os.path.isfile(job.input_key):
@@ -376,7 +390,20 @@ def rerender(job_id: str, body: RerenderBody, user: User = Depends(auth.current_
         raise HTTPException(status_code=400, detail="Line times must be inside the video.")
     params = dict(job.params or {})
     params["voice_type"] = voice
-    params["edit"] = {"segments": [l.model_dump() for l in lines], "fx": project["fx"],
+    old = {sg["id"]: sg for sg in project["segments"]}
+    speakers = {k: dict(v) for k, v in (project.get("speakers") or {}).items()}
+    for sid, v in (body.speaker_voices or {}).items():
+        if sid in speakers and (v in VOICE_NAMES):
+            speakers[sid]["voice"] = v
+    edit_lines = []
+    for l in lines:
+        d = l.model_dump()
+        src = old.get(l.id) if l.id is not None else None
+        if src:   # carry what the editor doesn't send: character, emotion, delivery style (a changed text keeps the same style)
+            d["speaker"] = d.get("speaker") or src.get("speaker")
+            d["emotion"], d["style"] = src.get("emotion"), src.get("style")
+        edit_lines.append(d)
+    params["edit"] = {"segments": edit_lines, "speakers": speakers or None, "fx": project["fx"],
                       "source_language": project.get("source_language"),
                       "cuts": project.get("cuts", []), "voice_model": project.get("voice_model"),
                       "tts_model": project.get("tts_model")}

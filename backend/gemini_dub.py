@@ -74,6 +74,21 @@ def _plan_chunks(path: str, total: float) -> list[tuple[float, float]]:
     return list(zip(bounds[:-1], bounds[1:]))
 
 
+EMOTIONS = {  # emotion tag from the transcript -> how the TTS is asked to speak ("Say <adverb>: ...")
+    "neutral": None, "happy": "cheerfully", "sad": "sadly", "angry": "angrily", "fearful": "fearfully",
+    "surprised": "with surprise", "excited": "excitedly", "tender": "softly and warmly", "whisper": "in a whisper",
+}
+SCHEMA_FULL = json.loads(json.dumps(SCHEMA))
+_props = SCHEMA_FULL["properties"]["segments"]["items"]["properties"]
+_props.update({
+    "speaker": {"type": "string"},      # S1, S2 ... the same person keeps the same label inside this audio
+    "gender": {"type": "string", "enum": ["male", "female", "unknown"]},
+    "age": {"type": "string", "enum": ["child", "young", "adult", "elderly"]},
+    "voice": {"type": "string"},        # 3-6 words on how this voice sounds (deep, raspy, bright ...): used to match speakers across parts
+    "emotion": {"type": "string", "enum": list(EMOTIONS)},
+})
+SCHEMA_FULL["properties"]["segments"]["items"]["required"] += ["speaker", "gender", "emotion"]
+
 CPS = float(os.getenv("BURMESE_CPS", "10"))  # Burmese characters a TTS voice reads per second (calibrate with real clips)
 MAX_CUT_HINTS = 120
 # Tone for the Burmese narration. Override with DUB_STYLE_NOTE in .env to tune it without touching code.
@@ -85,7 +100,51 @@ DEFAULT_STYLE = (
 STYLE_NOTE = os.getenv("DUB_STYLE_NOTE", DEFAULT_STYLE)
 
 
-def _prompt(target: str, cuts: list[float] | None = None) -> str:
+FULL_TONE = (
+    "Translate for a Burmese audience that will HEAR this as a dubbed film: natural, neutral, everyday spoken Burmese "
+    "that a real person would say in exactly this situation, with the right politeness level for who is talking to whom "
+    "(keep each pair of characters consistent in how they address each other). Translate the MEANING and the intent, "
+    "never word by word: no stiff literal phrases, no calques of foreign idioms, slang, insults or metaphors. Ask yourself: "
+    "'how would a native Burmese speaker say this in this scene?' and write that. Examples of what NOT to do: rendering "
+    "'it is miserable / I am struggling' as a bare literal word like ဆင်းရဲတယ်, rendering 'these people' as a cold label "
+    "like ဒီလူတွေ, or rendering 'struggling like a dog' word for word as ခွေးလိုရုန်းရ - nobody talks like that. Say what is "
+    "meant in plain natural Burmese instead. Keep strong language realistic but not crude. Each character speaks in the "
+    "first person, as themselves (there is no narrator)."
+)
+
+
+def _cut_hint(cuts):
+    if not cuts:
+        return ""
+    shown = ", ".join(f"{c:.1f}" for c in cuts[:MAX_CUT_HINTS])
+    return f"\nSCENE CUTS in the picture, at these seconds from the start of this audio: {shown}."
+
+
+def _prompt_full(target: str, cuts: list[float] | None = None) -> str:
+    return (
+        "This audio is from a film or series with several characters speaking. Transcribe all spoken dialogue into "
+        "segments with precise start/end times in seconds from the start of this audio, then translate each segment "
+        "into " + target + " for a dubbed voice-over. Skip music, sound effects and silence. Segments must not overlap "
+        "and must be in chronological order. Also report the source language as an ISO code.\n"
+        "SPEAKERS: give every segment a speaker label (S1, S2, ...): the same person always keeps the same label inside "
+        "this audio and different people get different labels, even when they sound alike. Also give the speaker's "
+        "gender, age group, a 3-6 word description of how their voice sounds (e.g. 'deep gruff older man', 'bright "
+        "young woman'), and the emotion of that line (neutral, happy, sad, angry, fearful, surprised, excited, tender, "
+        "whisper). Use neutral unless the emotion is clearly audible.\n"
+        "MEANING FIRST: keep every fact, name, number and intention; never invent, skip or soften meaning. Names stay "
+        "consistent. Each translated_text is a complete sentence (or clause) that makes sense in the conversation. Never "
+        "cut a sentence in the middle; split overly long sentences at natural pauses.\n"
+        f"TRANSLATION STYLE: {FULL_TONE}\n"
+        "LENGTH: the line is spoken inside its own time slot (end - start). Match the source speech length: about "
+        f"{CPS:g} characters per second of slot, at most {CPS * 1.3:g}; shorter wording is fine, dropping meaning is not.\n"
+        "PUNCTUATION: a period (။) after every sentence and commas at natural breath points (the voice pauses on them)."
+        + _cut_hint(cuts)
+    )
+
+
+def _prompt(target: str, cuts: list[float] | None = None, mode: str = "recap") -> str:
+    if mode == "full":
+        return _prompt_full(target, cuts)
     text = (
         "This audio is the narration of a fast-cut recap video (the picture changes every 1-3 seconds). "
         "Transcribe all spoken dialogue into segments with precise start/end times in seconds from the start of "
@@ -108,14 +167,11 @@ def _prompt(target: str, cuts: list[float] | None = None) -> str:
         "PUNCTUATION: use proper punctuation: a period (။) at the end of each sentence and commas at natural breath "
         "points, because the TTS voice pauses on them."
     )
-    if cuts:
-        shown = ", ".join(f"{c:.1f}" for c in cuts[:MAX_CUT_HINTS])
-        text += f"\nSCENE CUTS in the picture, at these seconds from the start of this audio: {shown}."
-    return text
+    return text + _cut_hint(cuts)
 
 
 def _dub_chunk(audio_path: str, offset: float, target: str, attempts: int,
-               cuts: list[float] | None = None) -> tuple[str | None, list[dict]]:
+               cuts: list[float] | None = None, mode: str = "recap", chunk_no: int = 0) -> tuple[str | None, list[dict]]:
     from google.genai import types
 
     client = _get_client()
@@ -132,9 +188,10 @@ def _dub_chunk(audio_path: str, offset: float, target: str, attempts: int,
             try:
                 response = client.models.generate_content(
                     model=MODEL,
-                    contents=[uploaded, _prompt(target, cuts)],
+                    contents=[uploaded, _prompt(target, cuts, mode)],
                     config=types.GenerateContentConfig(
-                        response_mime_type="application/json", response_schema=SCHEMA, temperature=0.2,
+                        response_mime_type="application/json", response_schema=SCHEMA_FULL if mode == "full" else SCHEMA,
+                        temperature=0.2,
                         thinking_config=types.ThinkingConfig(thinking_budget=THINKING_BUDGET)),
                 )
                 raw = response.text
@@ -165,13 +222,18 @@ def _dub_chunk(audio_path: str, offset: float, target: str, attempts: int,
         text = (s.get("translated_text") or "").strip()
         start, end = float(s["start"]) + offset, float(s["end"]) + offset
         if text and end > start:
-            segments.append({"start": start, "end": end,
-                             "source_text": s.get("source_text", ""), "translated_text": text})
+            seg = {"start": start, "end": end, "source_text": s.get("source_text", ""), "translated_text": text}
+            if mode == "full":
+                seg.update(speaker=f"{chunk_no}:{(s.get('speaker') or 'S1').strip()}",
+                           gender=s.get("gender") or "unknown", age=s.get("age") or "adult",
+                           voice_desc=s.get("voice", ""), emotion=s.get("emotion") or "neutral")
+            segments.append(seg)
     return data.get("source_language"), segments
 
 
 def dub(video_path: str, target_language: str, timeout_seconds: int = 600,
-        retries: int | None = None, scene_cuts: list[float] | None = None) -> tuple[str | None, list[dict]]:
+        retries: int | None = None, scene_cuts: list[float] | None = None,
+        mode: str = "recap") -> tuple[str | None, list[dict]]:
     """Transcribe the speech, translate it, and return (source_language, segments) with timings in seconds."""
     target = LANGUAGE_NAMES.get(target_language, target_language)
     attempts = retries or int(os.getenv("GEMINI_DUB_RETRIES", "6"))
@@ -190,15 +252,66 @@ def dub(video_path: str, target_language: str, timeout_seconds: int = 600,
         print(f"  transcribing {len(paths)} chunk(s) in parallel", flush=True)
         with ThreadPoolExecutor(max_workers=min(WORKERS, len(paths))) as pool:
             results = list(pool.map(
-                lambda pab: _dub_chunk(pab[0], pab[1], target, attempts,
-                                       [c - pab[1] for c in scene_cuts or [] if pab[1] <= c < pab[2]]),
-                paths))
+                lambda n_pab: _dub_chunk(n_pab[1][0], n_pab[1][1], target, attempts,
+                                         [c - n_pab[1][1] for c in scene_cuts or [] if n_pab[1][1] <= c < n_pab[1][2]],
+                                         mode, n_pab[0]),
+                enumerate(paths)))
 
     source = next((lang for lang, _ in results if lang), None)
     segments = sorted((s for _, segs in results for s in segs), key=lambda s: s["start"])
     if not segments:
         raise RuntimeError("Gemini returned no translated timed transcript segments.")
+    if mode == "full":
+        unify_speakers(segments)
     return source, finish_segments(segments, scene_cuts or [])
+
+
+def unify_speakers(segments: list[dict]):
+    """Speaker labels were given per chunk ("2:S1"). Merge them into whole-film characters "A", "B", ... : one cheap text
+    request that sees every chunk's speakers (gender, age, voice, sample lines). Falls back to gender+age grouping."""
+    keys: dict[str, dict] = {}
+    for sg in segments:
+        k = keys.setdefault(sg["speaker"], {"n": 0, "gender": {}, "age": sg.get("age"), "voice": sg.get("voice_desc", ""), "lines": []})
+        k["n"] += 1
+        k["gender"][sg["gender"]] = k["gender"].get(sg["gender"], 0) + 1
+        if len(k["lines"]) < 2:
+            k["lines"].append((sg.get("source_text") or "")[:60])
+    mapping: dict[str, str] = {}
+    if len({k.split(":")[0] for k in keys}) > 1 and len(keys) > 1:
+        try:
+            from google.genai import types
+            from gemini_tts import get_text_client
+            desc = "\n".join(f"{key} | gender {max(v['gender'], key=v['gender'].get)} | {v['age']} | voice: {v['voice']} | "
+                             f"{v['n']} lines | e.g. {' / '.join(v['lines'])}" for key, v in keys.items())
+            ask = ("These speakers were detected separately in consecutive parts of ONE film (key = part:label). Decide which "
+                   "keys are the same character (same gender and a matching voice description, consistent with the sample "
+                   "lines) and give each distinct character a short id (A, B, C, ...). Keys from the SAME part with different "
+                   "labels are always different characters. When unsure, keep them separate.\n" + desc)
+            resp = get_text_client().models.generate_content(
+                model=MODEL, contents=ask,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json", temperature=0.0,
+                    thinking_config=types.ThinkingConfig(thinking_budget=0),
+                    response_schema={"type": "array", "items": {"type": "object", "properties": {
+                        "key": {"type": "string"}, "character": {"type": "string"}}, "required": ["key", "character"]}}))
+            mapping = {m["key"]: str(m["character"]).strip() for m in json.loads(resp.text or "[]") if m.get("key") in keys}
+        except Exception as exc:
+            print(f"  speaker merge failed ({exc}); grouping by gender and age instead", flush=True)
+    if len(mapping) != len(keys):  # no answer, or incomplete: group by gender + age
+        mapping = {key: f"{max(v['gender'], key=v['gender'].get)}-{v['age']}" for key, v in keys.items()}
+    order = sorted({c for c in mapping.values()}, key=lambda c: -sum(v["n"] for k, v in keys.items() if mapping[k] == c))
+    names = {c: chr(65 + i) if i < 26 else f"C{i}" for i, c in enumerate(order)}   # A = most lines
+    for sg in segments:
+        sg["speaker"] = names[mapping[sg["speaker"]]]
+    genders: dict[str, dict] = {}
+    for sg in segments:
+        g = genders.setdefault(sg["speaker"], {})
+        g[sg["gender"]] = g.get(sg["gender"], 0) + 1
+    for sg in segments:   # one gender per character (the most frequent known one)
+        known = {k: v for k, v in genders[sg["speaker"]].items() if k != "unknown"}
+        sg["gender"] = max(known, key=known.get) if known else "unknown"
+    counts = {n: sum(1 for s in segments if s["speaker"] == n) for n in sorted(names.values())}
+    print(f"  speakers: {len(names)} characters, lines per character: {counts}", flush=True)
 
 
 def finish_segments(segments: list[dict], cuts: list[float]) -> list[dict]:
