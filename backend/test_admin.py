@@ -11,7 +11,10 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import auth  # noqa: E402
 from db import Job, Session, User  # noqa: E402
+from admin import google_quota  # noqa: E402
 from main import app  # noqa: E402
+
+google_quota._list_models = lambda: {}   # never call Google from this offline test
 
 c = TestClient(app)
 def ok(cond, msg):
@@ -71,6 +74,7 @@ ok(c.post("/api/admin/jobs/job0/cancel", headers=H(a)).status_code == 409, "cann
 # tts pool
 t = c.get("/api/admin/tts", headers=H(a)).json()
 ok(len(t["models"]) == 5 and t["models"][0]["remaining"] == 100 and t["all_blocked"] is False, "tts pool status")
+ok(t["cloud"]["configured"] is False and t["models"][0]["cloud"] is None and t["models"][0]["google"] == {"exists": False}, "tts: no cloud configured, model not in key list")
 
 # runtime settings
 ok(c.get("/api/admin/settings", headers=H(a)).json()["maintenance"] is False, "maintenance off by default")

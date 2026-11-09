@@ -1,9 +1,10 @@
-import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import Editor from './Editor.jsx';
 import VoiceLibrary from './VoiceLibrary.jsx';
-const Admin = lazy(() => import('./admin/Admin.jsx')); // admin code is only downloaded by admins
 import PreviewStudio, { ASPECTS } from './PreviewStudio.jsx';
+import Shell from './Shell.jsx';
+import UsageDashboard from './UsageDashboard.jsx';
 import { LangSwitch, useI18n } from './i18n.jsx';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
@@ -96,8 +97,9 @@ function ProcessingPanel({ upload, progress, elapsed, subsOnly }) {
 function App() {
   const { tr, trs } = useI18n();
   const [token, setToken] = useState(() => localStorage.getItem('token') || '');
-  const [account, setAccount] = useState(null); // { email, is_admin, daily_minutes, remaining_seconds }
-  const [showAdmin, setShowAdmin] = useState(() => location.hash.startsWith('#admin'));
+  const [view, setView] = useState('create');   // sidebar page: create | usage
+  const [usageKey, setUsageKey] = useState(0);   // bumped when a job ends so the usage page reloads
+  const [account, setAccount] = useState(null); // { email, daily_minutes, remaining_seconds }
   if (token) axios.defaults.headers.common.Authorization = `Bearer ${token}`;
 
   const logout = () => {
@@ -304,6 +306,7 @@ function App() {
       setLoading(false);
       setUpload(null);
       refreshAccount();
+      setUsageKey((k) => k + 1);
     }
   };
 
@@ -380,36 +383,15 @@ function App() {
   };
 
   if (!token) return <AuthScreen onAuth={onAuth} />;
-  if (showAdmin && account?.is_admin) {
-    return (
-      <Suspense fallback={<div className="min-h-screen bg-slate-950 p-6 text-slate-400">…</div>}>
-        <Admin account={account} apiBase={API_BASE} onExit={() => { history.replaceState(null, '', location.pathname); setShowAdmin(false); }} />
-      </Suspense>
-    );
-  }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white p-6 font-sans">
+    <Shell view={view} setView={setView} account={account} onLogout={logout}>
       {showLibrary && (
         <VoiceLibrary voices={voices} looks={looks} selected={voiceType} playing={playing} onPlay={playSample}
           onSelect={(v) => { setVoiceType(v.name); setVoiceGender(v.gender); }} onClose={() => setShowLibrary(false)} apiBase={API_BASE} />
       )}
+      <div className={view === 'create' ? '' : 'hidden'}>
       <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl">
-        
-        {/* Header */}
-        <h1 className="text-2xl font-bold mb-2 text-purple-400 flex items-center gap-2">
-          🎬 Movie Recap Tool
-        </h1>
-        <div className="flex items-center justify-between text-xs text-slate-400 mb-6 gap-2">
-          <span>
-            {account && tr('{email} · {left} of {total} min left today', { email: account.email, left: Math.floor(account.remaining_seconds / 60), total: account.daily_minutes })}
-          </span>
-          <span className="flex items-center gap-3">
-            {account?.is_admin && <button type="button" onClick={() => setShowAdmin(true)} className="text-purple-300 hover:text-white">Admin</button>}
-            <LangSwitch />
-            <button type="button" onClick={logout} className="hover:text-white">{tr('Log out')}</button>
-          </span>
-        </div>
 
         <form onSubmit={handleGenerateRecap} className="space-y-6">
           
@@ -717,7 +699,9 @@ function App() {
         )}
 
       </div>
-    </div>
+      </div>
+      {view === 'usage' && <UsageDashboard apiBase={API_BASE} refreshKey={usageKey} />}
+    </Shell>
   );
 }
 

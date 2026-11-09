@@ -50,6 +50,42 @@ def _block(error_text: str, model: str | None = None):
         pass
 
 
+SEEN_FILE = os.path.join(os.getenv("DATA_DIR", "data"), "tts_limits_seen.json")
+
+
+def limits_seen() -> dict:
+    """{model: {"per_day": 100, "per_minute": 10, "metric": "...", "seen_at": epoch}} learned from Google's own 429 messages."""
+    try:
+        with open(SEEN_FILE) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def learn_limit(error_text: str, model: str | None = None):
+    """Google's quota errors state the real limit ("... limit: 100 ... per day ..."). Remember it per model for the admin page."""
+    m = re.search(r"limit:\s*(\d+)", error_text)
+    low = error_text.lower()
+    kind = ("per_day" if ("per day" in low or "perday" in low or "per_day" in low)
+            else "per_minute" if ("per minute" in low or "perminute" in low or "per_minute" in low) else None)
+    if not m or not kind:
+        return
+    metric = re.search(r"metric:\s*([\w./-]+)", error_text)
+    try:
+        os.makedirs(os.path.dirname(SEEN_FILE), exist_ok=True)
+        seen = limits_seen()
+        entry = seen.setdefault(model or MODEL, {})
+        entry[kind] = int(m.group(1))
+        entry["seen_at"] = time.time()
+        if metric:
+            entry["metric"] = metric.group(1)
+        with open(SEEN_FILE, "w") as f:
+            json.dump(seen, f)
+    except OSError:
+        pass
+
+
 def quota_message(model: str | None = None) -> str:
     left = blocked_for(model)
     return (f"The Gemini voice service's daily request limit is used up (resets in about {int(left // 3600)}h "
@@ -138,6 +174,8 @@ def synthesize_to_file(text: str, path: str, voice: str | None = None, retries: 
         except Exception as exc:
             last = exc
             text_err = err_l = str(exc).lower()
+            if "429" in text_err or "resource_exhausted" in text_err:
+                learn_limit(str(exc), model)
             transient = any(k in text_err for k in ("429", "500", "503", "resource_exhausted", "unavailable", "timeout", "too_many_requests"))
             if "per day" in err_l or "perday" in err_l:  # daily quota: retrying is pointless
                 _block(str(exc), model)

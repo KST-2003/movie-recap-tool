@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useI18n } from '../i18n.jsx';
+import { useI18n } from './i18n.jsx';
 import { fmtTime, Card, Pager, useApi, ErrorBox } from './ui.jsx';
 
 // One readable line per change recorded in an audit entry
@@ -15,6 +15,7 @@ function describe(tr, e) {
     if (e.action === 'user.update') lines.push(tr('Changed user {email}', { email: e.target_label }));
     for (const [k, v] of Object.entries(d)) {
       if (k === 'daily_minutes') lines.push(tr('Daily minutes: {from} → {to}', { from: v.from, to: v.to }));
+      else if (k === 'monthly_minutes') lines.push(tr('Monthly minutes: {from} → {to}', { from: v.from, to: v.to }));
       else if (k === 'is_active') lines.push(v.to ? tr('Account enabled') : tr('Account disabled'));
       else if (k === 'is_admin') lines.push(v.to ? tr('Made admin') : tr('Removed admin'));
       else if (k === 'password_reset') lines.push(tr('Password reset'));

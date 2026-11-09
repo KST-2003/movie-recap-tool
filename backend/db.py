@@ -2,10 +2,10 @@
 import time
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, create_engine, func, select
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, create_engine, func, inspect, select, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-from config import DATABASE_URL, DEFAULT_DAILY_MINUTES
+from config import DATABASE_URL, DEFAULT_DAILY_MINUTES, DEFAULT_MONTHLY_MINUTES
 
 _kwargs = {"connect_args": {"check_same_thread": False, "timeout": 30}} if DATABASE_URL.startswith("sqlite") else {"pool_pre_ping": True, "pool_size": 10}
 engine = create_engine(DATABASE_URL, **_kwargs)
@@ -23,6 +23,7 @@ class User(Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     daily_minutes = Column(Integer, default=DEFAULT_DAILY_MINUTES, nullable=False)
+    monthly_minutes = Column(Integer, default=DEFAULT_MONTHLY_MINUTES, nullable=False)
     is_admin = Column(Boolean, default=False, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow)
@@ -61,6 +62,11 @@ class AuditLog(Base):
 
 Base.metadata.create_all(engine)
 
+# Small migration for databases created before the monthly allowance existed (create_all never alters tables).
+if "monthly_minutes" not in {c["name"] for c in inspect(engine).get_columns("users")}:
+    with engine.begin() as _conn:
+        _conn.execute(text(f"ALTER TABLE users ADD COLUMN monthly_minutes INTEGER NOT NULL DEFAULT {int(DEFAULT_MONTHLY_MINUTES)}"))
+
 _COLUMNS = {"status", "stage", "progress", "error"}
 
 
@@ -92,6 +98,17 @@ def update_job(job_id: str, **fields) -> bool:
 def used_seconds_today(s, user_id: int | None = None) -> float:
     start = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     q = select(func.coalesce(func.sum(Job.charged_seconds), 0.0)).where(Job.created_at >= start)
+    if user_id is not None:
+        q = q.where(Job.user_id == user_id)
+    return float(s.execute(q).scalar_one())
+
+
+def month_start():
+    return utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def used_seconds_month(s, user_id: int | None = None) -> float:
+    q = select(func.coalesce(func.sum(Job.charged_seconds), 0.0)).where(Job.created_at >= month_start())
     if user_id is not None:
         q = q.where(Job.user_id == user_id)
     return float(s.execute(q).scalar_one())

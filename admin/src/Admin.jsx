@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
 import {
-  LayoutDashboard, Users, ListVideo, Mic, Settings as SettingsIcon, Menu, X, ArrowLeft, ScrollText,
+  LayoutDashboard, Users, ListVideo, Mic, Settings as SettingsIcon, Menu, X, LogOut, ExternalLink, ScrollText,
 } from 'lucide-react';
-import { LangSwitch, useI18n } from '../i18n.jsx';
+import { LangSwitch, useI18n } from './i18n.jsx';
 import { btnGhost } from './ui.jsx';
 import OverviewPage from './OverviewPage.jsx';
 import UsersPage from './UsersPage.jsx';
@@ -13,8 +12,10 @@ import AuditPage from './AuditPage.jsx';
 import SettingsPage from './SettingsPage.jsx';
 
 // Admin dashboard shell: sidebar (desktop) / slide-in drawer (phone), header with language switch, and the page switch.
-// Pages are one file each in this folder, shared pieces are in ui.jsx, Burmese texts in i18n.js (merged by ../i18n.jsx).
-// Talks to /api/admin/* (backend/admin/); the API refuses anyone who is not is_admin. Loaded lazily by App.jsx.
+// Pages are one file each in this folder, shared pieces are in ui.jsx, Burmese texts in strings.js (used by i18n.jsx).
+// Talks to /api/admin/* (backend/admin/); the API refuses anyone who is not is_admin.
+
+const APP_URL = import.meta.env.VITE_APP_URL || ''; // optional link to the normal app
 
 const NAV = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -26,19 +27,16 @@ const NAV = [
 ];
 
 
-export default function Admin({ account, apiBase, onExit }) {
-  if (apiBase) axios.defaults.baseURL = apiBase; // the admin pages call relative /api/... paths
+export default function Admin({ account, onLogout }) {
   const { tr } = useI18n();
   const [page, setPage] = useState(() => {
-    const p = location.hash.startsWith('#admin/') ? location.hash.slice(7) : '';
+    const p = location.hash.slice(1);
     return NAV.some((n) => n.id === p) ? p : 'overview';
   });
   const [drawer, setDrawer] = useState(false);
   const [userFilter, setUserFilter] = useState(null);
-  const [me, setMe] = useState(null);
 
-  useEffect(() => { axios.get('/api/auth/me').then((r) => setMe(r.data)).catch(() => {}); }, []);
-  useEffect(() => { location.hash = `admin/${page}`; }, [page]);
+  useEffect(() => { location.hash = page; }, [page]);
   const go = (id) => { setPage(id); setDrawer(false); if (id !== 'jobs') setUserFilter(null); window.scrollTo(0, 0); };
   const title = tr(NAV.find((n) => n.id === page)?.label || 'Admin');
 
@@ -55,7 +53,8 @@ export default function Admin({ account, apiBase, onExit }) {
   const footer = (
     <div className="mt-auto space-y-2 text-xs text-slate-500">
       <div className="truncate">{account?.email}</div>
-      <button onClick={onExit} className={`${btnGhost} w-full`}><ArrowLeft size={15} />{tr('Back to app')}</button>
+      {APP_URL && <a href={APP_URL} className={`${btnGhost} w-full`}><ExternalLink size={15} />{tr('Open app')}</a>}
+      <button onClick={onLogout} className={`${btnGhost} w-full`}><LogOut size={15} />{tr('Log out')}</button>
     </div>
   );
 
@@ -85,7 +84,7 @@ export default function Admin({ account, apiBase, onExit }) {
         </header>
         <main className="mx-auto max-w-6xl p-4 pb-16 md:p-6">
           {page === 'overview' && <OverviewPage go={go} />}
-          {page === 'users' && <UsersPage me={me?.id} openJobsFor={(u) => { setUserFilter(u); setPage('jobs'); }} />}
+          {page === 'users' && <UsersPage me={account.id} openJobsFor={(u) => { setUserFilter(u); setPage('jobs'); }} />}
           {page === 'jobs' && <JobsPage userFilter={userFilter} clearUser={() => setUserFilter(null)} />}
           {page === 'tts' && <TtsPage />}
           {page === 'audit' && <AuditPage />}

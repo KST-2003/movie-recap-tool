@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
-import { ADMIN_MY, ADMIN_SERVER } from './admin/i18n.js';
 
 // Interface language: 'my' (Myanmar) or 'en' (English). English strings are the keys; MY holds the Burmese text.
 // {name} placeholders are filled by tr(text, { name: value }).
@@ -61,6 +60,44 @@ const MY = {
   'Look & sound (applied when you re-render)': 'ပုံစံနှင့်အသံ (ပြန်ထုတ်သည့်အခါ သက်ရောက်မည်)',
   'Blur original subtitles': 'မူလစာတန်းကို ဝါးမည်',
   'Original music & effects volume': 'မူလတေးဂီတနှင့် အသံပြုလွှာများ အသံအတိုးအကျယ်',
+  'Create video': 'ဗီဒီယိုဖန်တီးရန်',
+  'My usage': 'ကျွန်ုပ်၏ အသုံးပြုမှု',
+  'Today': 'ယနေ့',
+  'This month': 'ဤလ',
+  '{used} / {limit} min': '{used} / {limit} မိနစ်',
+  '{n} min left': 'ကျန် {n} မိနစ်',
+  'Menu': 'မီနူး',
+  'Close menu': 'မီနူးပိတ်ရန်',
+  'Limit reached': 'ကန့်သတ်ချက် ပြည့်သွားပြီ',
+  'Almost used up': 'နီးပါး ကုန်တော့မည်',
+  'resets at {time}': '{time} တွင် ပြန်စမည်',
+  'resets on {date}': '{date} တွင် ပြန်စမည်',
+  'min': 'မိနစ်',
+  'Minutes used per day (last 30 days)': 'တစ်ရက်လျှင် သုံးစွဲသည့်မိနစ် (လွန်ခဲ့သော ရက် ၃၀)',
+  'Total {n} min · daily limit {limit} min': 'စုစုပေါင်း {n} မိနစ် · တစ်ရက်ကန့်သတ်ချက် {limit} မိနစ်',
+  'Show chart': 'ဇယားပြရန်',
+  'Show table': 'ဇယားကွက်ပြရန်',
+  'Date': 'ရက်စွဲ',
+  'Minutes': 'မိနစ်',
+  'Videos this month': 'ဤလ ဗီဒီယိုအရေအတွက်',
+  'Videos made in total': 'စုစုပေါင်း ဗီဒီယို',
+  'Average per video': 'ဗီဒီယိုတစ်ခုလျှင် ပျမ်းမျှ',
+  'Average per day': 'တစ်ရက်လျှင် ပျမ်းမျှ',
+  'This month by video type': 'ဤလ ဗီဒီယိုအမျိုးအစားအလိုက်',
+  'Recap voice-over': 'အနှစ်ချုပ် အသံသွင်း',
+  'Full movie voice-over': 'ရုပ်ရှင်အပြည့် အသံသွင်း',
+  'Subtitles only': 'စာတန်းထိုးသာ',
+  'Recent videos': 'မကြာသေးမီ ဗီဒီယိုများ',
+  'Editing and re-rendering a finished video does not use your minutes.': 'ပြီးသောဗီဒီယိုကို ပြင်ဆင်ပြီး ပြန်ထုတ်ခြင်းသည် သင့်မိနစ်များကို မသုံးပါ။',
+  'No videos yet.': 'ဗီဒီယို မရှိသေးပါ။',
+  'Edit / re-render': 'ပြင်ဆင် / ပြန်ထုတ်',
+  'free': 'အခမဲ့',
+  'done': 'ပြီးပြီ',
+  'error': 'အမှား',
+  'queued': 'စောင့်ဆိုင်းနေ',
+  'running': 'လုပ်ဆောင်နေ',
+  'cancelled': 'ပယ်ဖျက်ပြီး',
+  'Loading…': 'ဖွင့်နေသည်…',
   'Video format': 'ဗီဒီယိုဖော်မတ်',
   'Original': 'မူလအတိုင်း',
   'Fit (blurred background)': 'အပြည့်ဆန့်စေ (နောက်ခံမှုန်)',
@@ -198,10 +235,6 @@ const SERVER = [
   [/^No video file provided\.$/, 'ဗီဒီယိုဖိုင် မပါဝင်ပါ။'],
   [/^Recap generation failed: (.*)$/, 'ဗီဒီယိုထုတ်လုပ်မှု မအောင်မြင်ပါ — $1'],
 ];
-
-// admin dashboard texts: keys that already exist above keep their text
-Object.assign(MY, { ...ADMIN_MY, ...MY });
-SERVER.push(...ADMIN_SERVER);
 
 export function makeTr(lang) {
   const fill = (s, vars) => (vars ? s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m)) : s);

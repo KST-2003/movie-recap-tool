@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { X, AlertTriangle as TriangleAlert } from 'lucide-react';
-import { useI18n } from '../i18n.jsx';
+import { useI18n } from './i18n.jsx';
 
 // Shared pieces of the admin pages: small components, button/field styles and the data hook.
 

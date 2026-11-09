@@ -13,6 +13,8 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from datetime import timedelta, timezone
+
 from sqlalchemy import func, select
 
 import auth
@@ -21,7 +23,7 @@ import jobs_queue
 import looks
 import storage
 from common import media_duration, tts_provider
-from db import Job, Session, User, active_jobs, used_seconds_today
+from db import Job, Session, User, active_jobs, month_start, used_seconds_month, used_seconds_today, utcnow
 from voices import VOICES, VOICE_NAMES
 
 import logging
@@ -107,8 +109,12 @@ class Credentials(BaseModel):
 def _quota(user: User) -> dict:
     with Session() as s:
         used = used_seconds_today(s, user.id)
-    limit = user.daily_minutes * 60
-    return {"daily_minutes": user.daily_minutes, "used_seconds": round(used), "remaining_seconds": max(0, round(limit - used))}
+        month_used = used_seconds_month(s, user.id)
+    day_left = max(0, user.daily_minutes * 60 - used)
+    month_left = max(0, user.monthly_minutes * 60 - month_used)
+    return {"daily_minutes": user.daily_minutes, "used_seconds": round(used), "remaining_seconds": round(min(day_left, month_left)),
+            "monthly_minutes": user.monthly_minutes, "month_used_seconds": round(month_used),
+            "month_remaining_seconds": round(month_left), "day_remaining_seconds": round(day_left)}
 
 
 @app.post("/api/auth/register")
@@ -143,6 +149,46 @@ def login(body: Credentials, request: Request):
 @app.get("/api/auth/me")
 def me(user: User = Depends(auth.current_user)):
     return {"id": user.id, "email": user.email, "is_admin": user.is_admin, **_quota(user)}
+
+
+@app.get("/api/usage")
+def usage(user: User = Depends(auth.current_user)):
+    """The signed-in user's own usage: totals, 30 days of minutes, and their recent videos (for their dashboard)."""
+    now = utcnow()
+    days = 30
+    first = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    with Session() as s:
+        rows = s.execute(select(Job).where(Job.user_id == user.id, Job.created_at >= min(first, month_start()))
+                         .order_by(Job.created_at.desc())).scalars().all()
+        recent = s.execute(select(Job).where(Job.user_id == user.id).order_by(Job.created_at.desc()).limit(20)).scalars().all()
+        total_videos = s.execute(select(func.count()).select_from(Job).where(Job.user_id == user.id, Job.status == "done")).scalar_one()
+    per_day: dict[str, float] = {}
+    by_kind = {"recap": 0.0, "full": 0.0, "subtitles": 0.0}
+    month_videos = 0
+    for j in rows:
+        created = j.created_at if j.created_at.tzinfo else j.created_at.replace(tzinfo=timezone.utc)
+        if created >= first:
+            key = created.strftime("%Y-%m-%d")
+            per_day[key] = per_day.get(key, 0.0) + (j.charged_seconds or 0.0) / 60
+        if created >= month_start() and (j.charged_seconds or 0) > 0:
+            month_videos += 1
+            p = j.params or {}
+            kind = "subtitles" if p.get("output") == "subtitles" else ("full" if p.get("mode") == "full" else "recap")
+            by_kind[kind] += (j.charged_seconds or 0.0) / 60
+    series = [{"date": (first + timedelta(days=i)).strftime("%Y-%m-%d"),
+               "minutes": round(per_day.get((first + timedelta(days=i)).strftime("%Y-%m-%d"), 0.0), 1)} for i in range(days)]
+    nxt_day = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    nxt_month = (month_start() + timedelta(days=32)).replace(day=1)
+    return {
+        **_quota(user), "days": series, "minutes_by_kind": {k: round(v, 1) for k, v in by_kind.items()},
+        "month_videos": month_videos, "total_videos": total_videos,
+        "resets": {"day": nxt_day.isoformat(), "month": nxt_month.isoformat()},
+        "recent": [{"id": j.id, "created_at": (j.created_at if j.created_at.tzinfo else j.created_at.replace(tzinfo=timezone.utc)).isoformat(), "status": j.status,
+                    "minutes": round((j.charged_seconds or 0.0) / 60, 1),
+                    "kind": "edit" if (j.params or {}).get("edit") else ("subtitles" if (j.params or {}).get("output") == "subtitles"
+                                                                          else ("full" if (j.params or {}).get("mode") == "full" else "recap")),
+                    "aspect": (j.params or {}).get("aspect", "original")} for j in recent],
+    }
 
 
 # ---------- voices (public) ----------
@@ -303,6 +349,12 @@ def create_job(
             raise HTTPException(status_code=413, detail=f"Videos can be at most {MAX_VIDEO_MINUTES:g} minutes long.")
         job_id = uuid.uuid4().hex[:12]
         with Session() as s:
+            month_used = used_seconds_month(s, user.id)
+            if month_used + seconds > user.monthly_minutes * 60:
+                left = max(0, user.monthly_minutes * 60 - month_used)
+                raise HTTPException(status_code=402, detail=(
+                    f"Monthly limit reached: {left / 60:.1f} of your {user.monthly_minutes} minutes left this month, "
+                    f"this video is {seconds / 60:.1f} minutes."))
             used = used_seconds_today(s, user.id)
             if used + seconds > user.daily_minutes * 60:
                 left = max(0, user.daily_minutes * 60 - used)

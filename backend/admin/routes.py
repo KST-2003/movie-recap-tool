@@ -1,17 +1,17 @@
 """Admin API for the dashboard (/api/admin/*). Every route needs a logged-in user with is_admin = True
 (make one with `python manage.py create-user EMAIL PASSWORD --admin`)."""
 import re
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 import auth
-from config import (ALLOW_SIGNUP, DEFAULT_DAILY_MINUTES, MAX_ACTIVE_JOBS_PER_USER, MAX_UPLOAD_MB, MAX_VIDEO_MINUTES,
+from config import (ALLOW_SIGNUP, DEFAULT_DAILY_MINUTES, DEFAULT_MONTHLY_MINUTES, MAX_ACTIVE_JOBS_PER_USER, MAX_UPLOAD_MB, MAX_VIDEO_MINUTES,
                     QUEUE_MODE)
 from . import settings as runtime_settings
-from db import AuditLog, Job, Session, User, update_job, used_seconds_today, utcnow
+from db import AuditLog, Job, Session, User, month_start, update_job, used_seconds_month, used_seconds_today, utcnow
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 STATUSES = ("queued", "running", "done", "error", "cancelled")
@@ -82,9 +82,11 @@ def overview(days: int = 14):
 
 # ---------- users ----------
 
-def _user_row(u: User, used_seconds: float) -> dict:
-    return {"id": u.id, "email": u.email, "daily_minutes": u.daily_minutes, "is_admin": u.is_admin, "is_active": u.is_active,
-            "created_at": _iso(u.created_at), "used_minutes_today": round(used_seconds / 60, 1)}
+def _user_row(u: User, used_seconds: float, month_seconds: float = 0.0) -> dict:
+    return {"id": u.id, "email": u.email, "daily_minutes": u.daily_minutes, "monthly_minutes": u.monthly_minutes,
+            "is_admin": u.is_admin, "is_active": u.is_active,
+            "created_at": _iso(u.created_at), "used_minutes_today": round(used_seconds / 60, 1),
+            "used_minutes_month": round(month_seconds / 60, 1)}
 
 
 @router.get("/users")
@@ -103,15 +105,19 @@ def list_users(q: str = "", page: int = 1, per_page: int = 25):
         used = dict(s.execute(select(Job.user_id, func.coalesce(func.sum(Job.charged_seconds), 0.0))
                               .where(Job.created_at >= today, Job.user_id.in_([u.id for u in users]))
                               .group_by(Job.user_id)).all()) if users else {}
+        month_used = dict(s.execute(select(Job.user_id, func.coalesce(func.sum(Job.charged_seconds), 0.0))
+                                    .where(Job.created_at >= month_start(), Job.user_id.in_([u.id for u in users]))
+                                    .group_by(Job.user_id)).all()) if users else {}
     return {"total": total, "page": page, "per_page": per_page,
-            "items": [_user_row(u, float(used.get(u.id, 0.0))) for u in users],
-            "default_daily_minutes": DEFAULT_DAILY_MINUTES}
+            "items": [_user_row(u, float(used.get(u.id, 0.0)), float(month_used.get(u.id, 0.0))) for u in users],
+            "default_daily_minutes": DEFAULT_DAILY_MINUTES, "default_monthly_minutes": DEFAULT_MONTHLY_MINUTES}
 
 
 class NewUser(BaseModel):
     email: str
     password: str
     daily_minutes: int = Field(DEFAULT_DAILY_MINUTES, ge=0, le=100000)
+    monthly_minutes: int = Field(DEFAULT_MONTHLY_MINUTES, ge=0, le=3000000)
     is_admin: bool = False
 
 
@@ -125,16 +131,17 @@ def create_user(body: NewUser, admin: User = Depends(require_admin)):
     with Session() as s:
         if s.execute(select(User).where(User.email == email)).scalar_one_or_none():
             raise HTTPException(status_code=409, detail="That email is already registered.")
-        user = User(email=email, password_hash=auth.hash_password(body.password), daily_minutes=body.daily_minutes, is_admin=body.is_admin)
+        user = User(email=email, password_hash=auth.hash_password(body.password), daily_minutes=body.daily_minutes, monthly_minutes=body.monthly_minutes, is_admin=body.is_admin)
         s.add(user)
         s.flush()
-        _audit(s, admin, "user.create", "user", user.id, user.email, {"daily_minutes": user.daily_minutes, "is_admin": user.is_admin})
+        _audit(s, admin, "user.create", "user", user.id, user.email, {"daily_minutes": user.daily_minutes, "monthly_minutes": user.monthly_minutes, "is_admin": user.is_admin})
         s.commit()
         return _user_row(user, 0.0)
 
 
 class UserPatch(BaseModel):
     daily_minutes: int | None = Field(None, ge=0, le=100000)
+    monthly_minutes: int | None = Field(None, ge=0, le=3000000)
     is_active: bool | None = None
     is_admin: bool | None = None
     password: str | None = None
@@ -151,7 +158,7 @@ def patch_user(user_id: int, body: UserPatch, admin: User = Depends(require_admi
         if user is None:
             raise HTTPException(status_code=404, detail="Unknown user")
         changes = {}
-        for field in ("daily_minutes", "is_active", "is_admin"):
+        for field in ("daily_minutes", "monthly_minutes", "is_active", "is_admin"):
             new = getattr(body, field)
             if new is not None and new != getattr(user, field):
                 changes[field] = {"from": getattr(user, field), "to": new}
@@ -162,7 +169,7 @@ def patch_user(user_id: int, body: UserPatch, admin: User = Depends(require_admi
         if changes:
             _audit(s, admin, "user.update", "user", user.id, user.email, changes)
         s.commit()
-        return _user_row(user, used_seconds_today(s, user.id))
+        return _user_row(user, used_seconds_today(s, user.id), used_seconds_month(s, user.id))
 
 
 # ---------- jobs ----------
@@ -210,15 +217,39 @@ def cancel_job(job_id: str, admin: User = Depends(require_admin)):
 # ---------- voice (TTS) model pool ----------
 
 @router.get("/tts")
-def tts_status():
+def tts_status(refresh: bool = False):
     import gemini_tts
     import tts_pool
+    from . import google_quota
+    pool = tts_pool.models()
+    verified = google_quota.verify_models(refresh)
+    cloud = google_quota.cloud([name for name, _, _ in pool], refresh)
+    seen = gemini_tts.limits_seen()
     items = []
-    for name, rpm, rpd in tts_pool.models():
-        used = tts_pool.used_today(name)
-        items.append({"model": name, "per_minute": rpm, "per_day": rpd, "used_today": used,
-                      "remaining": tts_pool.remaining(name), "blocked_seconds": round(gemini_tts.blocked_for(name))})
-    return {"models": items, "all_blocked": tts_pool.all_blocked(), "day": tts_pool._today()}
+    for name, rpm, rpd in pool:
+        google = verified["models"].get(name)
+        learned = seen.get(name)
+        items.append({
+            "model": name, "per_minute": rpm, "per_day": rpd, "used_today": tts_pool.used_today(name),
+            "remaining": tts_pool.remaining(name), "blocked_seconds": round(gemini_tts.blocked_for(name)),
+            # 1. exists for this API key? (None = could not check)
+            "google": None if verified["error"] else ({"exists": True, **google} if google else {"exists": False}),
+            # 2. limit stated in Google's own 429 error text the last time this model was refused
+            "seen_limit": {"per_day": learned.get("per_day"), "per_minute": learned.get("per_minute"), "metric": learned.get("metric"),
+                           "seen_at": _iso(datetime.fromtimestamp(learned["seen_at"], timezone.utc)) if learned.get("seen_at") else None} if learned else None,
+            # 3. real limits and usage from Google Cloud (None when not set up)
+            "cloud": cloud["models"].get(name) if cloud["configured"] else None})
+    return {"models": items, "all_blocked": tts_pool.all_blocked(), "day": tts_pool._today(),
+            "verify_error": verified["error"],
+            "cloud": {"configured": cloud["configured"], "project": cloud["project"], "error": cloud["error"],
+                      "limits_ok": cloud["limits_ok"], "usage_ok": cloud["usage_ok"]}}
+
+
+@router.get("/google-quota")
+def google_quota_raw(refresh: bool = False):
+    """Everything Google Cloud returned about the Gemini API quotas (unmatched), to check the model matching by eye."""
+    from . import google_quota
+    return google_quota.raw(refresh)
 
 
 # ---------- runtime settings ----------

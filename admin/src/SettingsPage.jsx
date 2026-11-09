@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { useI18n } from '../i18n.jsx';
+import { useI18n } from './i18n.jsx';
 import { errText, Card, btnPrimary, btnGhost, field, Toggle, useApi, ErrorBox, Loading } from './ui.jsx';
 
 export default function SettingsPage() {

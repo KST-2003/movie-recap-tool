@@ -1,6 +1,6 @@
 import React from 'react';
 import { RefreshCw, AlertTriangle as TriangleAlert } from 'lucide-react';
-import { useI18n } from '../i18n.jsx';
+import { useI18n } from './i18n.jsx';
 import { Card, Stat, DayBars, useApi, ErrorBox, Loading } from './ui.jsx';
 
 export default function Overview({ go }) {

@@ -1,15 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Search, Plus, ShieldCheck, Ban, Pencil } from 'lucide-react';
-import { useI18n } from '../i18n.jsx';
+import { useI18n } from './i18n.jsx';
 import { errText, fmtTime, Card, btnPrimary, btnGhost, field, Toggle, Pager, Sheet, useApi, ErrorBox } from './ui.jsx';
 
-function UserForm({ user, defaultMinutes, me, onClose, onSaved }) {
+function UserForm({ user, defaultMinutes, defaultMonthly, me, onClose, onSaved }) {
   const { tr, trs } = useI18n();
   const creating = !user;
   const [email, setEmail] = useState(user?.email || '');
   const [password, setPassword] = useState('');
-  const [minutes, setMinutes] = useState(user?.daily_minutes ?? defaultMinutes ?? 20);
+  const [minutes, setMinutes] = useState(user?.daily_minutes ?? defaultMinutes ?? 100);
+  const [monthly, setMonthly] = useState(user?.monthly_minutes ?? defaultMonthly ?? 2000);
   const [active, setActive] = useState(user?.is_active ?? true);
   const [isAdmin, setIsAdmin] = useState(user?.is_admin ?? false);
   const [busy, setBusy] = useState(false);
@@ -21,9 +22,9 @@ function UserForm({ user, defaultMinutes, me, onClose, onSaved }) {
     setBusy(true); setError('');
     try {
       if (creating) {
-        await axios.post('/api/admin/users', { email, password, daily_minutes: Number(minutes), is_admin: isAdmin });
+        await axios.post('/api/admin/users', { email, password, daily_minutes: Number(minutes), monthly_minutes: Number(monthly), is_admin: isAdmin });
       } else {
-        const body = { daily_minutes: Number(minutes), is_active: active, is_admin: isAdmin };
+        const body = { daily_minutes: Number(minutes), monthly_minutes: Number(monthly), is_active: active, is_admin: isAdmin };
         if (password) body.password = password;
         await axios.patch(`/api/admin/users/${user.id}`, body);
       }
@@ -39,6 +40,9 @@ function UserForm({ user, defaultMinutes, me, onClose, onSaved }) {
           value={password} onChange={(e) => setPassword(e.target.value)} required={creating} minLength={password || creating ? 8 : undefined} />
         <label className="block text-xs text-slate-400">{tr('Daily minutes')}
           <input className={`${field} mt-1`} type="number" min="0" value={minutes} onChange={(e) => setMinutes(e.target.value)} required />
+        </label>
+        <label className="block text-xs text-slate-400">{tr('Monthly minutes')}
+          <input className={`${field} mt-1`} type="number" min="0" value={monthly} onChange={(e) => setMonthly(e.target.value)} required />
         </label>
         <div className="flex items-center justify-between rounded-xl bg-slate-800/60 px-3 py-2 text-sm">
           <span>{tr('Admin')}</span><Toggle checked={isAdmin} onChange={setIsAdmin} disabled={self} />
@@ -70,6 +74,8 @@ export default function UsersPage({ me, openJobsFor }) {
   useEffect(() => { const t = setTimeout(() => { setQuery(q); setPage(1); }, 300); return () => clearTimeout(t); }, [q]);
   const items = data?.items || [];
   const usage = (u) => tr('{used} / {limit} min', { used: u.used_minutes_today, limit: u.daily_minutes });
+  const monthUsage = (u) => tr('{used} / {limit} min', { used: u.used_minutes_month ?? 0, limit: u.monthly_minutes });
+  const monthPct = (u) => Math.min(100, u.monthly_minutes ? ((u.used_minutes_month ?? 0) / u.monthly_minutes) * 100 : 100);
   const pct = (u) => Math.min(100, u.daily_minutes ? (u.used_minutes_today / u.daily_minutes) * 100 : 100);
   const Meter = ({ u }) => <div className="mt-1 h-1.5 w-24 overflow-hidden rounded-full bg-slate-800"><div className={`h-full ${pct(u) > 90 ? 'bg-red-500' : 'bg-purple-500'}`} style={{ width: `${pct(u)}%` }} /></div>;
   const Tags = ({ u }) => (<>
@@ -90,13 +96,14 @@ export default function UsersPage({ me, openJobsFor }) {
       <Card className="overflow-hidden !p-0">
         <table className="hidden w-full text-sm md:table">
           <thead className="bg-slate-900 text-left text-xs text-slate-400">
-            <tr><th className="px-4 py-3">{tr('Email')}</th><th className="px-4 py-3">{tr('Today')}</th><th className="px-4 py-3">{tr('Joined')}</th><th className="px-4 py-3" /></tr>
+            <tr><th className="px-4 py-3">{tr('Email')}</th><th className="px-4 py-3">{tr('Today')}</th><th className="px-4 py-3">{tr('This month')}</th><th className="px-4 py-3">{tr('Joined')}</th><th className="px-4 py-3" /></tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
             {items.map((u) => (
               <tr key={u.id} className="hover:bg-slate-800/40">
                 <td className="px-4 py-3"><div className="flex flex-wrap items-center gap-2"><span className="break-all">{u.email}</span><Tags u={u} /></div></td>
                 <td className="px-4 py-3 text-slate-300"><div>{usage(u)}</div><Meter u={u} /></td>
+                <td className="px-4 py-3 text-slate-300"><div>{monthUsage(u)}</div><div className="mt-1 h-1.5 w-24 overflow-hidden rounded-full bg-slate-800"><div className={`h-full ${monthPct(u) > 90 ? 'bg-red-500' : 'bg-purple-500'}`} style={{ width: `${monthPct(u)}%` }} /></div></td>
                 <td className="px-4 py-3 text-slate-400">{fmtTime(u.created_at)}</td>
                 <td className="px-4 py-3"><div className="flex justify-end gap-2">
                   <button className={btnGhost} onClick={() => openJobsFor(u)}>{tr('Videos')}</button>
@@ -114,7 +121,7 @@ export default function UsersPage({ me, openJobsFor }) {
                 <button className={btnGhost} onClick={() => setEditing(u)} aria-label={tr('Edit')}><Pencil size={14} /></button>
               </div>
               <div className="mt-2 flex items-end justify-between text-xs text-slate-400">
-                <div>{tr('Today')} {usage(u)}<Meter u={u} /></div>
+                <div>{tr('Today')} {usage(u)}<Meter u={u} /><div className="mt-1">{tr('This month')} {monthUsage(u)}</div></div>
                 <button className="underline" onClick={() => openJobsFor(u)}>{tr('Videos')}</button>
               </div>
             </li>
@@ -124,7 +131,7 @@ export default function UsersPage({ me, openJobsFor }) {
       </Card>
       {data && <Pager page={data.page} perPage={data.per_page} total={data.total} onPage={setPage} />}
       {editing !== undefined && (
-        <UserForm user={editing} me={me} defaultMinutes={data?.default_daily_minutes} onClose={() => setEditing(undefined)} onSaved={() => { setEditing(undefined); reload(); }} />
+        <UserForm user={editing} me={me} defaultMinutes={data?.default_daily_minutes} defaultMonthly={data?.default_monthly_minutes} onClose={() => setEditing(undefined)} onSaved={() => { setEditing(undefined); reload(); }} />
       )}
     </div>
   );

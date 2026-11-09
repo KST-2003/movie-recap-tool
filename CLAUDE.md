@@ -14,7 +14,7 @@ Users upload videos up to ~10 min and want results in about 3 minutes (not yet r
 
 ## 2. Architecture (current, branch `feature/google-gemini-dubbing`)
 ```
-Browser (React/Vite, frontend/)  --HTTPS-->  API (FastAPI, backend/main.py)
+Browser (React/Vite, frontend/)  --HTTPS-->  API (FastAPI, backend/main.py)  <--HTTPS--  Owner dashboard (React/Vite, admin/, own sub-domain)
    login, upload, voice picker                 auth, quotas, signed URLs, voice samples
                                                    |  enqueue(job_id)
                                                    v
@@ -181,7 +181,7 @@ mobile fixes (stacked labels, wrapping rows, no horizontal overflow; timeline no
 **Open / unverified.** Nothing above has been run on a real film yet (roster, blur windows, merge rules, casting request, looks); bulk batches of look lines may fall back to single requests; look clips are longer
 (slow delivery); looks cannot be the recap-mode voice (upload form picks real voices only); only 12 emotional lines get a direction (cap); no per-voice tags for age beyond what Gemini heard; speaker-embedding clustering
 and a character-review step before voicing are still ideas; native review of Burmese UI text.
-**Tests** (all offline, run in `backend/` with `venv/bin/python`): `test_admin.py`, `test_editor.py`, `test_modes.py`, `test_voice_fixes.py`, `test_blur_windows.py`; real-API scripts: `test_voice_styles.py`, `generate_*`.
+**Tests** (all offline, run in `backend/` with `venv/bin/python`): `test_admin.py`, `test_google_quota.py`, `test_editor.py`, `test_modes.py`, `test_voice_fixes.py`, `test_blur_windows.py`; real-API scripts: `test_voice_styles.py`, `generate_*`.
 
 ### Format + preview before generating (2026-11-07 night 13, format added 2026-11-08)
 Like CapCut: the user picks the **format first** (Original, 9:16, 1:1, 4:5, 16:9; "Fit" = whole picture over a blurred copy, "Fill" = crop, drag the picture to pan), then uploads.
@@ -203,19 +203,36 @@ Why watermark blur defaults OFF: it is a FIXED box (25% x 12%, bottom-right of t
 **Original sound level**: separated music/effects used to be mixed at 0.35 (and 0.5 ducked) with sidechain ratio 12 = effects (thunder) too quiet. Now default 0.8 (0.7 when the whole original track is kept under the voice),
 ratio 4, user slider `bg_volume` 0-1.5. Known limit: Demucs `no_vocals` treats screams/ghost voices as vocals and removes them (use "Keep everything, lowered" to keep those, original speech then stays faintly audible).
 
-### Admin dashboard (2026-11-09, branch `feature/admin-dashboard`)
-Backend package `backend/admin/` (`routes.py` = router `/api/admin/*`, `settings.py` = runtime settings; `main.py` includes the router), every route needs `is_admin`; make one with `python manage.py create-user EMAIL PASSWORD --admin`): `overview` (counts, queue,
-minutes today, 14-day series), `users` (search, paging, create, PATCH daily minutes / enable / admin / password reset; you cannot disable or demote yourself), `jobs` (filter by status or user,
-cancel any job), `tts` (per-model used/limit/blocked from `tts_pool`), `settings` (GET/PUT), `audit` (list, filter by action). `admin/settings.py`: maintenance mode and the global daily ceiling are now changeable
-at runtime (file `data/admin_settings.json`, falls back to `.env`); `main.py` reads them per request instead of the old config constants. `/api/auth/login|register|me` return `is_admin` (`me` also `id`).
-**Audit log (2026-11-09):** table `audit_log` (`db.AuditLog`, created automatically by `create_all`, no migration) gets one row per SUCCESSFUL admin change, written in the same transaction as the change:
-`user.create`, `user.update` (per-field `{from, to}`; a password change is only `password_reset: true`, never the password), `job.cancel`, `settings.update` (only fields that really changed; a no-op save writes nothing).
-Refused actions (400/403/404/409) write nothing. Not logged: logins, reads, user-side actions. The row copies the admin's email so it stays readable later.
-Frontend folder `frontend/src/admin/` (`Admin.jsx` shell + nav, `ui.jsx` shared pieces and `useApi`, one `*Page.jsx` per page, `i18n.js` Burmese texts; **loaded lazily** by `App.jsx`, so normal users never download it; **Myanmar + English**, language switch in its header; texts via `tr()`/`trs()`, merged into `src/i18n.jsx`; AI-written, needs native review): Overview, Users, Jobs, Voice models, Audit log, Settings. Mobile: sidebar = slide-in drawer, tables = stacked cards, forms = bottom sheets,
-status filter chips scroll sideways. Charts are plain divs (no chart library). Opened from an "Admin" link in the app header (admin accounts only), URL hash `#admin/<page>`; auto-refresh 8-15 s.
-Built in our own Tailwind style: the Flatlogic react-dashboard template (React 19, TypeScript, reactstrap) was only a layout reference; its repo has no LICENSE file, so no code was copied.
-Tested: `python test_admin.py` (offline, 37 checks: access control, users, jobs, tts, settings, maintenance blocks a new job without restart, audit rows/diffs/no password/filter), `npm run build`, HTTP smoke test against a seeded throwaway DB.
-NOT verified: the UI in a browser (the Chrome extension was not connected), so phone layout is untested by eye. Not built: logging of logins / failed admin attempts, per-user job history beyond the Jobs filter, deleting users, payments/plans, exporting the audit log.
+### Admin dashboard (2026-11-09, branch `feature/admin-dashboard`) - a SEPARATE app: `admin/`
+Three top-level folders: `backend/` (API), `frontend/` (the user app, port 3000), **`admin/` (owner dashboard, own Vite app, dev port 3001, deployed on its own sub-domain, e.g. admin.example.com)**.
+Details for running/deploying: `admin/README.md`. Both browser apps call the same API; the backend must allow both origins (`CORS_ORIGINS=https://app...,https://admin...`; dev defaults include :3000 and :3001, checked with a real preflight).
+**Backend** `backend/admin/` (package: `routes.py` = router `/api/admin/*`, `settings.py` = runtime settings, `google_quota.py`; `main.py` includes the router). Every route needs `is_admin` (`python manage.py create-user EMAIL PASSWORD --admin`).
+Routes: `overview` (counts, queue, minutes today, 14-day series), `users` (search, paging, create, PATCH daily minutes / enable / admin / password reset; you cannot disable or demote yourself), `jobs` (filter by status or user,
+cancel any job), `tts` (see below), `google-quota` (raw Google rows), `settings` (GET/PUT), `audit` (list, filter by action). `settings.py`: maintenance mode and the global daily ceiling are changeable at runtime
+(file `data/admin_settings.json`, falls back to `.env`); `main.py` reads them per request. `/api/auth/login|register|me` return `is_admin` (`me` also `id`).
+**Audit log:** table `audit_log` (`db.AuditLog`, created by `create_all`, no migration): one row per SUCCESSFUL admin change, same transaction as the change: `user.create`, `user.update` (per-field `{from, to}`; a password
+change is only `password_reset: true`), `job.cancel`, `settings.update` (only fields that really changed). Refused actions write nothing. Not logged: logins, reads, user-side actions.
+**Admin app** (`admin/`): own sign-in (`src/App.jsx`, token under its own localStorage key, refuses non-admin accounts), shell `Admin.jsx` (sidebar / phone drawer, log out, optional "Open app" link `VITE_APP_URL`), one `*Page.jsx` per page,
+`ui.jsx` shared pieces + `useApi`, `i18n.jsx` + `strings.js` Myanmar/English (AI-written Burmese, needs native review; new texts need an entry in `strings.js`). Env: `VITE_API_BASE`, `VITE_APP_URL` (`admin/.env.example`). URL hash = page (`#users`).
+Mobile: tables become cards, forms bottom sheets, filter chips scroll sideways. Charts are plain divs. Built in our own Tailwind style (Flatlogic react-dashboard was only a layout idea; no LICENSE file there, no code copied).
+**Voice models page = three layers per model:** (1) what we configured (`TTS_MODELS`) and counted (`tts_usage.json`); (2) **Google's own words**: `gemini_tts.learn_limit` stores the limit named in every 429 error ("limit: 100 ... per day") in
+`data/tts_limits_seen.json`; plus `models.list` with the API key proves the model exists for the key and gives token limits (no quota fields exist there, checked); (3) **real limits + usage from Google Cloud** (`google_quota.py`):
+Service Usage API `consumerQuotaMetrics` (effectiveLimit per bucket) + Cloud Monitoring `serviceruntime.googleapis.com/quota/rate/net_usage` since Pacific midnight. Needs `GCP_PROJECT_ID` + `GCP_SERVICE_ACCOUNT_FILE` (service account with
+"Service Usage Viewer" + "Monitoring Viewer", both APIs enabled; steps in `backend/.env.example`; key file stays outside git). Cached (models/limits 10 min, usage 60 s), a failing half shows its error next to the half that worked.
+The page warns when Google's limit differs from the configured one. UNVERIFIED against real Google Cloud (needs the user's credentials): Google does not document the metric labels of the Gemini API, so models are matched by name appearing in quota
+dimensions/labels and request quotas are recognised by "request" in the metric name; the page's "Show what Google returns" panel lists the raw rows to tune this. Several matching limits (free + paid tier) = biggest shown, flagged.
+Tested offline with canned Google answers: `python test_admin.py` (38 checks), `python test_google_quota.py` (23 checks), `npm run build` in `admin/` and `frontend/`, scope check for undefined names, Burmese key coverage.
+NOT verified: the admin UI in a browser (Chrome extension was not connected), phone layout by eye. Not built: logging of logins / failed admin attempts, per-user job history beyond the Jobs filter, deleting users, payments/plans.
+
+### Allowances, sidebar and usage dashboard (2026-11-09)
+Limits per user: **100 min/day and 2000 min/month** (UTC day / calendar month). `User.monthly_minutes` (+ migration in `db.py` for old databases), `DEFAULT_DAILY_MINUTES`=100, `DEFAULT_MONTHLY_MINUTES`=2000.
+Upload is refused (402) when either is exceeded; `remaining_seconds` in `/api/auth/me` = the smaller of the two. Re-renders stay free (charged_seconds 0). Failed/cancelled jobs are refunded (so they count for neither).
+`GET /api/usage` (the user's own): daily/monthly used, 30 days of minutes, minutes by type (recap / full / subtitles), recent 20 videos, reset times. `manage.py set-monthly`, `create-user --monthly`.
+Admin (separate `admin/` app): Users page shows month usage and edits monthly minutes (audit log knows the field).
+Main app (`frontend/src/Shell.jsx`): **sidebar** (Create video | My usage, today/month meters, account, language, log out); on phones a top bar with a hamburger toggle opens it as a drawer.
+`UsageDashboard.jsx`: two allowance cards, stat tiles, 30-day bar chart (one series, tap/hover tooltip, "Show table"), by-type bars, recent videos. Create page stays mounted while the usage page is open.
+UNVERIFIED in a browser (the Chrome extension was not connected): layout of sidebar/drawer/dashboard, chart hover. API + limit enforcement were tested with TestClient.
+Cost note (estimates, not measured): ~0.55-0.8 THB per video-minute -> 2000 min/month costs 1,100-1,600 THB at the cap. Idea not built: log real tokens/voice-seconds per job to show true cost per minute.
 
 ### Progress UI
 The source video previews as soon as a file is chosen; on Generate the player shows a spinner overlay + Cancel and a step
@@ -241,7 +258,8 @@ Queued jobs report `queue_position` and `eta_seconds` = (jobs ahead - free worke
 ## 3. How to run locally
 ```
 cd backend && source venv/bin/activate && uvicorn main:app --port 8000      # restart after every backend change
-cd frontend && npm run dev
+cd frontend && npm run dev      # http://localhost:3000
+cd admin && cp .env.example .env && npm install && npm run dev      # http://localhost:3001 (owner dashboard, needs an --admin account)
 # queue mode: redis-server &  REDIS_URL=redis://localhost:6379 uvicorn ... ; REDIS_URL=... ./run_worker.sh
 ```
 Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user EMAIL PASSWORD --minutes 30`.
@@ -342,5 +360,6 @@ Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user 
 - 2026-11-07 (night 13): preview studio before generating (live grading/speed/flip, draggable logo, blur boxes, 5 s loop); backend `logo_x/logo_y/manual_blurs`.
 - 2026-11-08: video format picker before upload (9:16, 1:1, 4:5, 16:9; fit with blurred background or fill/crop with pan), preview shows the output frame; logo corner resize; app renamed Movie Recap Tool.
 - 2026-11-08 (b): form checkboxes moved to the editor (Look & sound), watermark blur + flip default off, subtitles-only offered in recap mode too, louder/gentler-ducked original effects + volume slider.
-- 2026-11-09: admin dashboard (overview, users, jobs, voice-model pool, runtime maintenance/ceiling settings; mobile responsive), `backend/admin/`, `frontend/src/admin/`, `test_admin.py`.
-- 2026-11-09 (b): admin dashboard in Myanmar too (`admin/i18n.js`, `trs` patterns for server errors) and an audit log of admin changes (`db.AuditLog`, `GET /api/admin/audit`, Audit log page).
+- 2026-11-09: admin dashboard as a separate app `admin/` (own sub-domain, own login, Myanmar + English): overview, users, jobs, voice models, audit log, runtime settings; backend package `backend/admin/`. Voice models page shows our counters + Google's own limit words (learned from 429s) + `models.list` check + real limits/usage via Service Usage/Cloud Monitoring (needs GCP service account; unverified with real credentials).
+
+- 2026-11-09: monthly allowance (2000/month, 100/day), `/api/usage`, sidebar + usage dashboard in the main app, monthly minutes in admin.

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { StopCircle as CircleStop } from 'lucide-react';
-import { useI18n } from '../i18n.jsx';
+import { useI18n } from './i18n.jsx';
 import { errText, fmtTime, Badge, Card, btnGhost, Pager, useApi, ErrorBox } from './ui.jsx';
 
 const STATUS_FILTERS = ['', 'queued', 'running', 'done', 'error', 'cancelled'];
