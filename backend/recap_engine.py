@@ -48,7 +48,11 @@ class EffectOptions:
     logo_width_frac: float = 0.15
     logo_position: str = "top-right"
     logo_xy: tuple | None = None  # dragged position (left, top) as fractions of the frame; overrides logo_position
-    extra_blur_rects: list = field(default_factory=list)  # user-drawn boxes, pixel rects, blurred the whole video
+    extra_blur_rects: list = field(default_factory=list)  # user-drawn boxes, pixel rects IN THE OUTPUT FRAME, blurred the whole video
+    out_size: tuple | None = None  # (width, height) of the final frame; None = same as the source
+    fit_mode: str = "blur"         # blur: whole picture over a blurred copy | crop: fill the frame, pan_x/pan_y pick the part kept
+    pan_x: float = 0.5
+    pan_y: float = 0.5
     captions: bool = True
     subtitle_rect: tuple | None = None  # pixel (x, y, w, h) of detected source subtitles; None = nothing to blur
     watermark_rects: list = field(default_factory=list)  # detected static-text watermarks, pixel rects
@@ -403,7 +407,9 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
                    src_offset: float = 0.0, threads: int | None = None) -> dict:
     work_dir = os.path.abspath(work_dir)
     info = probe_video(video_path)
-    W, H, fps = info["width"], info["height"], min(max(info["fps"], 1), 60)
+    SW, SH, fps = info["width"], info["height"], min(max(info["fps"], 1), 60)
+    W, H = fx.out_size or (SW, SH)   # everything after the reframe step works in the output frame
+    reframed = (W, H) != (SW, SH)
     speed = min(max(fx.speed, 0.5), 2.0)
     total_len = sum(s.out_len for s in scenes) / speed
 
@@ -431,7 +437,10 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
     cap_idx, cap_files = None, []
     if fx.captions and cue_list:
         cap_h = int(H * 0.22)
-        playlist, cap_files = build_caption_track(cue_list, total_len, work_dir, tag, W, cap_h, fx.caption_px)
+        cap_px = fx.caption_px
+        if cap_px and reframed:   # the picture is scaled by this factor, so the caption keeps its size relative to it
+            cap_px = max(12, int(cap_px * (max if fx.fit_mode == "crop" else min)(W / SW, H / SH)))
+        playlist, cap_files = build_caption_track(cue_list, total_len, work_dir, tag, W, cap_h, cap_px)
         cmd += ["-f", "concat", "-safe", "0", "-i", playlist]
         cap_idx = nxt
         nxt += 1
@@ -479,7 +488,7 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
         f.append(f"[bgcat]volume={fx.background_volume:.3f}[bgq]")
         if fx.duck_background:   # the background dips whenever the voice speaks, then comes back
             f.append("[vo]asplit=2[vo1][vo2]")
-            f.append("[bgq][vo1]sidechaincompress=threshold=0.02:ratio=12:attack=10:release=350[bgd]")
+            f.append("[bgq][vo1]sidechaincompress=threshold=0.03:ratio=4:attack=20:release=400[bgd]")
             f.append("[vo2][bgd]amix=inputs=2:normalize=0:duration=first[acat2]")
         else:
             f.append("[vo][bgq]amix=inputs=2:normalize=0:duration=first[acat2]")
@@ -503,13 +512,23 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
                  f"[w_src]crop=trunc(iw*0.25):trunc(ih*0.12):trunc(iw*0.75):trunc(ih*0.88),boxblur=20:10[w_blur];"
                  f"[w_main][w_blur]overlay=W-w:H-h[wm1]")
         cur = "wm1"
-    for k, rect in enumerate(fx.extra_blur_rects):
-        f.append(_blur_region(rect, cur, f"bm{k}"))
-        cur = f"bm{k}_o"
+    if reframed:
+        if fx.fit_mode == "crop":
+            px, py = min(max(fx.pan_x, 0.0), 1.0), min(max(fx.pan_y, 0.0), 1.0)
+            chain(f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}:x='(iw-{W})*{px:.4f}':y='(ih-{H})*{py:.4f}',setsar=1", "rf")
+        else:
+            f.append(f"[{cur}]split=2[rf_a][rf_b];"
+                     f"[rf_a]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=25:5[rf_bg];"
+                     f"[rf_b]scale={W}:{H}:force_original_aspect_ratio=decrease[rf_fg];"
+                     f"[rf_bg][rf_fg]overlay=(W-w)/2:(H-h)/2,setsar=1[rf]")
+            cur = "rf"
     if fx.flip_h:
         chain("hflip", "fh")
     if fx.flip_v:
         chain("vflip", "fv")
+    for k, rect in enumerate(fx.extra_blur_rects):   # drawn on the preview of the final frame, so after reframe + flip
+        f.append(_blur_region(rect, cur, f"bm{k}"))
+        cur = f"bm{k}_o"
     if (fx.brightness, fx.contrast, fx.saturation) != (0.0, 1.0, 1.0):
         chain(f"eq=brightness={fx.brightness:.3f}:contrast={fx.contrast:.3f}:saturation={fx.saturation:.3f}", "gr")
     if speed != 1.0:
@@ -523,7 +542,7 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
         cur = "wl"
     if cap_idx is not None:
         f.append(f"[{cap_idx}:v]format=rgba[cp]")
-        if fx.subtitle_rect:  # sit exactly where the blurred source subtitles were
+        if fx.subtitle_rect and not reframed:  # sit exactly where the blurred source subtitles were
             cy = min(fx.subtitle_rect[1] + fx.subtitle_rect[3] + int(H * 0.01), H)
             cap_y = f"{max(0, min(cy - cap_h, H - cap_h))}"
         else:

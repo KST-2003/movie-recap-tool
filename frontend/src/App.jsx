@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import Editor from './Editor.jsx';
 import VoiceLibrary from './VoiceLibrary.jsx';
-import PreviewStudio from './PreviewStudio.jsx';
+import PreviewStudio, { ASPECTS } from './PreviewStudio.jsx';
 import { LangSwitch, useI18n } from './i18n.jsx';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
@@ -33,7 +33,7 @@ function AuthScreen({ onAuth }) {
   return (
     <div className="min-h-screen bg-slate-950 text-white p-6 font-sans flex items-center justify-center">
       <form onSubmit={submit} className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
-        <div className="flex items-center justify-between"><h1 className="text-xl font-bold text-purple-400">🎬 RedNote Recap Studio</h1><LangSwitch /></div>
+        <div className="flex items-center justify-between"><h1 className="text-xl font-bold text-purple-400">🎬 Movie Recap Tool</h1><LangSwitch /></div>
         <input className={input} type="email" placeholder={tr('Email')} value={email} onChange={(e) => setEmail(e.target.value)} required />
         <input className={input} type="password" placeholder={tr('Password (8+ characters)')} value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} />
         {error && <p className="text-sm text-red-400">{error}</p>}
@@ -169,10 +169,9 @@ function App() {
     }
   };
   // Feature Toggles
-  const [blurSubtitles, setBlurSubtitles] = useState(true);
-  const [enableSubtitles, setEnableSubtitles] = useState(true); // Burmese Subtitles toggle
-  const [removeWatermark, setRemoveWatermark] = useState(true);
-  const [enableFlip, setEnableFlip] = useState(true);
+  // Finishing settings: not in the form any more, edited in the editor AFTER the first result (they re-render the video).
+  const [finish, setFinish] = useState({ blur_subtitles: true, enable_subtitles: true, remove_watermark: false, enable_flip: false, bg_volume: null });
+  const [bgKept, setBgKept] = useState(false);   // the result has the film's own music/effects under the voice
   // Sync policy: by default the voice is never sped up; the video slows/freezes to fit it.
   const [allowVoiceSpeedup, setAllowVoiceSpeedup] = useState(true);
   // Grading & speed
@@ -184,10 +183,16 @@ function App() {
   const [logoSize, setLogoSize] = useState(0.15);
   const [logoXY, setLogoXY] = useState(null); // dragged position in the preview (fractions of the frame); null = use logoPosition
   const [blurBoxes, setBlurBoxes] = useState([]); // user blur boxes, DISPLAYED coordinates (fractions)
-  const previewFx = { videoSpeed, brightness, contrast, saturation, logoSize, logoPosition, logoXY, blurBoxes, flip: enableFlip };
+  const [aspect, setAspect] = useState('original'); // output format, chosen BEFORE uploading (like CapCut)
+  const [fitMode, setFitMode] = useState('blur');     // 'blur' = whole picture over a blurred copy | 'crop' = fill the frame
+  const [pan, setPan] = useState({ x: 0.5, y: 0.5 });  // crop mode: which part of the picture stays
+  const previewFx = { videoSpeed, brightness, contrast, saturation, logoSize, logoPosition, logoXY, blurBoxes, flip: false,
+    aspect, fitMode, panX: pan.x, panY: pan.y };
   const changePreviewFx = (patch) => {
     const set = { videoSpeed: setVideoSpeed, brightness: setBrightness, contrast: setContrast, saturation: setSaturation,
       logoSize: setLogoSize, logoPosition: setLogoPosition, logoXY: setLogoXY, blurBoxes: setBlurBoxes };
+    if ('panX' in patch) setPan((p) => ({ ...p, x: patch.panX }));
+    if ('panY' in patch) setPan((p) => ({ ...p, y: patch.panY }));
     Object.entries(patch).forEach(([k, v]) => set[k]?.(v));
   };
   const [fitTranslation, setFitTranslation] = useState(true);
@@ -252,10 +257,11 @@ function App() {
     if (customLogo) formData.append('custom_logo', customLogo);
     formData.append('voice_type', voiceType);
     formData.append('target_language', 'my');
-    formData.append('blur_subtitles', blurSubtitles);
-    formData.append('enable_subtitles', enableSubtitles); // Sent to FastAPI backend
-    formData.append('remove_watermark', removeWatermark);
-    formData.append('enable_flip', enableFlip);
+    formData.append('blur_subtitles', finish.blur_subtitles);
+    formData.append('enable_subtitles', finish.enable_subtitles);
+    formData.append('remove_watermark', finish.remove_watermark);
+    formData.append('enable_flip', finish.enable_flip);
+    if (finish.bg_volume != null) formData.append('bg_volume', finish.bg_volume);
     formData.append('allow_voice_speedup', allowVoiceSpeedup);
     formData.append('video_speed', videoSpeed);
     formData.append('brightness', brightness);
@@ -267,12 +273,16 @@ function App() {
       formData.append('logo_x', logoXY[0]);
       formData.append('logo_y', logoXY[1]);
     }
-    // The render blurs before it flips, so boxes drawn on a flipped preview are mirrored back to source coordinates.
-    formData.append('manual_blurs', JSON.stringify(blurBoxes.map((b) => [enableFlip ? 1 - b.x - b.w : b.x, b.y, b.w, b.h])));
+    // Boxes are in the output frame as shown (the render applies them after reframe and flip).
+    formData.append('manual_blurs', JSON.stringify(blurBoxes.map((b) => [b.x, b.y, b.w, b.h])));
+    formData.append('aspect', aspect);
+    formData.append('fit_mode', fitMode);
+    formData.append('pan_x', pan.x);
+    formData.append('pan_y', pan.y);
     formData.append('fit_translation', fitTranslation);
     formData.append('keep_background', keepBackground);
     formData.append('mode', filmMode);
-    formData.append('output', filmMode === 'full' ? outputKind : 'dub');
+    formData.append('output', outputKind);
     if (filmMode === 'full') formData.append('background', bgMode);
     formData.append('emotion', emotionOn);
     formData.append('soft_music', softMusic);
@@ -339,11 +349,12 @@ function App() {
     setSubtitleUrl(absUrl(result.subtitle_url));
     setTimeline(result.timeline.filter((scene) => scene.text));
     setProject(result.project || null);
+    setBgKept(!!result.background_kept);
     setJobId(job.id);
     setNotes(
       [
         result.subtitles_detected ? tr('Source subtitles detected and blurred.') : tr('No source subtitles found, nothing blurred.'),
-        keepBackground && !result.background_kept ? tr('Background music separation failed; voice-only audio.') : '',
+        keepBackground && outputKind === 'dub' && !result.background_kept ? tr('Background music separation failed; voice-only audio.') : '',
         ...(result.warnings || []).map(trs),
       ].filter(Boolean).join(' ')
     );
@@ -356,7 +367,7 @@ function App() {
     setErrorMessage('');
     setNotes('');
     try {
-      const { data } = await axios.post(`${API_BASE}/api/jobs/${jobId}/rerender`, { segments: lines, speaker_voices: speakerVoices || undefined });
+      const { data } = await axios.post(`${API_BASE}/api/jobs/${jobId}/rerender`, { segments: lines, speaker_voices: speakerVoices || undefined, ...finish });
       setProgress({ pct: 0, stage: tr('Queued') });
       await followJob(data.job_id);
     } catch (error) {
@@ -378,7 +389,7 @@ function App() {
         
         {/* Header */}
         <h1 className="text-2xl font-bold mb-2 text-purple-400 flex items-center gap-2">
-          🎬 RedNote Recap Studio
+          🎬 Movie Recap Tool
         </h1>
         <div className="flex items-center justify-between text-xs text-slate-400 mb-6 gap-2">
           <span>
@@ -392,6 +403,46 @@ function App() {
 
         <form onSubmit={handleGenerateRecap} className="space-y-6">
           
+          {/* Format first, then the video (like CapCut) */}
+          <div className="rounded-xl border border-slate-800 bg-slate-800/30 p-4 space-y-3">
+            <label className="block text-sm font-medium text-slate-300">{tr('Video format')}</label>
+            <div className="flex flex-wrap gap-2">
+              {[['original', tr('Original')], ['9:16', '9:16'], ['1:1', '1:1'], ['4:5', '4:5'], ['16:9', '16:9']].map(([k, label]) => {
+                const [w, h] = ASPECTS[k] || [3, 4];
+                const s = 26 / Math.max(w, h);
+                return (
+                  <button
+                    key={k} type="button" onClick={() => setAspect(k)}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm border ${aspect === k ? 'border-purple-400 bg-purple-600/30 text-white' : 'border-slate-700 bg-slate-800/50 text-slate-300'}`}
+                  >
+                    <span className={`inline-block border-2 rounded-sm ${aspect === k ? 'border-purple-300' : 'border-slate-500'}`} style={{ width: ASPECTS[k] ? w * s : 20, height: ASPECTS[k] ? h * s : 20, borderStyle: ASPECTS[k] ? 'solid' : 'dashed' }} />
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            {aspect !== 'original' && (
+              <div className="flex gap-4 text-sm text-slate-300 flex-wrap">
+                {[['blur', tr('Fit (blurred background)')], ['crop', tr('Fill (crop)')]].map(([k, label]) => (
+                  <label key={k} className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="fitMode" checked={fitMode === k} onChange={() => setFitMode(k)} className="accent-purple-500" />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            )}
+            {!sourceUrl && (
+              <div className="flex justify-center">
+                <div
+                  style={{ aspectRatio: ASPECTS[aspect] ? ASPECTS[aspect].join(' / ') : '16 / 9', width: ASPECTS[aspect] && ASPECTS[aspect][1] > ASPECTS[aspect][0] ? 'min(100%, 12rem)' : 'min(100%, 20rem)' }}
+                  className="rounded-xl border border-dashed border-slate-600 flex items-center justify-center text-xs text-slate-500 text-center p-2"
+                >
+                  {tr('Choose a video to see it in this frame')}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* File Upload Section */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -474,50 +525,6 @@ function App() {
             </button>
           </div>
 
-          {/* Feature Toggles (Checkboxes) */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2">
-            <label className="flex items-center space-x-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={blurSubtitles}
-                onChange={(e) => setBlurSubtitles(e.target.checked)}
-                className="w-4 h-4 text-purple-600 rounded accent-purple-500"
-              />
-              <span className="text-sm text-slate-300">{tr('Blur subtitles')}</span>
-            </label>
-
-            {/* New Burmese Subtitles Toggle */}
-            <label className="flex items-center space-x-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={enableSubtitles}
-                onChange={(e) => setEnableSubtitles(e.target.checked)}
-                className="w-4 h-4 text-purple-600 rounded accent-purple-500"
-              />
-              <span className="text-sm text-purple-300 font-medium">{tr('Burmese subtitles')}</span>
-            </label>
-
-            <label className="flex items-center space-x-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={removeWatermark}
-                onChange={(e) => setRemoveWatermark(e.target.checked)}
-                className="w-4 h-4 text-purple-600 rounded accent-purple-500"
-              />
-              <span className="text-sm text-slate-300">{tr('Blur lower-right watermark')}</span>
-            </label>
-
-            <label className="flex items-center space-x-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={enableFlip}
-                onChange={(e) => setEnableFlip(e.target.checked)}
-                className="w-4 h-4 text-purple-600 rounded accent-purple-500"
-              />
-              <span className="text-sm text-slate-300">{tr('Horizontal flip')}</span>
-            </label>
-          </div>
-
           {/* What kind of video is this? */}
           <div className="rounded-xl border border-slate-800 bg-slate-800/30 p-4 space-y-3">
             <div className="flex gap-2">
@@ -531,11 +538,7 @@ function App() {
                 </button>
               ))}
             </div>
-            {filmMode === 'full' && (
-              <div className="space-y-3 text-sm text-slate-300">
-                <p className="text-xs text-slate-400">
-                  {tr('Each character is detected and gets one fixed voice for the whole film (the main character uses the voice you pick below). The translation is rewritten as natural, neutral spoken Burmese, not word for word.')}
-                </p>
+            <div className="text-sm text-slate-300">
                 <div className="flex gap-4 flex-wrap">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input type="radio" name="outputKind" checked={outputKind === 'dub'} onChange={() => setOutputKind('dub')} className="accent-purple-500" />
@@ -546,6 +549,12 @@ function App() {
                     {tr('Burmese subtitles only (original sound stays)')}
                   </label>
                 </div>
+            </div>
+            {filmMode === 'full' && (
+              <div className="space-y-3 text-sm text-slate-300">
+                <p className="text-xs text-slate-400">
+                  {tr('Each character is detected and gets one fixed voice for the whole film (the main character uses the voice you pick below). The translation is rewritten as natural, neutral spoken Burmese, not word for word.')}
+                </p>
                 {outputKind === 'dub' && (
                   <>
                     <label className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
@@ -583,7 +592,7 @@ function App() {
                 {tr('Tighten long translations to fit each scene (uses Gemini; only the lines that overrun are rewritten)')}
               </span>
             </label>
-            {filmMode === 'recap' && <label className="flex items-center space-x-3 cursor-pointer">
+            {filmMode === 'recap' && outputKind === 'dub' && <label className="flex items-center space-x-3 cursor-pointer">
               <input
                 type="checkbox"
                 checked={keepBackground}
@@ -664,7 +673,7 @@ function App() {
                   </div>
                 )}
               </div>
-              {loading && <ProcessingPanel upload={upload} progress={progress} elapsed={elapsed} subsOnly={(project ? project.output : (filmMode === 'full' ? outputKind : 'dub')) === 'subtitles'} />}
+              {loading && <ProcessingPanel upload={upload} progress={progress} elapsed={elapsed} subsOnly={(project ? project.output : outputKind) === 'subtitles'} />}
               {resultVideoUrl && <a
                 href={resultDownloadUrl}
                 download
@@ -681,7 +690,7 @@ function App() {
               </a>}
               {notes && <p className="text-xs text-slate-400">{notes}</p>}
               {project && (
-                <Editor key={jobId} project={project} videoRef={videoRef} busy={loading} voices={voices} looks={looks} playingVoice={playing} onPlaySample={playSample} onPreviewLine={previewLine} previewing={previewing} onApply={applyEdits} />
+                <Editor key={jobId} project={project} videoRef={videoRef} busy={loading} voices={voices} looks={looks} playingVoice={playing} onPlaySample={playSample} onPreviewLine={previewLine} previewing={previewing} onApply={applyEdits} finish={finish} onFinish={(patch) => setFinish((f) => ({ ...f, ...patch }))} hasBackground={bgKept} />
               )}
               {!project && timeline.length > 0 && (
                 <ul className="w-full text-xs text-slate-400 space-y-1">

@@ -523,9 +523,26 @@ def fit_segments_to_slots(segments, video_duration, job_id, voice, target_langua
         print(f"  fit round {round_no + 1}: {changed} of {len(voiced)} rewrites kept", flush=True)
 
 
-def _manual_blur_pixels(rects, info: dict) -> list:
-    """User-drawn blur boxes (fractions of the frame) -> even pixel rects (x, y, w, h)."""
-    W, H = info["width"], info["height"]
+_ASPECTS = {"9:16": (9, 16), "1:1": (1, 1), "4:5": (4, 5), "16:9": (16, 9)}
+
+
+def _out_size(aspect: str, info: dict):
+    """Final frame (w, h) for the chosen format, short side = min(1080, source short side) (no upscaling); None = keep the source."""
+    if aspect not in _ASPECTS:
+        return None
+    a, b = _ASPECTS[aspect]
+    short = max(360, min(1080, min(info["width"], info["height"]))) // 2 * 2
+    if a <= b:
+        w, h = short, round(short * b / a)
+    else:
+        w, h = round(short * a / b), short
+    size = (w // 2 * 2, h // 2 * 2)
+    return None if size == (info["width"], info["height"]) else size
+
+
+def _manual_blur_pixels(rects, size: tuple) -> list:
+    """User-drawn blur boxes (fractions of the OUTPUT frame) -> even pixel rects (x, y, w, h)."""
+    W, H = size
     out = []
     for x, y, w, h in rects or []:
         px, py = int(x * W) // 2 * 2, int(y * H) // 2 * 2
@@ -802,6 +819,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                     warn.append("The original speech could not be removed from the film's sound in time, so the original "
                                 "audio is kept quietly under the Burmese voice instead.")
 
+        out_size = _out_size(p.get("aspect", "original"), info)
         effects = EffectOptions(
             blur_subtitles=p["blur_subtitles"],
             blur_watermark=p["remove_watermark"],
@@ -815,11 +833,13 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
             logo_width_frac=min(max(p["logo_size"], 0.05), 0.5),
             logo_position=p["logo_position"],
             logo_xy=((p["logo_x"], p["logo_y"]) if p.get("logo_x", -1) >= 0 and p.get("logo_y", -1) >= 0 else None),
-            extra_blur_rects=_manual_blur_pixels(p.get("manual_blurs"), info),
+            extra_blur_rects=_manual_blur_pixels(p.get("manual_blurs"), out_size or (info["width"], info["height"])),
+            out_size=out_size, fit_mode=p.get("fit_mode", "blur"),
+            pan_x=float(p.get("pan_x", 0.5)), pan_y=float(p.get("pan_y", 0.5)),
             captions=p["enable_subtitles"],
             background_path=bg_state.get("path") if not duck else bg_path,
             duck_background=duck,
-            background_volume=0.5 if duck else 0.35,
+            background_volume=float(p["bg_volume"]) if p.get("bg_volume") is not None else (0.7 if duck else 0.8),
             source_audio=(not dub and src_has_audio),
             **fx_kwargs,
         )

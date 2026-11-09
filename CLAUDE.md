@@ -1,4 +1,4 @@
-# RedNote Recap Studio — project plan & working notes
+# Movie Recap Tool — project plan & working notes
 
 > **Rule: keep this file up to date.** Whenever a feature is added, a decision is made, a limit is discovered or a
 > to-do is finished, update the relevant section below in the same commit. Date entries in the Changelog.
@@ -183,12 +183,25 @@ mobile fixes (stacked labels, wrapping rows, no horizontal overflow; timeline no
 and a character-review step before voicing are still ideas; native review of Burmese UI text.
 **Tests** (all offline, run in `backend/` with `venv/bin/python`): `test_editor.py`, `test_modes.py`, `test_voice_fixes.py`, `test_blur_windows.py`; real-API scripts: `test_voice_styles.py`, `generate_*`.
 
-### Preview before generating (2026-11-07 night 13)
-`frontend/src/PreviewStudio.jsx`: as soon as a video is chosen the form shows it with live settings (no request): brightness/contrast/saturation (CSS filter, approximates ffmpeg `eq`),
-video speed (`playbackRate`), horizontal flip checkbox (mirrors the preview), the uploaded logo as a draggable overlay + size slider + preset corner select, up to 6 draggable/resizable
-blur boxes (`backdrop-filter`), a seek bar and "Play 5 s (loop)". Sent as `logo_x`/`logo_y` (fractions, -1 = preset), `logo_size`, `manual_blurs` (JSON fractions; App mirrors x when flip is on because
-the render blurs BEFORE it flips). Backend: `EffectOptions.logo_xy` / `extra_blur_rects` (blurred the whole video, on top of the automatic subtitle/watermark blur), `pipeline._manual_blur_pixels`.
-Not done: showing the AUTO-detected subtitle/watermark rects in the preview (needs a detect endpoint); manual boxes are not time-limited; browser behaviour is build-checked only (touch dragging on a phone not tried).
+### Format + preview before generating (2026-11-07 night 13, format added 2026-11-08)
+Like CapCut: the user picks the **format first** (Original, 9:16, 1:1, 4:5, 16:9; "Fit" = whole picture over a blurred copy, "Fill" = crop, drag the picture to pan), then uploads.
+`frontend/src/PreviewStudio.jsx` shows the video INSIDE that output frame with live settings (no request): brightness/contrast/saturation (CSS filter, approximates ffmpeg `eq`), video speed (`playbackRate`),
+horizontal flip, the uploaded logo as a draggable + corner-resizable overlay (+ size slider, preset corner select), up to 6 draggable/resizable blur boxes (`backdrop-filter`), seek bar, "Play 5 s (loop)".
+Form fields: `aspect`, `fit_mode`, `pan_x/pan_y`, `logo_x/logo_y` (fractions of the OUTPUT frame, -1 = preset), `logo_size`, `manual_blurs` (JSON fractions of the output frame, max 6).
+Render (`recap_engine._render_single`): order = auto subtitle/watermark blur on the SOURCE -> **reframe** (`EffectOptions.out_size/fit_mode/pan`) -> flip -> manual blur boxes -> grade -> speed -> logo -> captions, so logo/boxes/captions
+use output-frame coordinates (no mirroring maths). `pipeline._out_size`: short side = min(1080, source short side) (never upscales), 9:16 from 720x1280 stays 720x1280. Captions go near the bottom when reframed (the
+original subtitle position no longer applies); caption font scales with the picture. Checked with a synthetic clip (`render` for 9:16 fit/crop, 1:1, 16:9) + `test_editor.py`.
+UNVERIFIED: browser behaviour (touch dragging, blurred-background video sync is approximate), render time of 1080-wide frames vs the 95 s / 10 min floor (measured at 720x1280), auto-detected blur rects not shown in the preview,
+manual boxes are not time-limited.
+
+### Finishing settings after the result (2026-11-08)
+The four checkboxes (blur original subtitles, Burmese subtitles, blur lower-right watermark, horizontal flip) are NOT in the upload form any more: first render uses
+blur subtitles ON, Burmese subtitles ON, watermark blur OFF, flip OFF; the editor has a "Look & sound" box with them (+ "Original music & effects volume" slider when the result kept the film's sound)
+and "Apply changes & re-render" sends them (`/rerender` body: `blur_subtitles, enable_subtitles, remove_watermark, enable_flip, bg_volume`, all optional, copied into the new job's params).
+Why watermark blur defaults OFF: it is a FIXED box (25% x 12%, bottom-right of the SOURCE picture, `recap_engine`), applied before flip, so with flip it showed up bottom-LEFT of results (looked like a stray blur).
+**Output choice** (voice-over + subtitles | subtitles only, original sound stays) is now shown in BOTH Recap and Full modes (backend already allowed it; `test_modes.py` covers recap + subtitles).
+**Original sound level**: separated music/effects used to be mixed at 0.35 (and 0.5 ducked) with sidechain ratio 12 = effects (thunder) too quiet. Now default 0.8 (0.7 when the whole original track is kept under the voice),
+ratio 4, user slider `bg_volume` 0-1.5. Known limit: Demucs `no_vocals` treats screams/ghost voices as vocals and removes them (use "Keep everything, lowered" to keep those, original speech then stays faintly audible).
 
 ### Progress UI
 The source video previews as soon as a file is chosen; on Generate the player shows a spinner overlay + Cancel and a step
@@ -313,3 +326,5 @@ Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user 
 - 2026-11-07 (night 12c): emotion directions use the same director's-notes layout (`looks.compose_emotion`): measured with Gemini transcribing the clip, "Say fearfully: <Burmese>" had English heard (4.9 s), the notes layout none (3.6 s). This was the user's "Say fearfully" in the audio bug. Read-aloud length guard stays as a second net.
 - 2026-11-07 (night 12d): CLAUDE.md consolidated (section "Voices, looks and casting"); look sample generator hardened (pool model, redo by id).
 - 2026-11-07 (night 13): preview studio before generating (live grading/speed/flip, draggable logo, blur boxes, 5 s loop); backend `logo_x/logo_y/manual_blurs`.
+- 2026-11-08: video format picker before upload (9:16, 1:1, 4:5, 16:9; fit with blurred background or fill/crop with pan), preview shows the output frame; logo corner resize; app renamed Movie Recap Tool.
+- 2026-11-08 (b): form checkboxes moved to the editor (Look & sound), watermark blur + flip default off, subtitles-only offered in recap mode too, louder/gentler-ducked original effects + volume slider.

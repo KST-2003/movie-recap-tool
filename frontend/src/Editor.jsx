@@ -28,7 +28,7 @@ const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
  *  - tap a block to edit its text, voice speed or delete it; "Split" adds a line at the playhead
  * Edits are applied with one re-render; only changed lines are re-voiced.
  */
-export default function Editor({ project, videoRef, busy, onApply, voices = [], looks = [], playingVoice = null, onPlaySample = () => {}, onPreviewLine = null, previewing = null }) {
+export default function Editor({ project, videoRef, busy, onApply, finish = null, onFinish = () => {}, hasBackground = false, voices = [], looks = [], playingVoice = null, onPlaySample = () => {}, onPreviewLine = null, previewing = null }) {
   const { tr } = useI18n();
   const duration = project.source_duration;
   const model = project.voice_model || DEFAULT_MODEL;
@@ -53,7 +53,9 @@ export default function Editor({ project, videoRef, busy, onApply, voices = [], 
   const [movedTo, setMovedTo] = useState({}); // character -> character its lines were moved to (shown in the 'move all lines' select)
   const liveCount = (sid) => lines.filter((l) => l.speaker === sid).length;
   const voicesChanged = speakerIds.some((s) => speakerVoices[s] !== project.speakers[s].voice);
-  const dirty = JSON.stringify(lines) !== JSON.stringify(initial) || voicesChanged;
+  const initialFinish = useRef(finish);   // settings the video was made with (the editor is re-created for each new result)
+  const finishChanged = !!finish && JSON.stringify(finish) !== JSON.stringify(initialFinish.current);
+  const dirty = JSON.stringify(lines) !== JSON.stringify(initial) || voicesChanged || finishChanged;
 
   // ----- output time (what the video element plays) <-> source time (what the timeline shows) -----
   const timed = useMemo(() => project.segments.filter((s) => s.out_start != null).sort((a, b) => a.out_start - b.out_start), [project]);
@@ -362,6 +364,32 @@ export default function Editor({ project, videoRef, busy, onApply, voices = [], 
         )}
       </div>
 
+      {finish && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3 mt-3 space-y-2 text-sm text-slate-300">
+          <p className="text-xs font-semibold text-slate-200">{tr('Look & sound (applied when you re-render)')}</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {[
+              ['blur_subtitles', tr('Blur original subtitles')],
+              ['enable_subtitles', tr('Burmese subtitles')],
+              ['remove_watermark', tr('Blur lower-right watermark')],
+              ['enable_flip', tr('Horizontal flip')],
+            ].map(([key, label]) => (
+              <label key={key} className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={!!finish[key]} onChange={(e) => onFinish({ [key]: e.target.checked })} className="w-4 h-4 accent-purple-500" />
+                {label}
+              </label>
+            ))}
+          </div>
+          {hasBackground && !subsOnly && (
+            <label className="block text-xs text-slate-400">
+              {tr('Original music & effects volume')}: <span className="text-slate-200">{Math.round((finish.bg_volume ?? 0.8) * 100)}%</span>
+              <input type="range" min={0} max={1.5} step={0.05} value={finish.bg_volume ?? 0.8}
+                onChange={(e) => onFinish({ bg_volume: Number(e.target.value) })} className="w-full accent-purple-500" />
+            </label>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2 mt-3">
         <button type="button" onClick={split} className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm">{tr('✂ Split / add line at playhead')}</button>
         <button type="button" disabled={!dirty || busy || lines.every((l) => !l.text.trim())}
@@ -370,7 +398,7 @@ export default function Editor({ project, videoRef, busy, onApply, voices = [], 
           {busy ? tr('Re-rendering…') : tr('Apply changes & re-render')}
         </button>
         {dirty && !busy && (
-          <button type="button" onClick={() => { setLines(initial); setSelected(initial[0]?.key ?? null); setSpeakerVoices(Object.fromEntries(speakerIds.map((s) => [s, project.speakers[s].voice]))); setMovedTo({}); }} className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm">{tr('Reset')}</button>
+          <button type="button" onClick={() => { setLines(initial); setSelected(initial[0]?.key ?? null); setSpeakerVoices(Object.fromEntries(speakerIds.map((s) => [s, project.speakers[s].voice]))); setMovedTo({}); if (finish) onFinish(initialFinish.current); }} className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm">{tr('Reset')}</button>
         )}
         {dirty && !busy && <span className="self-center text-xs text-amber-300">{tr('Not applied yet: press "Apply changes & re-render" to hear it.')}</span>}
         <span className="self-center text-xs text-slate-500">{tr('Only changed lines are re-voiced. Estimated length ≈ {t}.', { t: fmt(total) })}</span>

@@ -225,6 +225,15 @@ assert all(abs(t["output_length"] - (t["source_end"] - t["source_start"])) < 0.0
 assert job3["result"]["project"]["output"] == "subtitles"
 print("subtitles-only ok: no voice requests, output", round(dur, 1), "s with original audio")
 
+# 4a. the same in recap mode (the form now offers it in both modes)
+before = len(calls)
+job3r = submit(mode="recap", output="subtitles")
+assert job3r["status"] == "done", job3r.get("error")
+assert len(calls) == before, "recap subtitles-only must not call the TTS"
+kinds, dur = streams(job3r)
+assert "audio" in kinds and abs(dur - 18.0) < 0.6, (kinds, dur)
+print("recap subtitles-only ok")
+
 # 4b. original speech removed (Demucs, faked here): runs once, a re-render of the same video reuses it, failure falls back
 sep_calls = []
 

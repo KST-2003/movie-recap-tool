@@ -35,7 +35,7 @@ class _QuietPolling(logging.Filter):
 
 logging.getLogger("uvicorn.access").addFilter(_QuietPolling())
 
-app = FastAPI(title="RedNote Video Recap Backend", version="3.0.0")
+app = FastAPI(title="Movie Recap Tool Backend", version="3.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -86,7 +86,7 @@ def _startup():
 
 @app.get("/")
 def read_root():
-    return {"message": "RedNote Recap API", "version": app.version}
+    return {"message": "Movie Recap Tool API", "version": app.version}
 
 
 @app.get("/health")
@@ -242,8 +242,8 @@ def create_job(
     # effects
     blur_subtitles: bool = Form(True),
     enable_subtitles: bool = Form(True),
-    remove_watermark: bool = Form(True),
-    enable_flip: bool = Form(True),
+    remove_watermark: bool = Form(False),
+    enable_flip: bool = Form(False),
     flip_vertical: bool = Form(False),
     video_speed: float = Form(1.0),
     brightness: float = Form(0.0),
@@ -253,6 +253,10 @@ def create_job(
     logo_size: float = Form(0.15),
     logo_x: float = Form(-1.0),           # dragged logo position: left edge as a fraction of video width (-1 = use logo_position)
     logo_y: float = Form(-1.0),           # top edge as a fraction of video height
+    aspect: str = Form("original"),       # final frame: original | 9:16 | 1:1 | 4:5 | 16:9
+    fit_mode: str = Form("blur"),         # blur: whole picture over a blurred copy | crop: fill the frame
+    pan_x: float = Form(0.5),             # crop mode: which part is kept (0..1)
+    pan_y: float = Form(0.5),
     manual_blurs: str = Form(""),         # JSON [[x,y,w,h],...] fractions of the frame, blurred for the whole video
 ):
     if MAINTENANCE_MODE:
@@ -261,6 +265,8 @@ def create_job(
         raise HTTPException(status_code=400, detail="No video file provided.")
     if mode not in ("recap", "full") or output not in ("dub", "subtitles") or background not in ("", "original", "separate", "off"):
         raise HTTPException(status_code=400, detail="Unknown mode, output or background option.")
+    if aspect not in ("original", "9:16", "1:1", "4:5", "16:9") or fit_mode not in ("blur", "crop"):
+        raise HTTPException(status_code=400, detail="Unknown video format.")
     if output == "dub":
         _refuse_if_voice_limit()
     if tts_provider() == "gemini" and voice_type != "su" and voice_type not in VOICE_NAMES:
@@ -276,7 +282,8 @@ def create_job(
               "enable_flip": enable_flip, "flip_vertical": flip_vertical, "video_speed": video_speed,
               "brightness": brightness, "contrast": contrast, "saturation": saturation,
               "logo_position": logo_position, "logo_size": logo_size,
-              "logo_x": logo_x, "logo_y": logo_y, "manual_blurs": _clean_blurs(manual_blurs)}
+              "logo_x": logo_x, "logo_y": logo_y, "manual_blurs": _clean_blurs(manual_blurs),
+              "aspect": aspect, "fit_mode": fit_mode, "pan_x": pan_x, "pan_y": pan_y}
 
     with Session() as s:
         if active_jobs(s, user.id) >= MAX_ACTIVE_JOBS_PER_USER:
@@ -403,6 +410,12 @@ class RerenderBody(BaseModel):
     segments: list[EditLine] = Field(min_length=1, max_length=600)
     voice_type: str | None = None
     speaker_voices: dict[str, str] | None = None     # full mode: new voice per character
+    # "finishing" settings, chosen after the first result: None = keep what the job had
+    blur_subtitles: bool | None = None
+    enable_subtitles: bool | None = None
+    remove_watermark: bool | None = None
+    enable_flip: bool | None = None
+    bg_volume: float | None = Field(default=None, ge=0.0, le=1.5)   # level of the film's own music/effects under the voice
 
 
 @app.post("/api/jobs/{job_id}/rerender")
@@ -433,6 +446,9 @@ def rerender(job_id: str, body: RerenderBody, user: User = Depends(auth.current_
         raise HTTPException(status_code=400, detail="Line times must be inside the video.")
     params = dict(job.params or {})
     params["voice_type"] = voice
+    for key in ("blur_subtitles", "enable_subtitles", "remove_watermark", "enable_flip", "bg_volume"):
+        if getattr(body, key) is not None:
+            params[key] = getattr(body, key)
     params["bg_source_job"] = params.get("bg_source_job") or job_id   # re-renders reuse this video's separated background
     old = {sg["id"]: sg for sg in project["segments"]}
     speakers = {k: dict(v) for k, v in (project.get("speakers") or {}).items()}
