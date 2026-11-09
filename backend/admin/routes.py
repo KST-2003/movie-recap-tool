@@ -10,6 +10,9 @@ from sqlalchemy import func, select
 import auth
 from config import (ALLOW_SIGNUP, DEFAULT_DAILY_MINUTES, DEFAULT_MONTHLY_MINUTES, MAX_ACTIVE_JOBS_PER_USER, MAX_UPLOAD_MB, MAX_VIDEO_MINUTES,
                     QUEUE_MODE)
+import alerts
+import capacity
+import usage as usage_log
 from . import settings as runtime_settings
 from db import AuditLog, Job, Session, User, month_start, update_job, used_seconds_month, used_seconds_today, utcnow
 
@@ -60,6 +63,7 @@ def overview(days: int = 14):
         users_today = s.execute(select(func.count(func.distinct(Job.user_id))).where(Job.created_at >= today)).scalar_one()
         minutes_today = used_seconds_today(s) / 60
         rows = s.execute(select(Job.created_at, Job.status, Job.charged_seconds).where(Job.created_at >= first)).all()
+        capacity_status = capacity.status(s)
     series = {(first + timedelta(days=i)).date().isoformat(): {"jobs": 0, "errors": 0, "minutes": 0.0} for i in range(days)}
     for created, status, charged in rows:
         point = series.get(created.date().isoformat())
@@ -76,6 +80,7 @@ def overview(days: int = 14):
         "minutes_today": round(minutes_today, 1),
         "global_daily_minutes": cap,
         "maintenance": runtime_settings.maintenance(),
+        "capacity": capacity_status, "alerts": alerts.active(),
         "series": [{"day": d, "jobs": v["jobs"], "errors": v["errors"], "minutes": round(v["minutes"], 1)} for d, v in series.items()],
     }
 
@@ -190,9 +195,11 @@ def list_jobs(status: str = "", user_id: int | None = None, page: int = 1, per_p
         total = s.execute(count).scalar_one()
         rows = s.execute(query.order_by(Job.created_at.desc()).offset((page - 1) * per_page).limit(per_page)).all()
     items = []
+    table, rate = usage_log.prices(), runtime_settings.usd_thb()
     for job, email in rows:
         params, data = job.params or {}, job.data or {}
-        items.append({"id": job.id, "user_id": job.user_id, "email": email, "status": job.status, "stage": job.stage,
+        cost = usage_log.cost_thb(data.get("usage"), table, rate) if data.get("usage") else None
+        items.append({"cost_thb": round(cost["thb"], 2) if cost else None, "cost_complete": cost["complete"] if cost else None,"id": job.id, "user_id": job.user_id, "email": email, "status": job.status, "stage": job.stage,
                       "progress": job.progress, "error": job.error, "mode": params.get("mode"), "output": params.get("output"),
                       "video_minutes": round((job.charged_seconds or 0) / 60, 1), "run_seconds": data.get("run_seconds"),
                       "created_at": _iso(job.created_at), "finished_at": _iso(job.finished_at)})
@@ -226,14 +233,16 @@ def tts_status(refresh: bool = False):
     cloud = google_quota.cloud([name for name, _, _ in pool], refresh)
     seen = gemini_tts.limits_seen()
     items = []
+    import cloud_tts
     for name, rpm, rpd in pool:
-        google = verified["models"].get(name)
+        via_cloud = cloud_tts.is_cloud(name)
+        google = None if via_cloud else verified["models"].get(name)
         learned = seen.get(name)
         items.append({
-            "model": name, "per_minute": rpm, "per_day": rpd, "used_today": tts_pool.used_today(name),
+            "model": name, "provider": "cloud" if via_cloud else "ai_studio", "per_minute": rpm, "per_day": rpd, "used_today": tts_pool.used_today(name),
             "remaining": tts_pool.remaining(name), "blocked_seconds": round(gemini_tts.blocked_for(name)),
             # 1. exists for this API key? (None = could not check)
-            "google": None if verified["error"] else ({"exists": True, **google} if google else {"exists": False}),
+            "google": None if (verified["error"] or via_cloud) else ({"exists": True, **google} if google else {"exists": False}),
             # 2. limit stated in Google's own 429 error text the last time this model was refused
             "seen_limit": {"per_day": learned.get("per_day"), "per_minute": learned.get("per_minute"), "metric": learned.get("metric"),
                            "seen_at": _iso(datetime.fromtimestamp(learned["seen_at"], timezone.utc)) if learned.get("seen_at") else None} if learned else None,
@@ -255,10 +264,47 @@ def google_quota_raw(refresh: bool = False):
 # ---------- runtime settings ----------
 
 def _settings_view() -> dict:
-    return {"maintenance": runtime_settings.maintenance(), "global_daily_minutes": runtime_settings.global_daily_minutes(),
+    return {**runtime_settings.view(),
             # read-only: set in backend/.env
             "allow_signup": ALLOW_SIGNUP, "default_daily_minutes": DEFAULT_DAILY_MINUTES, "max_video_minutes": MAX_VIDEO_MINUTES,
-            "max_upload_mb": MAX_UPLOAD_MB, "max_active_jobs_per_user": MAX_ACTIVE_JOBS_PER_USER, "queue_mode": QUEUE_MODE}
+            "max_upload_mb": MAX_UPLOAD_MB, "max_active_jobs_per_user": MAX_ACTIVE_JOBS_PER_USER, "queue_mode": QUEUE_MODE,
+            "prices": usage_log.prices()}
+
+
+@router.get("/costs")
+def costs():
+    """Real cost from token counts: per model (last 30 days), per recent video, the measured THB per video minute, and the price table."""
+    since = utcnow() - timedelta(days=30)
+    table, rate = usage_log.prices(), runtime_settings.usd_thb()
+    per_model: dict[str, dict] = {}
+    recent = []
+    with Session() as s:
+        rows = s.execute(select(Job.id, Job.status, Job.charged_seconds, Job.created_at, Job.params, Job.data)
+                         .where(Job.created_at >= since).order_by(Job.created_at.desc())).all()
+        measured = capacity.measured_cost_per_minute(s)
+    for jid, status, charged, created, params, data in rows:
+        u = (data or {}).get("usage")
+        if not u:
+            continue
+        for model, v in u.items():
+            m = per_model.setdefault(model, {"model": model, "calls": 0, "in": 0, "audio_in": 0, "out": 0, "audio_out": 0, "est": 0})
+            for k in ("calls", "in", "audio_in", "out", "audio_out", "est"):
+                m[k] += v.get(k, 0)
+        if len(recent) < 20:
+            c = usage_log.cost_thb(u, table, rate)
+            recent.append({"id": jid, "created_at": _iso(created), "status": status, "minutes": round((charged or 0) / 60, 1),
+                           "edit": bool((params or {}).get("edit")), "cost_thb": round(c["thb"], 2), "complete": c["complete"],
+                           "estimated": c["estimated"], "unpriced": c["unpriced"]})
+    models = []
+    for model, m in sorted(per_model.items(), key=lambda kv: -kv[1]["calls"]):
+        c = usage_log.cost_thb({model: m}, table, rate)
+        models.append({**m, "thb": round(c["thb"], 2), "priced": c["complete"]})
+    for model in table:   # models with a price but no usage yet are still editable
+        if model not in per_model:
+            models.append({"model": model, "calls": 0, "in": 0, "audio_in": 0, "out": 0, "audio_out": 0, "est": 0, "thb": 0.0, "priced": True})
+    return {"usd_thb": rate, "prices": table, "assumed": sorted(usage_log.ASSUMED), "models": models, "recent": recent,
+            "measured_cost_per_minute": round(measured, 3) if measured else None,
+            "configured_cost_per_minute": runtime_settings.cost_per_minute_thb(), "total_thb_30d": round(sum(m["thb"] for m in models), 2)}
 
 
 @router.get("/settings")
@@ -269,12 +315,27 @@ def get_settings():
 class SettingsPatch(BaseModel):
     maintenance: bool | None = None
     global_daily_minutes: float | None = Field(None, ge=0, le=10_000_000)   # 0 = unlimited
+    budget_enabled: bool | None = None
+    budget_thb: float | None = Field(None, ge=0, le=100_000_000)             # what is left in the Google billing account
+    cost_per_minute_thb: float | None = Field(None, gt=0, le=10_000)
+    min_free_minutes: float | None = Field(None, ge=0, le=1_000_000)
+    usd_thb: float | None = Field(None, gt=0, le=10_000)
+    prices: dict[str, dict[str, float]] | None = None   # {model: {"in","audio_in","out","audio_out"}} USD per 1M tokens
+
+
+def _check_prices(prices: dict):
+    for model, p in prices.items():
+        if not model or len(model) > 100 or set(p) - {"in", "audio_in", "out", "audio_out"} or any(v < 0 or v > 1000 for v in p.values()):
+            raise HTTPException(status_code=400, detail="Prices must be USD per 1M tokens between 0 and 1000.")
 
 
 @router.put("/settings")
 def put_settings(body: SettingsPatch, admin: User = Depends(require_admin)):
     before = _settings_view()
     wanted = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "prices" in wanted:
+        _check_prices(wanted["prices"])
+        wanted["prices"] = {**usage_log.prices(), **wanted["prices"]}   # edits are merged into the table
     if wanted:
         runtime_settings.update(**wanted)
     changes = {k: {"from": before[k], "to": v} for k, v in wanted.items() if v != before[k]}

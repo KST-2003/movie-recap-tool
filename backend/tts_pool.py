@@ -5,6 +5,8 @@ another model takes over mid-video only when the first one runs out of requests 
 - acquire(model): blocks until sending a request keeps that model under its per-minute limit; counts the daily use.
 - Chooser: picks the model for a job (preference order, enough requests left today), switches when one is exhausted.
 Limits come from AI Studio > Rate limits (Tier 1). Override with TTS_MODELS="name:rpm:rpd,name:rpm:rpd,..." (order = preference).
+Google Cloud TTS (cloud_tts.py, names "cloud/<model>") is appended at the END of the order automatically when GCP_PROJECT_ID +
+GCP_SERVICE_ACCOUNT_FILE are set: the AI Studio models are used first, Cloud takes over when they are used up (same voice names).
 Counters are per process: with several worker processes each would need its own share (note for deployment)."""
 import json
 import math
@@ -33,13 +35,19 @@ _recent: dict[str, deque] = {}
 
 
 def models() -> list[tuple[str, int, int]]:
+    """AI Studio models first (preference order), then the Google Cloud ones as extra capacity (only when Cloud is set up).
+    Cloud limits are OUR soft numbers (Google's real quota is higher / adjustable): CLOUD_TTS_RPM, CLOUD_TTS_RPD."""
+    import cloud_tts
     spec = os.getenv("TTS_MODELS", "").strip()
-    if not spec:
-        return DEFAULT_MODELS
     out = []
-    for part in spec.split(","):
+    for part in (spec.split(",") if spec else []):
         name, rpm, rpd = (part.strip().split(":") + ["10", "100"])[:3]
         out.append((name, int(rpm), int(rpd)))
+    if not spec:
+        out = list(DEFAULT_MODELS)
+    if cloud_tts.enabled() and not any(cloud_tts.is_cloud(n) for n, _, _ in out):
+        rpm, rpd = int(os.getenv("CLOUD_TTS_RPM", "30")), int(os.getenv("CLOUD_TTS_RPD", "5000"))
+        out += [(cloud_tts.PREFIX + m, rpm, rpd) for m in cloud_tts.DEFAULT_MODELS]
     return out
 
 
@@ -74,6 +82,30 @@ def remaining(model: str) -> int:
     if gemini_tts.blocked_for(model) > 0:
         return 0
     return max(_limits(model)[1] - used_today(model), 0)
+
+
+def reserved(model: str, exclude_job: str | None = None) -> int:
+    """Requests set aside on `model` by videos that are queued or running (capacity.py stores them in Job.params; read from the
+    database so API and worker processes agree). Conservative: a running video's already-used requests are counted twice."""
+    from sqlalchemy import select
+
+    from db import Job, Session
+    with Session() as s:
+        rows = s.execute(select(Job.id, Job.params).where(Job.status.in_(("queued", "running")))).all()
+    return sum(int((p or {}).get("reserved_requests") or 0) for jid, p in rows
+               if (p or {}).get("reserved_model") == model and jid != exclude_job)
+
+
+def free(model: str, exclude_job: str | None = None) -> int:
+    """Requests on `model` nobody has claimed (left today minus what other running videos reserved)."""
+    return max(remaining(model) - reserved(model, exclude_job), 0)
+
+
+def admit(need: int) -> str | None:
+    """The first model (preference order) with `need` free requests, "" when no voice is needed, None when no model has room."""
+    if need <= 0:
+        return ""
+    return next((m for m, _, _ in models() if free(m) >= need), None)
 
 
 def acquire(model: str):
@@ -114,8 +146,10 @@ def blocked_message() -> str:
 class Chooser:
     """Which TTS model a job uses. `need` = how many requests the job expects to send."""
 
-    def __init__(self, need: int, preferred: str | None = None):
+    def __init__(self, need: int, preferred: str | None = None, job_id: str | None = None):
         self.need = max(need, 1)
+        self.job_id = job_id   # this job's own reservation (capacity.py) counts as free for itself
+        self.switches: list[tuple[str, str]] = []   # (from, to) each time the job had to change model: the voice changes then, tell the user
         self.lock = threading.Lock()
         self.current = self._pick(preferred, ())
         print(f"  voice model: {self.current} ({remaining(self.current)} requests left today by our count)", flush=True)
@@ -125,22 +159,26 @@ class Chooser:
         if preferred in order:
             order.remove(preferred)
             order.insert(0, preferred)
-        avail = [m for m in order if remaining(m) > 0]
+        avail = [m for m in order if self._free(m) > 0]
         if not avail:
             raise gemini_tts.QuotaExceeded(blocked_message())
-        return next((m for m in avail if remaining(m) >= self.need), max(avail, key=remaining))
+        return next((m for m in avail if self._free(m) >= self.need), max(avail, key=self._free))
+
+    def _free(self, model: str) -> int:
+        return free(model, self.job_id)
 
     def get(self) -> str:
         return self.current
 
     def other(self, model: str) -> str | None:
         """Another model with requests left (for ONE line whose text `model` refused; the job keeps its own model)."""
-        return next((m for m, _, _ in models() if m != model and remaining(m) > 0), None)
+        return next((m for m, _, _ in models() if m != model and self._free(m) > 0), None)
 
     def failed(self, model: str):
         """`model` ran out of requests: switch (raises QuotaExceeded when no model is left)."""
         with self.lock:
             if self.current == model:
                 self.current = self._pick(None, (model,))
+                self.switches.append((model, self.current))
                 print(f"  voice model {model} is out of requests; switching to {self.current} "
                       "(the voice of the remaining lines will differ slightly)", flush=True)

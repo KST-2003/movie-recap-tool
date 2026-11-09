@@ -26,6 +26,7 @@ import storage
 from common import audio_ext, dub_provider, media_duration, tts_provider
 from audio_tools import cleanup_separation, make_soft_tone, mix_music, separate_background
 from config import LOGOS_DIR, OUTPUT_DIR, UPLOAD_DIR
+import usage
 from db import Job, Session, update_job
 import fit_text
 from fit_text import available as fit_available
@@ -187,7 +188,12 @@ class JobCancelled(Exception):
     """The user pressed Cancel: stop quietly (nothing is saved, nothing is charged)."""
 
 
+VOICE_SWITCH_WARNING = ("The voice service ran out of requests half way through, so the second part of this video uses a slightly different voice. "
+                        "For one voice all the way, try again later, or pick the voice again in the editor and re-render.")
+
+
 def set_job(job_id: str, **fields):
+    usage.flush(job_id)   # keep the saved token totals fresh (throttled)
     if not update_job(job_id, **fields):
         raise JobCancelled(job_id)
 
@@ -747,7 +753,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                 t_voices = [segments[i]["voice"] for i in todo]
                 t_styles = [segments[i].get("style") for i in todo]
                 groups = len(plan_batches(t_texts, t_voices, t_styles))
-                chooser = (tts_pool.Chooser(groups + max(4, groups // 3), (edit or {}).get("tts_model"))
+                chooser = (tts_pool.Chooser(groups + max(4, groups // 3), (edit or {}).get("tts_model") or p.get("reserved_model") or None, job_id)
                            if tts_provider() == "gemini" and todo else None)   # + room for the fit rewrites
                 blocked_idx: list[int] = []
                 durs = voice_many(t_texts, [paths[i] for i in todo], t_voices, voice_model, job_id, _progress, chooser, t_styles,
@@ -862,6 +868,8 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
 
         voice_model = duration_model.fit([(sg["translated_text"], sg["audio_dur"]) for sg in segments], voice_model)
         by_index = {sc.audio_index: sc for sc in scenes if sc.audio_index is not None}
+        if chooser is not None and chooser.switches and VOICE_SWITCH_WARNING not in warn:
+            warn.append(VOICE_SWITCH_WARNING)   # shown with the result (English + Burmese): the voice changed mid-video
         project = {
             "voice_model": voice_model,
             "voice": p["voice_type"],
@@ -952,6 +960,8 @@ def run_job_by_id(job_id: str):
     except JobCancelled:  # cancelled while waiting in the queue
         return
     video_path = logo_path = None
+    usage.install()
+    usage.start(job_id)   # every Gemini / Claude answer from here on is counted for this video
     try:
         video_path = storage.fetch(input_key)
         logo_path = storage.fetch(logo_key, LOGOS_DIR) if logo_key else None
@@ -960,6 +970,8 @@ def run_job_by_id(job_id: str):
         print(f"[job {job_id}] FAILED before start: {exc}", flush=True)
         update_job(job_id, status="error", error=f"Recap generation failed: {exc}")
     finally:
+        usage.flush(job_id, force=True)   # also for failed / cancelled videos: their tokens were paid
+        usage.forget(job_id)
         # Keep the stored source until the retention window ends (storage.cleanup / bucket lifecycle rule):
         # the editor re-renders from it. Only the temporary local copies fetched from s3 are removed.
         if storage.BACKEND == "s3":

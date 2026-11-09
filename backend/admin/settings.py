@@ -4,6 +4,8 @@ import json
 import os
 import threading
 
+from datetime import datetime, timezone
+
 from config import DATA_DIR, GLOBAL_DAILY_MINUTES, MAINTENANCE_MODE
 
 _FILE = os.path.join(DATA_DIR, "admin_settings.json")
@@ -29,10 +31,47 @@ def global_daily_minutes() -> float:
     return GLOBAL_DAILY_MINUTES if value is None else float(value)
 
 
+# Money budget (see capacity.py): the owner types what is left in the Google billing account (THB) and what one video minute costs.
+def budget_enabled() -> bool:
+    d = _load()
+    return bool(d.get("budget_enabled")) and d.get("budget_thb") is not None
+
+
+def budget_thb() -> float:
+    return float(_load().get("budget_thb") or 0.0)
+
+
+def budget_set_at() -> str | None:
+    return _load().get("budget_set_at")
+
+
+def cost_per_minute_thb() -> float:
+    value = _load().get("cost_per_minute_thb")
+    return float(os.getenv("COST_PER_MINUTE_THB", "1.0")) if value is None else float(value)
+
+
+def min_free_minutes() -> float:
+    value = _load().get("min_free_minutes")
+    return float(os.getenv("MIN_FREE_MINUTES", "30")) if value is None else float(value)
+
+
+def usd_thb() -> float:
+    value = _load().get("usd_thb")
+    return float(os.getenv("USD_THB", "35")) if value is None else float(value)   # check the real rate: it only converts Google's USD prices
+
+
+def prices() -> dict:
+    """Owner-edited USD prices per 1M tokens: {model: {"in","audio_in","out","audio_out"}} (overrides usage.DEFAULT_PRICES)."""
+    value = _load().get("prices")
+    return value if isinstance(value, dict) else {}
+
+
 def update(**changes) -> dict:
     """Persist the given settings (None removes an override so the environment default applies again)."""
     with _lock:
         data = _load()
+        if changes.get("budget_thb") is not None:   # typing the balance starts a new count of what was spent since
+            changes["budget_set_at"] = datetime.now(timezone.utc).isoformat()
         for key, value in changes.items():
             if value is None:
                 data.pop(key, None)
@@ -42,4 +81,10 @@ def update(**changes) -> dict:
         with open(tmp, "w") as f:
             json.dump(data, f)
         os.replace(tmp, _FILE)
-    return {"maintenance": maintenance(), "global_daily_minutes": global_daily_minutes()}
+    return view()
+
+
+def view() -> dict:
+    return {"maintenance": maintenance(), "global_daily_minutes": global_daily_minutes(), "budget_enabled": budget_enabled(),
+            "budget_thb": _load().get("budget_thb"), "budget_set_at": budget_set_at(), "cost_per_minute_thb": cost_per_minute_thb(),
+            "min_free_minutes": min_free_minutes(), "usd_thb": usd_thb()}

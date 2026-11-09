@@ -144,6 +144,11 @@ def synthesize_to_file(text: str, path: str, voice: str | None = None, retries: 
             import tts_pool
             tts_pool.acquire(model)   # stay under this model's per-minute limit (and count today's use)
             started = time.monotonic()
+            import cloud_tts
+            if cloud_tts.is_cloud(model):   # Google Cloud Text-to-Speech: the pool's extra capacity (own quota)
+                cloud_tts.synthesize(text, path, voice, model, timeout=_deadline(text))
+                print(f"  TTS ok (cloud): {len(text)} chars in {time.monotonic() - started:.1f}s", flush=True)
+                return
             client = _get_client()
             future = _pool.submit(lambda: client.interactions.create(
                 model=model,
@@ -156,6 +161,8 @@ def synthesize_to_file(text: str, path: str, voice: str | None = None, retries: 
             except FutureTimeout:
                 raise TimeoutError(f"timeout: no answer from Gemini TTS after {_deadline(text):.0f}s") from None
             print(f"  TTS ok: {len(text)} chars in {time.monotonic() - started:.1f}s", flush=True)
+            import usage
+            usage.record_interaction(interaction, model)   # tokens -> cost per video (usage.py); never raises
             audio = interaction.output_audio
             if audio is None or not audio.data:
                 raise RuntimeError("Gemini returned no audio.")

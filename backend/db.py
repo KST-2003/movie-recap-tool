@@ -95,6 +95,15 @@ def update_job(job_id: str, **fields) -> bool:
         return True
 
 
+def add_usage(job_id: str, usage: dict) -> None:
+    """Save a job's token totals (usage.py) in Job.data["usage"]. Works for cancelled jobs too (their tokens were still paid)."""
+    with Session() as s:
+        job = s.get(Job, job_id)
+        if job is not None:
+            job.data = {**(job.data or {}), "usage": usage}
+            s.commit()
+
+
 def used_seconds_today(s, user_id: int | None = None) -> float:
     start = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     q = select(func.coalesce(func.sum(Job.charged_seconds), 0.0)).where(Job.created_at >= start)

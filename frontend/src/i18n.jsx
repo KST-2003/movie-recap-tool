@@ -230,6 +230,8 @@ const SERVER = [
   [/^Videos can be at most ([\d.]+) minutes long\.$/, 'ဗီဒီယိုသည် အများဆုံး $1 မိနစ်သာ ရှည်နိုင်ပါသည်။'],
   [/^File is larger than (\d+) MB\.$/, 'ဖိုင်အရွယ်အစားသည် $1 MB ထက် ကြီးနေသည်။'],
   [/^Link expired\. Reload the page to get a new one\.$/, 'လင့်ခ် သက်တမ်းကုန်ပြီ။ စာမျက်နှာကို ပြန်ဖွင့်၍ အသစ်ရယူပါ။'],
+  [/^The voice service ran out of requests half way through, so the second part of this video uses a slightly different voice\. For one voice all the way, try again later, or pick the voice again in the editor and re-render\.$/, 'အသံဝန်ဆောင်မှု၏ တောင်းဆိုမှုအကန့်အသတ် အလယ်တွင် ပြည့်သွားသဖြင့် ဗီဒီယိုနောက်ပိုင်းအပိုင်းတွင် အသံအနည်းငယ် ကွဲပြားနေပါသည်။ အသံတစ်မျိုးတည်း ရလိုပါက နောက်မှ ပြန်ကြိုးစားပါ၊ သို့မဟုတ် တည်းဖြတ်ကိရိယာတွင် အသံကို ပြန်ရွေးပြီး ထပ်မံထုတ်ပါ။'],
+  [/^The server is currently busy\. We have notified the admin\. Please try again later\.$/, 'ဆာဗာ ယခု အလုပ်များနေပါသည်။ အက်ဒမင်ကို အကြောင်းကြားပြီးဖြစ်သည်။ နောက်မှ ပြန်ကြိုးစားပါ။'],
   [/^We've reached today's capacity\. Please try again tomorrow\.$/, 'ယနေ့ လက်ခံနိုင်သည့်ပမာဏ ပြည့်သွားပြီ။ မနက်ဖြန် ပြန်ကြိုးစားပါ။'],
   [/^We're temporarily not accepting new (videos|work)\. Please try again later\.$/, 'ယာယီ အသစ်မလက်ခံနိုင်ပါ။ နောက်မှ ပြန်ကြိုးစားပါ။'],
   [/^No video file provided\.$/, 'ဗီဒီယိုဖိုင် မပါဝင်ပါ။'],

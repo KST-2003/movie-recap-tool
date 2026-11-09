@@ -18,6 +18,17 @@ export default function Overview({ go }) {
           <TriangleAlert size={16} className="flex-shrink-0" /> {tr('Maintenance mode is ON: new videos are refused. Tap to change.')}
         </button>
       )}
+      {(data.alerts || []).map((a) => (
+        <button key={a.kind} onClick={() => go('settings')} className="flex w-full items-start gap-2 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-left text-sm text-red-300">
+          <TriangleAlert size={16} className="mt-0.5 flex-shrink-0" />
+          <span className="min-w-0"><b>{tr('Server was busy: {n} video(s) refused in the last 24 h.', { n: a.count })}</b><br />{a.message}</span>
+        </button>
+      ))}
+      {data.capacity?.low && !(data.alerts || []).length && (
+        <button onClick={() => go('settings')} className="flex w-full items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-left text-sm text-amber-300">
+          <TriangleAlert size={16} className="flex-shrink-0" /> {tr('Budget is getting low: {n} video minutes left. Top up Google billing and update the balance in Settings.', { n: Math.round(data.capacity.budget.available_minutes) })}
+        </button>
+      )}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label={tr('Videos today')} value={j.total} sub={tr('{done} done · {failed} failed', { done: j.done, failed: j.error })} />
         <Stat label={tr('Minutes today')} value={data.minutes_today} sub={cap ? tr('of {n} daily ceiling', { n: cap }) : tr('no daily ceiling')} />
@@ -25,6 +36,16 @@ export default function Overview({ go }) {
           sub={tr('{running} running · {waiting} waiting ({mode})', { running: queue.running, waiting: queue.queued, mode: queue.mode })} />
         <Stat label={tr('Users')} value={users.total} sub={tr('{today} active today · {enabled} enabled', { today: users.active_today, enabled: users.active })} />
       </div>
+      {data.capacity && (
+        <Card title={tr('Capacity right now')}>
+          <p className="text-sm text-slate-300">
+            {data.capacity.budget.enabled
+              ? tr('Budget: {left} THB left (about {min} video minutes), {spent} THB counted as spent since the balance was set.', { left: data.capacity.budget.left_thb, min: Math.round(data.capacity.budget.available_minutes), spent: data.capacity.budget.spent_thb })
+              : tr('Budget gate is off (set it in Settings).')}
+          </p>
+          <p className="mt-1.5 text-xs text-slate-400">{tr('Free voice requests today across all models: {n} (after videos already running reserved theirs).', { n: data.capacity.voice_free_requests })}</p>
+        </Card>
+      )}
       {cap > 0 && (
         <Card title={tr('Global daily ceiling')}>
           <div className="h-2.5 overflow-hidden rounded-full bg-slate-800"><div className={`h-full ${capPct > 90 ? 'bg-red-500' : 'bg-purple-500'}`} style={{ width: `${capPct}%` }} /></div>

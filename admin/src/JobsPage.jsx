@@ -52,7 +52,7 @@ export default function JobsPage({ userFilter, clearUser }) {
                 <td className="px-4 py-3"><Badge status={j.status} /></td>
                 <td className="px-4 py-3"><div className="truncate" title={j.email}>{j.email}</div><div className="text-[11px] text-slate-500">{mode(j)}</div></td>
                 <td className="px-4 py-3"><div className="line-clamp-2 break-words text-xs"><Stage j={j} /></div></td>
-                <td className="px-4 py-3 text-slate-300">{j.video_minutes ? tr('{n} min', { n: j.video_minutes }) : '–'}</td>
+                <td className="px-4 py-3 text-slate-300">{j.video_minutes ? tr('{n} min', { n: j.video_minutes }) : '–'}{j.cost_thb != null && <span className="block text-xs text-slate-500">{j.cost_thb} THB{j.cost_complete ? '' : ' *'}</span>}</td>
                 <td className="px-4 py-3 text-slate-300">{fmtDur(j.run_seconds)}</td>
                 <td className="px-4 py-3 text-slate-400">{fmtTime(j.created_at)}</td>
                 <td className="px-4 py-3 text-right"><CancelBtn j={j} /></td>
@@ -67,7 +67,7 @@ export default function JobsPage({ userFilter, clearUser }) {
               <div className="mt-1.5 break-all text-sm">{j.email}</div>
               <div className="mt-0.5 break-words text-xs"><Stage j={j} /></div>
               <div className="mt-2 flex items-center justify-between gap-2 text-xs text-slate-400">
-                <span className="min-w-0">{[j.video_minutes ? tr('{n} min video', { n: j.video_minutes }) : '', j.run_seconds ? tr('took {t}', { t: fmtDur(j.run_seconds) }) : '', mode(j)].filter(Boolean).join(' · ')}</span>
+                <span className="min-w-0">{[j.video_minutes ? tr('{n} min video', { n: j.video_minutes }) : '', j.run_seconds ? tr('took {t}', { t: fmtDur(j.run_seconds) }) : '', j.cost_thb != null ? `${j.cost_thb} THB${j.cost_complete ? '' : ' *'}` : '', mode(j)].filter(Boolean).join(' · ')}</span>
                 <CancelBtn j={j} />
               </div>
             </li>

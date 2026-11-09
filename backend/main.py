@@ -19,6 +19,8 @@ from sqlalchemy import func, select
 
 import auth
 from admin import router as admin_router, settings as runtime_settings
+import capacity
+import usage as usage_log   # (main.py has an endpoint function called usage)
 import jobs_queue
 import looks
 import storage
@@ -38,6 +40,7 @@ class _QuietPolling(logging.Filter):
 
 logging.getLogger("uvicorn.access").addFilter(_QuietPolling())
 
+usage_log.install()
 app = FastAPI(title="Movie Recap Tool Backend", version="3.0.0")
 app.add_middleware(
     CORSMiddleware,
@@ -364,11 +367,16 @@ def create_job(
             cap = runtime_settings.global_daily_minutes()
             if cap and used_seconds_today(s) + seconds > cap * 60:
                 raise HTTPException(status_code=503, detail="We've reached today's capacity. Please try again tomorrow.")
-            input_key = storage.put(video_path, "uploads")
-            logo_key = storage.put(logo_path, "logos") if logo_path else None
-            s.add(Job(id=job_id, user_id=user.id, status="queued", params=params, data={},
-                      input_key=input_key, logo_key=logo_key, charged_seconds=seconds))
-            s.commit()
+            with capacity.lock:   # decide + create the job as one step, so a burst of uploads cannot all be admitted
+                verdict = capacity.decide(s, seconds, params.get("output"))
+                if not verdict["ok"]:
+                    capacity.refuse(verdict["reason"])
+                params = {**params, "reserved_model": verdict["model"], "reserved_requests": verdict["requests"]}
+                input_key = storage.put(video_path, "uploads")
+                logo_key = storage.put(logo_path, "logos") if logo_path else None
+                s.add(Job(id=job_id, user_id=user.id, status="queued", params=params, data={},
+                          input_key=input_key, logo_key=logo_key, charged_seconds=seconds))
+                s.commit()
     except Exception:
         for p in (video_path, logo_path):
             if p and os.path.exists(p):
@@ -505,6 +513,7 @@ def rerender(job_id: str, body: RerenderBody, user: User = Depends(auth.current_
     for key in ("blur_subtitles", "enable_subtitles", "remove_watermark", "enable_flip", "bg_volume"):
         if getattr(body, key) is not None:
             params[key] = getattr(body, key)
+    params.pop("reserved_model", None); params.pop("reserved_requests", None)   # the first run's voice reservation is not this job's
     params["bg_source_job"] = params.get("bg_source_job") or job_id   # re-renders reuse this video's separated background
     old = {sg["id"]: sg for sg in project["segments"]}
     speakers = {k: dict(v) for k, v in (project.get("speakers") or {}).items()}

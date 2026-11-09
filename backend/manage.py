@@ -2,6 +2,7 @@
   python manage.py create-user EMAIL PASSWORD [--minutes N] [--monthly N] [--admin]
   python manage.py set-minutes EMAIL N        # daily allowance
   python manage.py set-monthly EMAIL N        # monthly allowance
+  python manage.py set-budget THB             # what is left in the Google billing account (turns the money gate on); 'off' turns it off
   python manage.py deactivate EMAIL | activate EMAIL
   python manage.py users                      # list users and today's usage
   python manage.py cleanup                    # delete expired local files now"""
@@ -41,6 +42,13 @@ def main(argv):
                 user.is_active = cmd == "activate"
             s.commit()
             print("ok")
+        elif cmd == "set-budget":
+            from admin import settings as S
+            if args[0] == "off":
+                S.update(budget_enabled=False)
+            else:
+                S.update(budget_thb=float(args[0]), budget_enabled=True)
+            print("budget", S.view()["budget_thb"], "enabled" if S.budget_enabled() else "off")
         elif cmd == "users":
             for u in s.execute(select(User).order_by(User.id)).scalars():
                 print(f"{u.id:>4} {u.email:<35} {u.daily_minutes:>4} min/day  used today {used_seconds_today(s, u.id) / 60:5.1f} min"
