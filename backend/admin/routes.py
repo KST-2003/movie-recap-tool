@@ -1,0 +1,276 @@
+"""Admin API for the dashboard (/api/admin/*). Every route needs a logged-in user with is_admin = True
+(make one with `python manage.py create-user EMAIL PASSWORD --admin`)."""
+import re
+from datetime import timedelta, timezone
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import func, select
+
+import auth
+from config import (ALLOW_SIGNUP, DEFAULT_DAILY_MINUTES, MAX_ACTIVE_JOBS_PER_USER, MAX_UPLOAD_MB, MAX_VIDEO_MINUTES,
+                    QUEUE_MODE)
+from . import settings as runtime_settings
+from db import AuditLog, Job, Session, User, update_job, used_seconds_today, utcnow
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+STATUSES = ("queued", "running", "done", "error", "cancelled")
+AUDIT_ACTIONS = ("user.create", "user.update", "job.cancel", "settings.update")
+
+
+def require_admin(user: User = Depends(auth.current_user)) -> User:
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admins only.")
+    return user
+
+
+router = APIRouter(prefix="/api/admin", dependencies=[Depends(require_admin)])
+
+
+def _audit(s, admin: User, action: str, target_type: str, target_id, target_label: str | None = None, details: dict | None = None):
+    """Add an audit row to the session `s`; the caller commits it together with the change itself."""
+    s.add(AuditLog(admin_id=admin.id, admin_email=admin.email, action=action, target_type=target_type,
+                   target_id=str(target_id), target_label=target_label, details=details or {}))
+
+
+def _day_start():
+    return utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _iso(dt):
+    """ISO time marked as UTC (SQLite hands back naive datetimes, which a browser would read as local time)."""
+    if not dt:
+        return None
+    return (dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt).isoformat()
+
+
+# ---------- overview ----------
+
+@router.get("/overview")
+def overview(days: int = 14):
+    days = min(max(days, 1), 90)
+    today = _day_start()
+    first = today - timedelta(days=days - 1)
+    with Session() as s:
+        total_users = s.execute(select(func.count()).select_from(User)).scalar_one()
+        active_users = s.execute(select(func.count()).select_from(User).where(User.is_active.is_(True))).scalar_one()
+        counts_today = dict(s.execute(select(Job.status, func.count()).where(Job.created_at >= today).group_by(Job.status)).all())
+        queued = s.execute(select(func.count()).select_from(Job).where(Job.status == "queued")).scalar_one()
+        running = s.execute(select(func.count()).select_from(Job).where(Job.status == "running")).scalar_one()
+        users_today = s.execute(select(func.count(func.distinct(Job.user_id))).where(Job.created_at >= today)).scalar_one()
+        minutes_today = used_seconds_today(s) / 60
+        rows = s.execute(select(Job.created_at, Job.status, Job.charged_seconds).where(Job.created_at >= first)).all()
+    series = {(first + timedelta(days=i)).date().isoformat(): {"jobs": 0, "errors": 0, "minutes": 0.0} for i in range(days)}
+    for created, status, charged in rows:
+        point = series.get(created.date().isoformat())
+        if point is None:
+            continue
+        point["jobs"] += 1
+        point["errors"] += status == "error"
+        point["minutes"] += (charged or 0) / 60
+    cap = runtime_settings.global_daily_minutes()
+    return {
+        "users": {"total": total_users, "active": active_users, "active_today": users_today},
+        "jobs_today": {"total": sum(counts_today.values()), **{k: counts_today.get(k, 0) for k in STATUSES}},
+        "queue": {"queued": queued, "running": running, "mode": QUEUE_MODE},
+        "minutes_today": round(minutes_today, 1),
+        "global_daily_minutes": cap,
+        "maintenance": runtime_settings.maintenance(),
+        "series": [{"day": d, "jobs": v["jobs"], "errors": v["errors"], "minutes": round(v["minutes"], 1)} for d, v in series.items()],
+    }
+
+
+# ---------- users ----------
+
+def _user_row(u: User, used_seconds: float) -> dict:
+    return {"id": u.id, "email": u.email, "daily_minutes": u.daily_minutes, "is_admin": u.is_admin, "is_active": u.is_active,
+            "created_at": _iso(u.created_at), "used_minutes_today": round(used_seconds / 60, 1)}
+
+
+@router.get("/users")
+def list_users(q: str = "", page: int = 1, per_page: int = 25):
+    per_page = min(max(per_page, 1), 100)
+    page = max(page, 1)
+    today = _day_start()
+    with Session() as s:
+        query = select(User)
+        count = select(func.count()).select_from(User)
+        if q.strip():
+            like = f"%{q.strip().lower()}%"
+            query, count = query.where(User.email.like(like)), count.where(User.email.like(like))
+        total = s.execute(count).scalar_one()
+        users = s.execute(query.order_by(User.id.desc()).offset((page - 1) * per_page).limit(per_page)).scalars().all()
+        used = dict(s.execute(select(Job.user_id, func.coalesce(func.sum(Job.charged_seconds), 0.0))
+                              .where(Job.created_at >= today, Job.user_id.in_([u.id for u in users]))
+                              .group_by(Job.user_id)).all()) if users else {}
+    return {"total": total, "page": page, "per_page": per_page,
+            "items": [_user_row(u, float(used.get(u.id, 0.0))) for u in users],
+            "default_daily_minutes": DEFAULT_DAILY_MINUTES}
+
+
+class NewUser(BaseModel):
+    email: str
+    password: str
+    daily_minutes: int = Field(DEFAULT_DAILY_MINUTES, ge=0, le=100000)
+    is_admin: bool = False
+
+
+@router.post("/users")
+def create_user(body: NewUser, admin: User = Depends(require_admin)):
+    email = body.email.strip().lower()
+    if not EMAIL_RE.match(email) or len(email) > 255:
+        raise HTTPException(status_code=400, detail="Enter a valid email address.")
+    if len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+    with Session() as s:
+        if s.execute(select(User).where(User.email == email)).scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="That email is already registered.")
+        user = User(email=email, password_hash=auth.hash_password(body.password), daily_minutes=body.daily_minutes, is_admin=body.is_admin)
+        s.add(user)
+        s.flush()
+        _audit(s, admin, "user.create", "user", user.id, user.email, {"daily_minutes": user.daily_minutes, "is_admin": user.is_admin})
+        s.commit()
+        return _user_row(user, 0.0)
+
+
+class UserPatch(BaseModel):
+    daily_minutes: int | None = Field(None, ge=0, le=100000)
+    is_active: bool | None = None
+    is_admin: bool | None = None
+    password: str | None = None
+
+
+@router.patch("/users/{user_id}")
+def patch_user(user_id: int, body: UserPatch, admin: User = Depends(require_admin)):
+    if user_id == admin.id and (body.is_active is False or body.is_admin is False):
+        raise HTTPException(status_code=400, detail="You cannot disable or demote your own account.")
+    if body.password is not None and len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+    with Session() as s:
+        user = s.get(User, user_id)
+        if user is None:
+            raise HTTPException(status_code=404, detail="Unknown user")
+        changes = {}
+        for field in ("daily_minutes", "is_active", "is_admin"):
+            new = getattr(body, field)
+            if new is not None and new != getattr(user, field):
+                changes[field] = {"from": getattr(user, field), "to": new}
+                setattr(user, field, new)
+        if body.password is not None:
+            user.password_hash = auth.hash_password(body.password)
+            changes["password_reset"] = True   # the password itself is never stored in the log
+        if changes:
+            _audit(s, admin, "user.update", "user", user.id, user.email, changes)
+        s.commit()
+        return _user_row(user, used_seconds_today(s, user.id))
+
+
+# ---------- jobs ----------
+
+@router.get("/jobs")
+def list_jobs(status: str = "", user_id: int | None = None, page: int = 1, per_page: int = 25):
+    per_page = min(max(per_page, 1), 100)
+    page = max(page, 1)
+    if status and status not in STATUSES:
+        raise HTTPException(status_code=400, detail="Unknown status.")
+    with Session() as s:
+        query = select(Job, User.email).join(User, User.id == Job.user_id)
+        count = select(func.count()).select_from(Job)
+        if status:
+            query, count = query.where(Job.status == status), count.where(Job.status == status)
+        if user_id is not None:
+            query, count = query.where(Job.user_id == user_id), count.where(Job.user_id == user_id)
+        total = s.execute(count).scalar_one()
+        rows = s.execute(query.order_by(Job.created_at.desc()).offset((page - 1) * per_page).limit(per_page)).all()
+    items = []
+    for job, email in rows:
+        params, data = job.params or {}, job.data or {}
+        items.append({"id": job.id, "user_id": job.user_id, "email": email, "status": job.status, "stage": job.stage,
+                      "progress": job.progress, "error": job.error, "mode": params.get("mode"), "output": params.get("output"),
+                      "video_minutes": round((job.charged_seconds or 0) / 60, 1), "run_seconds": data.get("run_seconds"),
+                      "created_at": _iso(job.created_at), "finished_at": _iso(job.finished_at)})
+    return {"total": total, "page": page, "per_page": per_page, "items": items}
+
+
+@router.post("/jobs/{job_id}/cancel")
+def cancel_job(job_id: str, admin: User = Depends(require_admin)):
+    with Session() as s:
+        job = s.get(Job, job_id)
+        owner = s.get(User, job.user_id) if job else None
+        if job is None:
+            raise HTTPException(status_code=404, detail="Unknown job")
+        if job.status not in ("queued", "running"):
+            raise HTTPException(status_code=409, detail=f"The job is already {job.status}.")
+        _audit(s, admin, "job.cancel", "job", job.id, owner.email if owner else None, {"status": {"from": job.status, "to": "cancelled"}})
+        s.commit()
+    update_job(job_id, status="cancelled", stage="Cancelled by admin")
+    return {"status": "cancelled"}
+
+
+# ---------- voice (TTS) model pool ----------
+
+@router.get("/tts")
+def tts_status():
+    import gemini_tts
+    import tts_pool
+    items = []
+    for name, rpm, rpd in tts_pool.models():
+        used = tts_pool.used_today(name)
+        items.append({"model": name, "per_minute": rpm, "per_day": rpd, "used_today": used,
+                      "remaining": tts_pool.remaining(name), "blocked_seconds": round(gemini_tts.blocked_for(name))})
+    return {"models": items, "all_blocked": tts_pool.all_blocked(), "day": tts_pool._today()}
+
+
+# ---------- runtime settings ----------
+
+def _settings_view() -> dict:
+    return {"maintenance": runtime_settings.maintenance(), "global_daily_minutes": runtime_settings.global_daily_minutes(),
+            # read-only: set in backend/.env
+            "allow_signup": ALLOW_SIGNUP, "default_daily_minutes": DEFAULT_DAILY_MINUTES, "max_video_minutes": MAX_VIDEO_MINUTES,
+            "max_upload_mb": MAX_UPLOAD_MB, "max_active_jobs_per_user": MAX_ACTIVE_JOBS_PER_USER, "queue_mode": QUEUE_MODE}
+
+
+@router.get("/settings")
+def get_settings():
+    return _settings_view()
+
+
+class SettingsPatch(BaseModel):
+    maintenance: bool | None = None
+    global_daily_minutes: float | None = Field(None, ge=0, le=10_000_000)   # 0 = unlimited
+
+
+@router.put("/settings")
+def put_settings(body: SettingsPatch, admin: User = Depends(require_admin)):
+    before = _settings_view()
+    wanted = {k: v for k, v in body.model_dump().items() if v is not None}
+    if wanted:
+        runtime_settings.update(**wanted)
+    changes = {k: {"from": before[k], "to": v} for k, v in wanted.items() if v != before[k]}
+    if changes:
+        with Session() as s:
+            _audit(s, admin, "settings.update", "settings", "runtime", None, changes)
+            s.commit()
+    return _settings_view()
+
+
+# ---------- audit log ----------
+
+@router.get("/audit")
+def list_audit(action: str = "", admin_id: int | None = None, page: int = 1, per_page: int = 25):
+    per_page = min(max(per_page, 1), 100)
+    page = max(page, 1)
+    if action and action not in AUDIT_ACTIONS:
+        raise HTTPException(status_code=400, detail="Unknown action.")
+    with Session() as s:
+        query, count = select(AuditLog), select(func.count()).select_from(AuditLog)
+        if action:
+            query, count = query.where(AuditLog.action == action), count.where(AuditLog.action == action)
+        if admin_id is not None:
+            query, count = query.where(AuditLog.admin_id == admin_id), count.where(AuditLog.admin_id == admin_id)
+        total = s.execute(count).scalar_one()
+        rows = s.execute(query.order_by(AuditLog.id.desc()).offset((page - 1) * per_page).limit(per_page)).scalars().all()
+    return {"total": total, "page": page, "per_page": per_page, "actions": list(AUDIT_ACTIONS),
+            "items": [{"id": r.id, "created_at": _iso(r.created_at), "admin_id": r.admin_id, "admin_email": r.admin_email,
+                       "action": r.action, "target_type": r.target_type, "target_id": r.target_id,
+                       "target_label": r.target_label, "details": r.details or {}} for r in rows]}

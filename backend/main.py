@@ -1,6 +1,6 @@
 import json
-from config import (ALLOW_SIGNUP, CORS_ORIGINS, DEFAULT_DAILY_MINUTES, FILE_TTL_HOURS, GLOBAL_DAILY_MINUTES,
-                    LOGOS_DIR, MAINTENANCE_MODE, MAX_ACTIVE_JOBS_PER_USER, MAX_UPLOAD_MB, MAX_VIDEO_MINUTES,
+from config import (ALLOW_SIGNUP, CORS_ORIGINS, DEFAULT_DAILY_MINUTES, FILE_TTL_HOURS,
+                    LOGOS_DIR, MAX_ACTIVE_JOBS_PER_USER, MAX_UPLOAD_MB, MAX_VIDEO_MINUTES,
                     OUTPUT_DIR, SIGNED_URL_SECONDS, UPLOAD_DIR)
 
 import os
@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 import auth
+from admin import router as admin_router, settings as runtime_settings
 import jobs_queue
 import looks
 import storage
@@ -43,6 +44,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(admin_router)
 
 SAMPLES_DIR = "voice_samples"
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -124,7 +127,7 @@ def register(body: Credentials, request: Request):
         user = User(email=email, password_hash=auth.hash_password(body.password), daily_minutes=DEFAULT_DAILY_MINUTES)
         s.add(user)
         s.commit()
-    return {"token": auth.make_token(user), "email": email, **_quota(user)}
+    return {"token": auth.make_token(user), "email": email, "is_admin": False, **_quota(user)}
 
 
 @app.post("/api/auth/login")
@@ -134,12 +137,12 @@ def login(body: Credentials, request: Request):
         user = s.execute(select(User).where(User.email == body.email.strip().lower())).scalar_one_or_none()
     if not user or not user.is_active or not auth.verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Wrong email or password.")
-    return {"token": auth.make_token(user), "email": user.email, **_quota(user)}
+    return {"token": auth.make_token(user), "email": user.email, "is_admin": user.is_admin, **_quota(user)}
 
 
 @app.get("/api/auth/me")
 def me(user: User = Depends(auth.current_user)):
-    return {"email": user.email, **_quota(user)}
+    return {"id": user.id, "email": user.email, "is_admin": user.is_admin, **_quota(user)}
 
 
 # ---------- voices (public) ----------
@@ -259,7 +262,7 @@ def create_job(
     pan_y: float = Form(0.5),
     manual_blurs: str = Form(""),         # JSON [[x,y,w,h],...] fractions of the frame, blurred for the whole video
 ):
-    if MAINTENANCE_MODE:
+    if runtime_settings.maintenance():
         raise HTTPException(status_code=503, detail="We're temporarily not accepting new videos. Please try again later.")
     if not video_file:
         raise HTTPException(status_code=400, detail="No video file provided.")
@@ -306,7 +309,8 @@ def create_job(
                 raise HTTPException(status_code=402, detail=(
                     f"Daily limit reached: {left / 60:.1f} of your {user.daily_minutes} minutes left today, "
                     f"this video is {seconds / 60:.1f} minutes."))
-            if GLOBAL_DAILY_MINUTES and used_seconds_today(s) + seconds > GLOBAL_DAILY_MINUTES * 60:
+            cap = runtime_settings.global_daily_minutes()
+            if cap and used_seconds_today(s) + seconds > cap * 60:
                 raise HTTPException(status_code=503, detail="We've reached today's capacity. Please try again tomorrow.")
             input_key = storage.put(video_path, "uploads")
             logo_key = storage.put(logo_path, "logos") if logo_path else None
@@ -422,7 +426,7 @@ class RerenderBody(BaseModel):
 def rerender(job_id: str, body: RerenderBody, user: User = Depends(auth.current_user)):
     """New job from a finished one: same source video and settings, edited lines. Unchanged lines reuse their
     cached voice clips, so only edited lines cost a TTS request."""
-    if MAINTENANCE_MODE:
+    if runtime_settings.maintenance():
         raise HTTPException(status_code=503, detail="We're temporarily not accepting new work. Please try again later.")
     with Session() as s:
         job = s.get(Job, job_id)

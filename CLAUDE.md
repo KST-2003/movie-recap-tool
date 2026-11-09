@@ -181,7 +181,7 @@ mobile fixes (stacked labels, wrapping rows, no horizontal overflow; timeline no
 **Open / unverified.** Nothing above has been run on a real film yet (roster, blur windows, merge rules, casting request, looks); bulk batches of look lines may fall back to single requests; look clips are longer
 (slow delivery); looks cannot be the recap-mode voice (upload form picks real voices only); only 12 emotional lines get a direction (cap); no per-voice tags for age beyond what Gemini heard; speaker-embedding clustering
 and a character-review step before voicing are still ideas; native review of Burmese UI text.
-**Tests** (all offline, run in `backend/` with `venv/bin/python`): `test_editor.py`, `test_modes.py`, `test_voice_fixes.py`, `test_blur_windows.py`; real-API scripts: `test_voice_styles.py`, `generate_*`.
+**Tests** (all offline, run in `backend/` with `venv/bin/python`): `test_admin.py`, `test_editor.py`, `test_modes.py`, `test_voice_fixes.py`, `test_blur_windows.py`; real-API scripts: `test_voice_styles.py`, `generate_*`.
 
 ### Format + preview before generating (2026-11-07 night 13, format added 2026-11-08)
 Like CapCut: the user picks the **format first** (Original, 9:16, 1:1, 4:5, 16:9; "Fit" = whole picture over a blurred copy, "Fill" = crop, drag the picture to pan), then uploads.
@@ -202,6 +202,20 @@ Why watermark blur defaults OFF: it is a FIXED box (25% x 12%, bottom-right of t
 **Output choice** (voice-over + subtitles | subtitles only, original sound stays) is now shown in BOTH Recap and Full modes (backend already allowed it; `test_modes.py` covers recap + subtitles).
 **Original sound level**: separated music/effects used to be mixed at 0.35 (and 0.5 ducked) with sidechain ratio 12 = effects (thunder) too quiet. Now default 0.8 (0.7 when the whole original track is kept under the voice),
 ratio 4, user slider `bg_volume` 0-1.5. Known limit: Demucs `no_vocals` treats screams/ghost voices as vocals and removes them (use "Keep everything, lowered" to keep those, original speech then stays faintly audible).
+
+### Admin dashboard (2026-11-09, branch `feature/admin-dashboard`)
+Backend package `backend/admin/` (`routes.py` = router `/api/admin/*`, `settings.py` = runtime settings; `main.py` includes the router), every route needs `is_admin`; make one with `python manage.py create-user EMAIL PASSWORD --admin`): `overview` (counts, queue,
+minutes today, 14-day series), `users` (search, paging, create, PATCH daily minutes / enable / admin / password reset; you cannot disable or demote yourself), `jobs` (filter by status or user,
+cancel any job), `tts` (per-model used/limit/blocked from `tts_pool`), `settings` (GET/PUT), `audit` (list, filter by action). `admin/settings.py`: maintenance mode and the global daily ceiling are now changeable
+at runtime (file `data/admin_settings.json`, falls back to `.env`); `main.py` reads them per request instead of the old config constants. `/api/auth/login|register|me` return `is_admin` (`me` also `id`).
+**Audit log (2026-11-09):** table `audit_log` (`db.AuditLog`, created automatically by `create_all`, no migration) gets one row per SUCCESSFUL admin change, written in the same transaction as the change:
+`user.create`, `user.update` (per-field `{from, to}`; a password change is only `password_reset: true`, never the password), `job.cancel`, `settings.update` (only fields that really changed; a no-op save writes nothing).
+Refused actions (400/403/404/409) write nothing. Not logged: logins, reads, user-side actions. The row copies the admin's email so it stays readable later.
+Frontend folder `frontend/src/admin/` (`Admin.jsx` shell + nav, `ui.jsx` shared pieces and `useApi`, one `*Page.jsx` per page, `i18n.js` Burmese texts; **loaded lazily** by `App.jsx`, so normal users never download it; **Myanmar + English**, language switch in its header; texts via `tr()`/`trs()`, merged into `src/i18n.jsx`; AI-written, needs native review): Overview, Users, Jobs, Voice models, Audit log, Settings. Mobile: sidebar = slide-in drawer, tables = stacked cards, forms = bottom sheets,
+status filter chips scroll sideways. Charts are plain divs (no chart library). Opened from an "Admin" link in the app header (admin accounts only), URL hash `#admin/<page>`; auto-refresh 8-15 s.
+Built in our own Tailwind style: the Flatlogic react-dashboard template (React 19, TypeScript, reactstrap) was only a layout reference; its repo has no LICENSE file, so no code was copied.
+Tested: `python test_admin.py` (offline, 37 checks: access control, users, jobs, tts, settings, maintenance blocks a new job without restart, audit rows/diffs/no password/filter), `npm run build`, HTTP smoke test against a seeded throwaway DB.
+NOT verified: the UI in a browser (the Chrome extension was not connected), so phone layout is untested by eye. Not built: logging of logins / failed admin attempts, per-user job history beyond the Jobs filter, deleting users, payments/plans, exporting the audit log.
 
 ### Progress UI
 The source video previews as soon as a file is chosen; on Generate the player shows a spinner overlay + Cancel and a step
@@ -328,3 +342,5 @@ Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user 
 - 2026-11-07 (night 13): preview studio before generating (live grading/speed/flip, draggable logo, blur boxes, 5 s loop); backend `logo_x/logo_y/manual_blurs`.
 - 2026-11-08: video format picker before upload (9:16, 1:1, 4:5, 16:9; fit with blurred background or fill/crop with pan), preview shows the output frame; logo corner resize; app renamed Movie Recap Tool.
 - 2026-11-08 (b): form checkboxes moved to the editor (Look & sound), watermark blur + flip default off, subtitles-only offered in recap mode too, louder/gentler-ducked original effects + volume slider.
+- 2026-11-09: admin dashboard (overview, users, jobs, voice-model pool, runtime maintenance/ceiling settings; mobile responsive), `backend/admin/`, `frontend/src/admin/`, `test_admin.py`.
+- 2026-11-09 (b): admin dashboard in Myanmar too (`admin/i18n.js`, `trs` patterns for server errors) and an audit log of admin changes (`db.AuditLog`, `GET /api/admin/audit`, Audit log page).

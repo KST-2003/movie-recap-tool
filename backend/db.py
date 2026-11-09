@@ -45,6 +45,20 @@ class Job(Base):
     finished_at = Column(DateTime(timezone=True))
 
 
+class AuditLog(Base):
+    """Who changed what in the admin dashboard (written by admin.py in the same transaction as the change)."""
+    __tablename__ = "audit_log"
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, index=True)
+    admin_id = Column(Integer, index=True)
+    admin_email = Column(String(255))      # copied, so the entry stays readable if the account changes
+    action = Column(String(40), index=True)   # user.create | user.update | job.cancel | settings.update
+    target_type = Column(String(20))       # user | job | settings
+    target_id = Column(String(64))
+    target_label = Column(String(255))     # e.g. the user's email
+    details = Column(JSON, default=dict)   # {field: {"from": old, "to": new}} or small facts; never passwords
+
+
 Base.metadata.create_all(engine)
 
 _COLUMNS = {"status", "stage", "progress", "error"}

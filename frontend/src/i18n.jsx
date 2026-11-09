@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
+import { ADMIN_MY, ADMIN_SERVER } from './admin/i18n.js';
 
 // Interface language: 'my' (Myanmar) or 'en' (English). English strings are the keys; MY holds the Burmese text.
 // {name} placeholders are filled by tr(text, { name: value }).
@@ -197,6 +198,10 @@ const SERVER = [
   [/^No video file provided\.$/, 'ဗီဒီယိုဖိုင် မပါဝင်ပါ။'],
   [/^Recap generation failed: (.*)$/, 'ဗီဒီယိုထုတ်လုပ်မှု မအောင်မြင်ပါ — $1'],
 ];
+
+// admin dashboard texts: keys that already exist above keep their text
+Object.assign(MY, { ...ADMIN_MY, ...MY });
+SERVER.push(...ADMIN_SERVER);
 
 export function makeTr(lang) {
   const fill = (s, vars) => (vars ? s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m)) : s);
