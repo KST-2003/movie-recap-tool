@@ -368,7 +368,7 @@ def create_job(
             if cap and used_seconds_today(s) + seconds > cap * 60:
                 raise HTTPException(status_code=503, detail="We've reached today's capacity. Please try again tomorrow.")
             with capacity.lock:   # decide + create the job as one step, so a burst of uploads cannot all be admitted
-                verdict = capacity.decide(s, seconds, params.get("output"))
+                verdict = capacity.decide(s, seconds, params.get("output"), params.get("mode"))
                 if not verdict["ok"]:
                     capacity.refuse(verdict["reason"])
                 params = {**params, "reserved_model": verdict["model"], "reserved_requests": verdict["requests"]}
@@ -572,7 +572,7 @@ def preview_line(job_id: str, body: PreviewBody, user: User = Depends(auth.curre
     import pipeline
     try:
         path = pipeline.preview_line(body.text.strip(), body.voice, (src or {}).get("style"),
-                                     project.get("voice_model") or {}, project.get("tts_model"))
+                                     project.get("voice_model") or {}, project.get("tts_model"), (job.params or {}).get("mode"))
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Voice preview failed: {str(exc)[:160]}")
     return FileResponse(path, media_type="audio/wav")

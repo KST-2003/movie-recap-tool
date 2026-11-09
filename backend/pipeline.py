@@ -171,6 +171,14 @@ TTS_WORKERS = int(os.getenv("TTS_WORKERS", "8"))
 TTS_BULK = os.getenv("TTS_BULK", "1").lower() in ("1", "true")  # several sentences per TTS request; set TTS_BULK=0 to turn off
 
 
+def clip_voice(voice: str, path: str | None = None, model: str | None = None) -> str:
+    """Voice part of a clip's cache name. A clip made by Azure (another voice than the Gemini voice of the same name) gets its own
+    key, so Gemini and Azure clips are never mixed in one video through the cache."""
+    import azure_tts
+    model = model or (tts_pool.model_of(path) if path else None)
+    return f"{voice}|azure" if azure_tts.is_azure(model) else voice
+
+
 def clip_name(text: str, voice: str, style: str | None = None) -> str:
     """Cache name of a voice clip: same text + voice (+ delivery style) = same clip, so an edit only re-voices changed lines."""
     return hashlib.sha1(f"{voice}|{text}{'|' + style if style else ''}".encode()).hexdigest() + audio_ext()
@@ -190,6 +198,10 @@ class JobCancelled(Exception):
 
 VOICE_SWITCH_WARNING = ("The voice service ran out of requests half way through, so the second part of this video uses a slightly different voice. "
                         "For one voice all the way, try again later, or pick the voice again in the editor and re-render.")
+
+
+VOICE_AZURE_WARNING = ("The voice service was busy, so all or part of this video was voiced with a standard Burmese voice (Nilar or Thiha) "
+                       "instead of the voice you picked. For your own voice, try again later.")
 
 
 def set_job(job_id: str, **fields):
@@ -361,7 +373,7 @@ def voice_many(texts: list[str], paths: list[str], voice, model: dict, job_id: s
                 print(f"  emotion '{styles[i]}' moved the voice {voices[i]} from {ref:.0f} Hz to {got:.0f} Hz; voicing the line plainly", flush=True)
                 styles[i] = None
                 durs[i] = synthesize(texts[i], voices[i], paths[i], chooser, None)
-        storage.put_clip(paths[i], clip_name(texts[i], voices[i], styles[i]))
+        storage.put_clip(paths[i], clip_name(texts[i], clip_voice(voices[i], paths[i]), styles[i]))
         if progress:
             progress(1)
 
@@ -375,7 +387,7 @@ def voice_many(texts: list[str], paths: list[str], voice, model: dict, job_id: s
                 if ok:
                     for i in idx:
                         durs[i] = media_duration(paths[i])
-                        storage.put_clip(paths[i], clip_name(texts[i], voices[i]))
+                        storage.put_clip(paths[i], clip_name(texts[i], clip_voice(voices[i], paths[i])))
                     if progress:
                         progress(len(idx))
                     return
@@ -742,7 +754,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                 for i, sg in enumerate(segments):
                     path = os.path.join(OUTPUT_DIR, f"voice_{job_id}_{i + 1}{audio_ext()}")
                     temp_paths.append(path)
-                    if storage.fetch_clip(clip_name(sg["translated_text"], sg["voice"], sg.get("style")), path):
+                    if storage.fetch_clip(clip_name(sg["translated_text"], clip_voice(sg["voice"], model=(edit or {}).get("tts_model")), sg.get("style")), path):
                         sg["audio_path"], sg["audio_dur"] = path, media_duration(path)
                         _progress(1)
                     else:
@@ -753,7 +765,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                 t_voices = [segments[i]["voice"] for i in todo]
                 t_styles = [segments[i].get("style") for i in todo]
                 groups = len(plan_batches(t_texts, t_voices, t_styles))
-                chooser = (tts_pool.Chooser(groups + max(4, groups // 3), (edit or {}).get("tts_model") or p.get("reserved_model") or None, job_id)
+                chooser = (tts_pool.Chooser(groups + max(4, groups // 3), (edit or {}).get("tts_model") or p.get("reserved_model") or None, job_id, p.get("mode"))
                            if tts_provider() == "gemini" and todo else None)   # + room for the fit rewrites
                 blocked_idx: list[int] = []
                 durs = voice_many(t_texts, [paths[i] for i in todo], t_voices, voice_model, job_id, _progress, chooser, t_styles,
@@ -787,7 +799,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
 
             for sg in segments:  # keep rewritten (fitted) clips too
                 if "_fit" in sg["audio_path"]:
-                    storage.put_clip(sg["audio_path"], clip_name(sg["translated_text"], sg["voice"], sg.get("style")))
+                    storage.put_clip(sg["audio_path"], clip_name(sg["translated_text"], clip_voice(sg["voice"], sg["audio_path"]), sg.get("style")))
 
         else:   # subtitles only: no voice, the video keeps its own sound and timing
             for k, sg in enumerate(segments):
@@ -868,7 +880,10 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
 
         voice_model = duration_model.fit([(sg["translated_text"], sg["audio_dur"]) for sg in segments], voice_model)
         by_index = {sc.audio_index: sc for sc in scenes if sc.audio_index is not None}
-        if chooser is not None and chooser.switches and VOICE_SWITCH_WARNING not in warn:
+        import azure_tts
+        if chooser is not None and any(azure_tts.is_azure(m) for m in chooser.models_used):
+            warn.append(VOICE_AZURE_WARNING)    # a standard Burmese voice (Nilar / Thiha) was used instead of the picked one
+        elif chooser is not None and chooser.switches and VOICE_SWITCH_WARNING not in warn:
             warn.append(VOICE_SWITCH_WARNING)   # shown with the result (English + Burmese): the voice changed mid-video
         project = {
             "voice_model": voice_model,
@@ -979,16 +994,16 @@ def run_job_by_id(job_id: str):
                 storage.delete_local(path)
 
 
-def preview_line(text: str, voice: str, style: str | None, model: dict, preferred_model: str | None = None) -> str:
+def preview_line(text: str, voice: str, style: str | None, model: dict, preferred_model: str | None = None, mode: str | None = None) -> str:
     """Voice ONE line right now (editor preview). The clip goes into the same cache the render uses
     (key = voice + text + style), so pressing Apply afterwards does not pay for it again. Returns the clip's local path."""
     import tempfile
     path = os.path.join(tempfile.mkdtemp(), "preview" + audio_ext())
-    if storage.fetch_clip(clip_name(text, voice, style), path):
+    if storage.fetch_clip(clip_name(text, clip_voice(voice, model=preferred_model), style), path):
         return path
-    chooser = tts_pool.Chooser(1, preferred_model) if tts_provider() == "gemini" else None
+    chooser = tts_pool.Chooser(1, preferred_model, mode=mode) if tts_provider() == "gemini" else None
     styles = [style]
     voice_many([text], [path], [voice], model, "", None, chooser, styles)
     if styles[0] != style:   # the direction was read aloud / bent the pitch and was dropped: also cache the plain clip under the old key
-        storage.put_clip(path, clip_name(text, voice, style))
+        storage.put_clip(path, clip_name(text, clip_voice(voice, path), style))
     return path

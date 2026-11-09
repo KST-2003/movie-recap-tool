@@ -260,6 +260,13 @@ The service account `recaptool@recaptool-514214.iam.gserviceaccount.com` (key ou
 Expected table: `gcp_billing_export_v1_<BILLING_ACCOUNT_ID>` (name from memory, check). The export is a DAILY per-SKU view, not live: keep the live budget gate on our own token counts and use the export as a check.
 **Next (when the table has rows):** inspect the real columns (cost, credits, SKU, usage dates; Gemini API vs Cloud TTS SKUs), build a reader (BigQuery REST query with the service account, cached) and an admin card "our token cost vs Google's charge, per day" to catch wrong prices / the 2027-01-01 price change. Open question: whether prepaid deposits / the remaining balance appear in the export (probably only charges and credits): if not, the balance stays typed by hand in the Budget gate.
 
+### Azure Neural TTS: last fallback for RECAP videos (2026-11-10)
+`backend/azure_tts.py`, pool name `azure/neural`, appended AFTER the AI Studio and Cloud models when `AZURE_SPEECH_KEY` + `AZURE_SPEECH_REGION` are set (`AZURE_TTS=0` off; soft limits `AZURE_TTS_RPM`=120, `AZURE_TTS_RPD`=100000; key lives in `backend/.env` / server environment only, never frontend or git). Owner created a Speech resource (S0, Southeast Asia) and set a 20 monthly Azure budget alert.
+Only **two** Burmese voices (`my-MM-NilarNeural` female, `my-MM-ThihaNeural` male): a Gemini voice maps by gender (Kore -> Nilar, Charon -> Thiha). No emotion / look directions (dropped), so `tts_pool.usable()` allows it for `mode == "recap"` ONLY: full movies are never admitted on Azure (they get the busy message instead). Owner listened to the test clips: acceptable for recap because the voice stays constant.
+Checked on the real API (`test_azure_tts.py`): Burmese heard-back clarity 0.98-1.00, ~1 s per line, 12 parallel requests in 1.4 s. Billed per CHARACTER (`usage.py` field `chars`; default price $16 per 1M characters is an ASSUMPTION, the pricing page did not show it: check Azure Cost Management and edit in admin Settings).
+Voice cache: Azure clips use their own cache key (`pipeline.clip_voice` -> `"<voice>|azure"`, via `tts_pool.note_model`) so Gemini and Azure clips are never mixed through the clip cache. A video that used Azure gets a warning in both languages (`VOICE_AZURE_WARNING`: "standard Burmese voice (Nilar or Thiha) instead of the voice you picked"); a plain model switch keeps `VOICE_SWITCH_WARNING`.
+Unverified: bulk batches (several sentences per request, split at pauses) on Azure's pauses - the splitter falls back to smaller groups / single lines, fine at Azure's throughput. Tests: `test_azure_fallback.py` (offline).
+
 ### Progress UI
 The source video previews as soon as a file is chosen; on Generate the player shows a spinner overlay + Cancel and a step
 checklist (upload %, subtitles/cuts, translate, voice, fit, render) with the live stage text and an elapsed timer. Backend progress:
@@ -388,6 +395,7 @@ Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user 
 - 2026-11-08 (b): form checkboxes moved to the editor (Look & sound), watermark blur + flip default off, subtitles-only offered in recap mode too, louder/gentler-ducked original effects + volume slider.
 - 2026-11-09: admin dashboard as a separate app `admin/` (own sub-domain, own login, Myanmar + English): overview, users, jobs, voice models, audit log, runtime settings; backend package `backend/admin/`. Voice models page shows our counters + Google's own limit words (learned from 429s) + `models.list` check + real limits/usage via Service Usage/Cloud Monitoring (needs GCP service account; unverified with real credentials).
 
+- 2026-11-10: Azure Neural TTS added as the last fallback for recap videos (`azure_tts.py`).
 - 2026-11-10: Google billing export to BigQuery (`billing_export`, standard usage cost) enabled, service account has read access; waiting for the first tables; reader not built.
 - 2026-11-09: real token usage + cost per video (`usage.py`), prices/rate editable in admin, budget gate uses measured real cost; voice-change warning when a model switch happens mid-video.
 - 2026-11-09: admission control (`capacity.py`): money budget gate + per-video voice-request reservation + "server busy" 503 + admin alerts; settings in admin.

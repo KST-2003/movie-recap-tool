@@ -73,6 +73,8 @@ export const ADMIN_MY = {
   "Latest videos": "နောက်ဆုံးဗီဒီယိုများ",
   "re-render": "ပြန်ထုတ်ခြင်း",
   "THB/min": "ဘတ်/မိနစ်",
+  "Characters": "စာလုံးရေ",
+  "chars": "စာလုံး",
   'Maintenance mode is ON: new videos are refused. Tap to change.': 'ပြုပြင်ထိန်းသိမ်းမှုမုဒ် ဖွင့်ထားသည် — ဗီဒီယိုအသစ်များ လက်မခံပါ။ ပြောင်းရန် နှိပ်ပါ။',
   'Videos today': 'ယနေ့ ဗီဒီယိုများ',
   '{done} done · {failed} failed': 'ပြီးစီး {done} · မအောင်မြင် {failed}',

@@ -233,13 +233,14 @@ def tts_status(refresh: bool = False):
     cloud = google_quota.cloud([name for name, _, _ in pool], refresh)
     seen = gemini_tts.limits_seen()
     items = []
+    import azure_tts
     import cloud_tts
     for name, rpm, rpd in pool:
-        via_cloud = cloud_tts.is_cloud(name)
+        via_cloud = cloud_tts.is_cloud(name) or azure_tts.is_azure(name)   # not AI Studio models: no "exists for your key" check
         google = None if via_cloud else verified["models"].get(name)
         learned = seen.get(name)
         items.append({
-            "model": name, "provider": "cloud" if via_cloud else "ai_studio", "per_minute": rpm, "per_day": rpd, "used_today": tts_pool.used_today(name),
+            "model": name, "provider": "azure" if azure_tts.is_azure(name) else ("cloud" if via_cloud else "ai_studio"), "per_minute": rpm, "per_day": rpd, "used_today": tts_pool.used_today(name),
             "remaining": tts_pool.remaining(name), "blocked_seconds": round(gemini_tts.blocked_for(name)),
             # 1. exists for this API key? (None = could not check)
             "google": None if (verified["error"] or via_cloud) else ({"exists": True, **google} if google else {"exists": False}),
@@ -287,8 +288,8 @@ def costs():
         if not u:
             continue
         for model, v in u.items():
-            m = per_model.setdefault(model, {"model": model, "calls": 0, "in": 0, "audio_in": 0, "out": 0, "audio_out": 0, "est": 0})
-            for k in ("calls", "in", "audio_in", "out", "audio_out", "est"):
+            m = per_model.setdefault(model, {"model": model, "calls": 0, "in": 0, "audio_in": 0, "out": 0, "audio_out": 0, "chars": 0, "est": 0})
+            for k in ("calls", "in", "audio_in", "out", "audio_out", "chars", "est"):
                 m[k] += v.get(k, 0)
         if len(recent) < 20:
             c = usage_log.cost_thb(u, table, rate)
@@ -301,7 +302,7 @@ def costs():
         models.append({**m, "thb": round(c["thb"], 2), "priced": c["complete"]})
     for model in table:   # models with a price but no usage yet are still editable
         if model not in per_model:
-            models.append({"model": model, "calls": 0, "in": 0, "audio_in": 0, "out": 0, "audio_out": 0, "est": 0, "thb": 0.0, "priced": True})
+            models.append({"model": model, "calls": 0, "in": 0, "audio_in": 0, "out": 0, "audio_out": 0, "chars": 0, "est": 0, "thb": 0.0, "priced": True})
     return {"usd_thb": rate, "prices": table, "assumed": sorted(usage_log.ASSUMED), "models": models, "recent": recent,
             "measured_cost_per_minute": round(measured, 3) if measured else None,
             "configured_cost_per_minute": runtime_settings.cost_per_minute_thb(), "total_thb_30d": round(sum(m["thb"] for m in models), 2)}
@@ -325,7 +326,7 @@ class SettingsPatch(BaseModel):
 
 def _check_prices(prices: dict):
     for model, p in prices.items():
-        if not model or len(model) > 100 or set(p) - {"in", "audio_in", "out", "audio_out"} or any(v < 0 or v > 1000 for v in p.values()):
+        if not model or len(model) > 100 or set(p) - {"in", "audio_in", "out", "audio_out", "chars"} or any(v < 0 or v > 1000 for v in p.values()):
             raise HTTPException(status_code=400, detail="Prices must be USD per 1M tokens between 0 and 1000.")
 
 

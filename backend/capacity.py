@@ -94,7 +94,7 @@ def budget(s) -> dict:
             "videos_priced_from_tokens": real, "videos_estimated": est_n}
 
 
-def decide(s, seconds: float, output: str | None) -> dict:
+def decide(s, seconds: float, output: str | None, mode: str | None = None) -> dict:
     """-> {"ok": True, "model": str, "requests": int} or {"ok": False, "reason": str}. Call under `lock`, add the job before releasing it."""
     minutes = seconds / 60
     b = budget(s)
@@ -102,7 +102,7 @@ def decide(s, seconds: float, output: str | None) -> dict:
         return {"ok": False, "reason": (f"Budget: {b['available_minutes']:.0f} video minutes left in the voice/AI budget "
                                         f"(at least {max(b['min_free_minutes'], minutes):.0f} needed for this video).")}
     need = est_requests(seconds, output)
-    model = tts_pool.admit(need)
+    model = tts_pool.admit(need, mode)
     if model is None:
         return {"ok": False, "reason": (f"Voice capacity: no voice model has {need} free requests left for this video "
                                         f"(counting videos already running).")}

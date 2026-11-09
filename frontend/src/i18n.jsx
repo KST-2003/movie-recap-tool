@@ -231,6 +231,7 @@ const SERVER = [
   [/^File is larger than (\d+) MB\.$/, 'ဖိုင်အရွယ်အစားသည် $1 MB ထက် ကြီးနေသည်။'],
   [/^Link expired\. Reload the page to get a new one\.$/, 'လင့်ခ် သက်တမ်းကုန်ပြီ။ စာမျက်နှာကို ပြန်ဖွင့်၍ အသစ်ရယူပါ။'],
   [/^The voice service ran out of requests half way through, so the second part of this video uses a slightly different voice\. For one voice all the way, try again later, or pick the voice again in the editor and re-render\.$/, 'အသံဝန်ဆောင်မှု၏ တောင်းဆိုမှုအကန့်အသတ် အလယ်တွင် ပြည့်သွားသဖြင့် ဗီဒီယိုနောက်ပိုင်းအပိုင်းတွင် အသံအနည်းငယ် ကွဲပြားနေပါသည်။ အသံတစ်မျိုးတည်း ရလိုပါက နောက်မှ ပြန်ကြိုးစားပါ၊ သို့မဟုတ် တည်းဖြတ်ကိရိယာတွင် အသံကို ပြန်ရွေးပြီး ထပ်မံထုတ်ပါ။'],
+  [/^The voice service was busy, so all or part of this video was voiced with a standard Burmese voice \(Nilar or Thiha\) instead of the voice you picked\. For your own voice, try again later\.$/, 'အသံဝန်ဆောင်မှု အလုပ်များနေသဖြင့် ဤဗီဒီယိုတစ်ခုလုံး သို့မဟုတ် တစ်စိတ်တစ်ပိုင်းကို သင်ရွေးထားသောအသံအစား ပုံမှန်မြန်မာအသံ (နီလာ သို့မဟုတ် သီဟ) ဖြင့် သွင်းထားသည်။ သင်ရွေးထားသောအသံအတွက် နောက်မှ ပြန်ကြိုးစားပါ။'],
   [/^The server is currently busy\. We have notified the admin\. Please try again later\.$/, 'ဆာဗာ ယခု အလုပ်များနေပါသည်။ အက်ဒမင်ကို အကြောင်းကြားပြီးဖြစ်သည်။ နောက်မှ ပြန်ကြိုးစားပါ။'],
   [/^We've reached today's capacity\. Please try again tomorrow\.$/, 'ယနေ့ လက်ခံနိုင်သည့်ပမာဏ ပြည့်သွားပြီ။ မနက်ဖြန် ပြန်ကြိုးစားပါ။'],
   [/^We're temporarily not accepting new (videos|work)\. Please try again later\.$/, 'ယာယီ အသစ်မလက်ခံနိုင်ပါ။ နောက်မှ ပြန်ကြိုးစားပါ။'],

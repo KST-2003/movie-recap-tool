@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace as NS
 
 tmp = tempfile.mkdtemp()
-os.environ.update(DATA_DIR=f"{tmp}/data", UPLOAD_DIR=f"{tmp}/up", OUTPUT_DIR=f"{tmp}/out", TTS_PROVIDER="fake",
+os.environ.update(AZURE_SPEECH_KEY="", AZURE_SPEECH_REGION="", DATA_DIR=f"{tmp}/data", UPLOAD_DIR=f"{tmp}/up", OUTPUT_DIR=f"{tmp}/out", TTS_PROVIDER="fake",
                   DATABASE_URL=f"sqlite:///{tmp}/t.db", GCP_PROJECT_ID="", GCP_SERVICE_ACCOUNT_FILE="", USD_THB="35")
 
 from fastapi.testclient import TestClient  # noqa: E402
@@ -36,7 +36,7 @@ usage.record_interaction(inter, "gemini-3.8-flash-tts")
 usage.record_cloud_tts("cloud/gemini-2.5-flash-tts", "x" * 30, 4.0)
 usage.record_claude(NS(model="claude-haiku-5-5", usage=NS(input_tokens=500, output_tokens=200, cache_creation_input_tokens=0, cache_read_input_tokens=0)))
 snap = usage.snapshot("j1")
-ok(snap["gemini-3.8-flash"] == {"calls": 1, "in": 200, "audio_in": 800, "out": 400, "audio_out": 0, "est": 0}, f"text answer: audio in split, thinking counted as output {snap['gemini-3.8-flash']}")
+ok(snap["gemini-3.8-flash"] == {"calls": 1, "in": 200, "audio_in": 800, "out": 400, "audio_out": 0, "chars": 0, "est": 0}, f"text answer: audio in split, thinking counted as output {snap['gemini-3.8-flash']}")
 ok(snap["gemini-3.8-flash-tts"]["audio_out"] == 71 and snap["gemini-3.8-flash-tts"]["in"] == 17, "TTS answer: 17 text in, 71 audio out")
 ok(snap["cloud/gemini-2.5-flash-tts"]["audio_out"] == 100 and snap["cloud/gemini-2.5-flash-tts"]["est"] == 1, "Cloud TTS: 4 s -> 100 audio tokens, flagged as estimate")
 ok(snap["claude-haiku-5-5"]["in"] == 500 and snap["claude-haiku-5-5"]["out"] == 200, "Claude answer counted")

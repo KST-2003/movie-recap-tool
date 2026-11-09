@@ -4,7 +4,7 @@ Every Gemini text/audio answer carries token counts (`usage_metadata`, `interact
 per video (a context variable holds the current job id; `install()` makes worker threads inherit it), save the totals in
 `Job.data["usage"]` and price them with the per-model USD prices the owner can edit in the admin dashboard (+ the USD->THB rate).
 Cost is computed when it is READ, so fixing a price re-prices the whole history. Stored shape, per model name:
-    {"calls": n, "in": text/other input tokens, "audio_in": ..., "out": output tokens incl. thinking, "audio_out": ..., "est": estimated calls}
+    {"calls": n, "in": text/other input tokens, "audio_in": ..., "out": output tokens incl. thinking, "audio_out": ..., "chars": Azure characters, "est": estimated calls}
 Cloud Text-to-Speech answers carry no token counts: audio_out is estimated from the clip length (25 tokens/s, measured on
 2026-11-09: 89 tokens for 3.69 s) and flagged `est`.
 Limits: voice previews in the editor run outside a job and are not counted; prices change on 2027-01-01 (Google announced a doubling for
@@ -33,8 +33,9 @@ DEFAULT_PRICES = {
     "gemini-2.5-pro-preview-tts": {"in": 1.00, "audio_out": 20.00},
     "cloud/gemini-2.5-flash-tts": {"in": 0.50, "audio_out": 10.00},
     "cloud/gemini-2.5-pro-tts": {"in": 1.00, "audio_out": 20.00},
+    "azure/neural": {"chars": 16.00},   # USD per 1M CHARACTERS: assumed (the pricing page did not show it): check Azure Cost Management
 }
-ASSUMED = {"cloud/gemini-2.5-flash-tts", "cloud/gemini-2.5-pro-tts"}
+ASSUMED = {"cloud/gemini-2.5-flash-tts", "cloud/gemini-2.5-pro-tts", "azure/neural"}
 
 
 # ---------- recording ----------
@@ -51,17 +52,18 @@ def current() -> str | None:
     return _job.get()
 
 
-def add(model: str, *, inp=0, audio_in=0, out=0, audio_out=0, est=False, job_id: str | None = None):
+def add(model: str, *, inp=0, audio_in=0, out=0, audio_out=0, chars=0, est=False, job_id: str | None = None):
     job_id = job_id or _job.get()
     if not job_id or not model:
         return
     with _lock:
-        m = _acc.setdefault(job_id, {}).setdefault(model, {"calls": 0, "in": 0, "audio_in": 0, "out": 0, "audio_out": 0, "est": 0})
+        m = _acc.setdefault(job_id, {}).setdefault(model, {"calls": 0, "in": 0, "audio_in": 0, "out": 0, "audio_out": 0, "chars": 0, "est": 0})
         m["calls"] += 1
         m["in"] += int(inp or 0)
         m["audio_in"] += int(audio_in or 0)
         m["out"] += int(out or 0)
         m["audio_out"] += int(audio_out or 0)
+        m["chars"] = m.get("chars", 0) + int(chars or 0)
         m["est"] += 1 if est else 0
 
 
@@ -93,6 +95,11 @@ def record_interaction(interaction, model: str):
 def record_cloud_tts(model: str, text: str, audio_seconds: float):
     """Cloud Text-to-Speech has no token counts in its answer: estimate from the clip length (flagged)."""
     add(model, inp=len(text) / CHARS_PER_TOKEN, audio_out=audio_seconds * AUDIO_TOKENS_PER_SECOND, est=True)
+
+
+def record_azure(model: str, chars: int):
+    """Azure Neural TTS is billed per character of the spoken text."""
+    add(model, chars=chars)
 
 
 def record_claude(msg):
@@ -164,7 +171,8 @@ def cost_thb(usage: dict | None, table: dict | None = None, usd_thb: float | Non
             continue
         i = p.get("in", 0.0)
         usd += (u.get("in", 0) * i + u.get("audio_in", 0) * p.get("audio_in", i)
-                + u.get("out", 0) * p.get("out", 0.0) + u.get("audio_out", 0) * p.get("audio_out", p.get("out", 0.0))) / 1e6
+                + u.get("out", 0) * p.get("out", 0.0) + u.get("audio_out", 0) * p.get("audio_out", p.get("out", 0.0))
+                + u.get("chars", 0) * p.get("chars", 0.0)) / 1e6
         est = est or bool(u.get("est"))
     return {"thb": usd * rate, "complete": not unpriced, "unpriced": unpriced, "estimated": est}
 

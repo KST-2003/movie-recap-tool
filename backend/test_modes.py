@@ -8,7 +8,7 @@ import tempfile
 import time
 
 tmp = tempfile.mkdtemp()
-os.environ.update(DATA_DIR=f"{tmp}/data", UPLOAD_DIR=f"{tmp}/up", OUTPUT_DIR=f"{tmp}/out", TTS_PROVIDER="fake",
+os.environ.update(AZURE_SPEECH_KEY="", AZURE_SPEECH_REGION="", DATA_DIR=f"{tmp}/data", UPLOAD_DIR=f"{tmp}/up", OUTPUT_DIR=f"{tmp}/out", TTS_PROVIDER="fake",
                   DUB_PROVIDER="gemini", TTS_BULK="1", DATABASE_URL=f"sqlite:///{tmp}/t.db", RECAP_WORKERS="2",
                   MAX_ACTIVE_JOBS_PER_USER="5")
 

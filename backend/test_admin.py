@@ -4,7 +4,7 @@ import os
 import tempfile
 
 tmp = tempfile.mkdtemp()
-os.environ.update(DATA_DIR=f"{tmp}/data", UPLOAD_DIR=f"{tmp}/up", OUTPUT_DIR=f"{tmp}/out", TTS_PROVIDER="fake",
+os.environ.update(AZURE_SPEECH_KEY="", AZURE_SPEECH_REGION="", DATA_DIR=f"{tmp}/data", UPLOAD_DIR=f"{tmp}/up", OUTPUT_DIR=f"{tmp}/out", TTS_PROVIDER="fake",
                   DATABASE_URL=f"sqlite:///{tmp}/t.db", GLOBAL_DAILY_MINUTES="0",
                   GCP_PROJECT_ID="", GCP_SERVICE_ACCOUNT_FILE="")   # offline: never Google Cloud, whatever backend/.env says
 

@@ -48,7 +48,29 @@ def models() -> list[tuple[str, int, int]]:
     if cloud_tts.enabled() and not any(cloud_tts.is_cloud(n) for n, _, _ in out):
         rpm, rpd = int(os.getenv("CLOUD_TTS_RPM", "30")), int(os.getenv("CLOUD_TTS_RPD", "5000"))
         out += [(cloud_tts.PREFIX + m, rpm, rpd) for m in cloud_tts.DEFAULT_MODELS]
+    import azure_tts
+    if azure_tts.enabled() and not any(azure_tts.is_azure(n) for n, _, _ in out):   # last fallback, recap videos only
+        out.append((azure_tts.MODEL, int(os.getenv("AZURE_TTS_RPM", "120")), int(os.getenv("AZURE_TTS_RPD", "100000"))))
     return out
+
+
+_MODEL_OF: dict[str, str] = {}   # clip path -> the model that voiced it (clips of different voices must never share a cache name)
+
+
+def note_model(path: str, model: str):
+    if len(_MODEL_OF) > 20000:
+        _MODEL_OF.clear()
+    _MODEL_OF[path] = model
+
+
+def model_of(path: str) -> str | None:
+    return _MODEL_OF.get(path)
+
+
+def usable(model: str, mode: str | None) -> bool:
+    """Azure has two voices and no emotion: only for recap videos (one narrator). Full movies need many voices."""
+    import azure_tts
+    return mode == "recap" or not azure_tts.is_azure(model)
 
 
 def _limits(model: str) -> tuple[int, int]:
@@ -101,11 +123,12 @@ def free(model: str, exclude_job: str | None = None) -> int:
     return max(remaining(model) - reserved(model, exclude_job), 0)
 
 
-def admit(need: int) -> str | None:
-    """The first model (preference order) with `need` free requests, "" when no voice is needed, None when no model has room."""
+def admit(need: int, mode: str | None = None) -> str | None:
+    """The first model (preference order) usable for this video `mode` with `need` free requests, "" when no voice is needed,
+    None when no model has room."""
     if need <= 0:
         return ""
-    return next((m for m, _, _ in models() if free(m) >= need), None)
+    return next((m for m, _, _ in models() if usable(m, mode) and free(m) >= need), None)
 
 
 def acquire(model: str):
@@ -146,16 +169,19 @@ def blocked_message() -> str:
 class Chooser:
     """Which TTS model a job uses. `need` = how many requests the job expects to send."""
 
-    def __init__(self, need: int, preferred: str | None = None, job_id: str | None = None):
+    def __init__(self, need: int, preferred: str | None = None, job_id: str | None = None, mode: str | None = None):
+        self.mode = mode   # "recap" may use Azure (last fallback); anything else may not
+        self.models_used: set[str] = set()   # every model this job voiced with (a warning is shown when the voice differs)
         self.need = max(need, 1)
         self.job_id = job_id   # this job's own reservation (capacity.py) counts as free for itself
         self.switches: list[tuple[str, str]] = []   # (from, to) each time the job had to change model: the voice changes then, tell the user
         self.lock = threading.Lock()
         self.current = self._pick(preferred, ())
+        self.models_used.add(self.current)
         print(f"  voice model: {self.current} ({remaining(self.current)} requests left today by our count)", flush=True)
 
     def _pick(self, preferred: str | None, exclude: tuple) -> str:
-        order = [m for m, _, _ in models() if m not in exclude]
+        order = [m for m, _, _ in models() if m not in exclude and usable(m, self.mode)]
         if preferred in order:
             order.remove(preferred)
             order.insert(0, preferred)
@@ -172,7 +198,7 @@ class Chooser:
 
     def other(self, model: str) -> str | None:
         """Another model with requests left (for ONE line whose text `model` refused; the job keeps its own model)."""
-        return next((m for m, _, _ in models() if m != model and self._free(m) > 0), None)
+        return next((m for m, _, _ in models() if m != model and usable(m, self.mode) and self._free(m) > 0), None)
 
     def failed(self, model: str):
         """`model` ran out of requests: switch (raises QuotaExceeded when no model is left)."""
@@ -180,5 +206,6 @@ class Chooser:
             if self.current == model:
                 self.current = self._pick(None, (model,))
                 self.switches.append((model, self.current))
+                self.models_used.add(self.current)
                 print(f"  voice model {model} is out of requests; switching to {self.current} "
                       "(the voice of the remaining lines will differ slightly)", flush=True)

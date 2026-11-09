@@ -147,7 +147,14 @@ def synthesize_to_file(text: str, path: str, voice: str | None = None, retries: 
             import cloud_tts
             if cloud_tts.is_cloud(model):   # Google Cloud Text-to-Speech: the pool's extra capacity (own quota)
                 cloud_tts.synthesize(text, path, voice, model, timeout=_deadline(text))
+                tts_pool.note_model(path, model)
                 print(f"  TTS ok (cloud): {len(text)} chars in {time.monotonic() - started:.1f}s", flush=True)
+                return
+            import azure_tts
+            if azure_tts.is_azure(model):   # Azure Neural TTS: last fallback, recap only (two voices, no emotion)
+                azure_tts.synthesize(text, path, voice, timeout=_deadline(text))
+                tts_pool.note_model(path, model)
+                print(f"  TTS ok (azure): {len(text)} chars in {time.monotonic() - started:.1f}s", flush=True)
                 return
             client = _get_client()
             future = _pool.submit(lambda: client.interactions.create(
@@ -166,6 +173,7 @@ def synthesize_to_file(text: str, path: str, voice: str | None = None, retries: 
             audio = interaction.output_audio
             if audio is None or not audio.data:
                 raise RuntimeError("Gemini returned no audio.")
+            tts_pool.note_model(path, model)
             pcm = base64.b64decode(audio.data)
             if pcm[:4] != b"RIFF":  # some models (2.5, 3.1) return bare 24 kHz 16-bit mono samples: add the WAV header
                 import wave

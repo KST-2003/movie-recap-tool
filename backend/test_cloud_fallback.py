@@ -6,7 +6,7 @@ import tempfile
 tmp = tempfile.mkdtemp()
 key = f"{tmp}/key.json"
 open(key, "w").write("{}")
-os.environ.update(DATA_DIR=f"{tmp}/data", GCP_PROJECT_ID="demo-project", GCP_SERVICE_ACCOUNT_FILE=key, CLOUD_TTS="1",
+os.environ.update(AZURE_SPEECH_KEY="", AZURE_SPEECH_REGION="", DATA_DIR=f"{tmp}/data", GCP_PROJECT_ID="demo-project", GCP_SERVICE_ACCOUNT_FILE=key, CLOUD_TTS="1",
                   TTS_MODELS="gemini-3.8-flash-tts:10:100,gemini-2.5-flash-preview-tts:10:100")
 
 import cloud_tts  # noqa: E402

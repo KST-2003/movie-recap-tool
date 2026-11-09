@@ -4,7 +4,7 @@ import { useI18n } from './i18n.jsx';
 import { errText, fmtTime, Card, btnPrimary, field, useApi } from './ui.jsx';
 
 // Real cost from token counts: Google's USD prices per 1M tokens (editable) x the USD->THB rate. History is re-priced when a price changes.
-const FIELDS = [['in', 'Text in'], ['out', 'Text out'], ['audio_out', 'Voice out']];
+const FIELDS = [['in', 'Text in'], ['out', 'Text out'], ['audio_out', 'Voice out'], ['chars', 'Characters']];
 const n = (v) => Number(v || 0).toLocaleString('en-US', { maximumFractionDigits: 1 });
 
 export default function CostsCard({ onSaved }) {
@@ -45,7 +45,7 @@ export default function CostsCard({ onSaved }) {
               <tr key={m.model} className={m.priced ? '' : 'bg-amber-500/5'}>
                 <td className="py-1.5 pr-2 break-all">{m.model}{data.assumed.includes(m.model) && <span className="ml-1 text-amber-300" title={tr('Assumed equal to the AI Studio price: check Cloud pricing')}>*</span>}{m.est > 0 && <span className="ml-1 text-slate-500" title={tr('voice tokens estimated from clip length')}>~</span>}</td>
                 <td className="px-2">{n(m.calls)}</td>
-                <td className="px-2 text-slate-400">{n(m.in + m.audio_in)} / {n(m.out)} / {n(m.audio_out)}</td>
+                <td className="px-2 text-slate-400">{n(m.in + m.audio_in)} / {n(m.out)} / {n(m.audio_out)}{m.chars > 0 && ` · ${n(m.chars)} ${tr('chars')}`}</td>
                 <td className="px-2">{n(m.thb)}</td>
                 {FIELDS.map(([k]) => <td key={k} className="px-2"><input className={`${field} !px-2 !py-1 w-20`} type="number" min="0" step="0.01" value={prices[m.model]?.[k] ?? ''} onChange={(e) => set(m.model, k, e.target.value)} /></td>)}
               </tr>
