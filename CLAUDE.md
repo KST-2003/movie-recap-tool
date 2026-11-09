@@ -253,6 +253,13 @@ Admin: Settings -> "Real cost" card (price table, rate, measured THB/min, latest
 First real measurement (30 s recap `samples/30sec.mov`, 2026-11-09): 0.89 THB = 1.75 THB per video minute: text 3 calls 0.21 THB, voice on `gemini-3.1-flash-tts-preview` ($20 per 1M audio tokens) 0.68 THB for 966 audio tokens; the same voice on `gemini-3.8-flash-tts` ($9) would be ~0.31 THB, i.e. ~1.0 THB/min. The pool's FIRST model is the most expensive one: order = cost decision. One short sample only.
 Known limits: editor voice previews are not counted; Google announced the 3.8 models' prices double on 2027-01-01 (edit the table then); if a model has no price the video is priced only in part (`*` in the UI); the real prepaid balance still has to be typed (Google does not expose it; BigQuery billing export would show actual charges with a few hours' delay: not built). Tests: `test_usage.py`.
 
+### Google billing export to BigQuery - set up 2026-11-09/10, reader NOT built yet
+Goal: compare our per-video token cost (`usage.py`) with what Google really charged (the billing account is PREPAID: the owner deposits THB and usage draws it down).
+Done by the owner in the console: dataset `billing_export` in project `recaptool-514214` (BigQuery, multi-region **US**, table expiration off), Billing -> Billing export -> BigQuery export -> **Standard usage cost** enabled to that dataset (FOCUS export not enabled, not needed).
+The service account `recaptool@recaptool-514214.iam.gserviceaccount.com` (key outside the repo: `~/keys/recaptool-sa.json`, `GCP_SERVICE_ACCOUNT_FILE` in `backend/.env`) has BigQuery Data Viewer on the dataset + BigQuery Job User; checked 2026-11-10: the dataset is readable (REST `bigquery/v2`), **no tables yet** (Google fills the export a few hours to a day after enabling; the US multi-region dataset should back-fill this and last month).
+Expected table: `gcp_billing_export_v1_<BILLING_ACCOUNT_ID>` (name from memory, check). The export is a DAILY per-SKU view, not live: keep the live budget gate on our own token counts and use the export as a check.
+**Next (when the table has rows):** inspect the real columns (cost, credits, SKU, usage dates; Gemini API vs Cloud TTS SKUs), build a reader (BigQuery REST query with the service account, cached) and an admin card "our token cost vs Google's charge, per day" to catch wrong prices / the 2027-01-01 price change. Open question: whether prepaid deposits / the remaining balance appear in the export (probably only charges and credits): if not, the balance stays typed by hand in the Budget gate.
+
 ### Progress UI
 The source video previews as soon as a file is chosen; on Generate the player shows a spinner overlay + Cancel and a step
 checklist (upload %, subtitles/cuts, translate, voice, fit, render) with the live stage text and an elapsed timer. Backend progress:
@@ -381,6 +388,7 @@ Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user 
 - 2026-11-08 (b): form checkboxes moved to the editor (Look & sound), watermark blur + flip default off, subtitles-only offered in recap mode too, louder/gentler-ducked original effects + volume slider.
 - 2026-11-09: admin dashboard as a separate app `admin/` (own sub-domain, own login, Myanmar + English): overview, users, jobs, voice models, audit log, runtime settings; backend package `backend/admin/`. Voice models page shows our counters + Google's own limit words (learned from 429s) + `models.list` check + real limits/usage via Service Usage/Cloud Monitoring (needs GCP service account; unverified with real credentials).
 
+- 2026-11-10: Google billing export to BigQuery (`billing_export`, standard usage cost) enabled, service account has read access; waiting for the first tables; reader not built.
 - 2026-11-09: real token usage + cost per video (`usage.py`), prices/rate editable in admin, budget gate uses measured real cost; voice-change warning when a model switch happens mid-video.
 - 2026-11-09: admission control (`capacity.py`): money budget gate + per-video voice-request reservation + "server busy" 503 + admin alerts; settings in admin.
 - 2026-11-09: Google Cloud TTS added to the voice pool as a fallback after the AI Studio models (`cloud_tts.py`).
