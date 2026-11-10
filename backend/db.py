@@ -123,6 +123,16 @@ def used_seconds_month(s, user_id: int | None = None) -> float:
     return float(s.execute(q).scalar_one())
 
 
+ADMISSION_LOCK_ID = 727001
+
+
+def lock_admission(s) -> None:
+    """Serialise 'check the limits, then create the job' across ALL API processes (released at commit/rollback).
+    Postgres: advisory lock. SQLite (dev, one process): the caller also holds capacity.lock, and the write lock covers the rest."""
+    if engine.dialect.name == "postgresql":
+        s.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": ADMISSION_LOCK_ID})
+
+
 def active_jobs(s, user_id: int) -> int:
     return int(s.execute(select(func.count()).select_from(Job).where(
         Job.user_id == user_id, Job.status.in_(("queued", "running")))).scalar_one())

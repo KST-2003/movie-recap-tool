@@ -25,7 +25,7 @@ import jobs_queue
 import looks
 import storage
 from common import media_duration, tts_provider
-from db import Job, Session, User, active_jobs, month_start, used_seconds_month, used_seconds_today, utcnow
+from db import Job, Session, User, active_jobs, lock_admission, month_start, used_seconds_month, used_seconds_today, utcnow
 from voices import VOICES, VOICE_NAMES
 
 import logging
@@ -352,22 +352,9 @@ def create_job(
             raise HTTPException(status_code=413, detail=f"Videos can be at most {MAX_VIDEO_MINUTES:g} minutes long.")
         job_id = uuid.uuid4().hex[:12]
         with Session() as s:
-            month_used = used_seconds_month(s, user.id)
-            if month_used + seconds > user.monthly_minutes * 60:
-                left = max(0, user.monthly_minutes * 60 - month_used)
-                raise HTTPException(status_code=402, detail=(
-                    f"Monthly limit reached: {left / 60:.1f} of your {user.monthly_minutes} minutes left this month, "
-                    f"this video is {seconds / 60:.1f} minutes."))
-            used = used_seconds_today(s, user.id)
-            if used + seconds > user.daily_minutes * 60:
-                left = max(0, user.daily_minutes * 60 - used)
-                raise HTTPException(status_code=402, detail=(
-                    f"Daily limit reached: {left / 60:.1f} of your {user.daily_minutes} minutes left today, "
-                    f"this video is {seconds / 60:.1f} minutes."))
-            cap = runtime_settings.global_daily_minutes()
-            if cap and used_seconds_today(s) + seconds > cap * 60:
-                raise HTTPException(status_code=503, detail="We've reached today's capacity. Please try again tomorrow.")
-            with capacity.lock:   # decide + create the job as one step, so a burst of uploads cannot all be admitted
+            with capacity.lock:   # ONE critical section: re-check every limit, decide, create the job. Parallel uploads cannot all pass.
+                lock_admission(s)
+                _check_limits(s, user, seconds)
                 verdict = capacity.decide(s, seconds, params.get("output"), params.get("mode"))
                 if not verdict["ok"]:
                     capacity.refuse(verdict["reason"])
@@ -384,6 +371,27 @@ def create_job(
         raise
     jobs_queue.enqueue(job_id)
     return {"job_id": job_id}
+
+
+def _check_limits(s, user: User, seconds: float):
+    """Per-user and global limits. Must run inside the admission lock, in the same transaction that creates the job."""
+    if active_jobs(s, user.id) >= MAX_ACTIVE_JOBS_PER_USER:
+        raise HTTPException(status_code=429, detail="You already have videos processing. Wait for one to finish.")
+    month_used = used_seconds_month(s, user.id)
+    if month_used + seconds > user.monthly_minutes * 60:
+        left = max(0, user.monthly_minutes * 60 - month_used)
+        raise HTTPException(status_code=402, detail=(
+            f"Monthly limit reached: {left / 60:.1f} of your {user.monthly_minutes} minutes left this month, "
+            f"this video is {seconds / 60:.1f} minutes."))
+    used = used_seconds_today(s, user.id)
+    if used + seconds > user.daily_minutes * 60:
+        left = max(0, user.daily_minutes * 60 - used)
+        raise HTTPException(status_code=402, detail=(
+            f"Daily limit reached: {left / 60:.1f} of your {user.daily_minutes} minutes left today, "
+            f"this video is {seconds / 60:.1f} minutes."))
+    cap = runtime_settings.global_daily_minutes()
+    if cap and used_seconds_today(s) + seconds > cap * 60:
+        raise HTTPException(status_code=503, detail="We've reached today's capacity. Please try again tomorrow.")
 
 
 def _refuse_if_voice_limit():
@@ -534,9 +542,13 @@ def rerender(job_id: str, body: RerenderBody, user: User = Depends(auth.current_
                       "tts_model": project.get("tts_model")}
     new_id = uuid.uuid4().hex[:12]
     with Session() as s:
-        s.add(Job(id=new_id, user_id=user.id, status="queued", params=params, data={},
-                  input_key=job.input_key, logo_key=job.logo_key, charged_seconds=0.0))
-        s.commit()
+        with capacity.lock:
+            lock_admission(s)
+            if active_jobs(s, user.id) >= MAX_ACTIVE_JOBS_PER_USER:   # re-checked under the lock: parallel clicks cannot pass together
+                raise HTTPException(status_code=429, detail="You already have videos processing. Wait for one to finish.")
+            s.add(Job(id=new_id, user_id=user.id, status="queued", params=params, data={},
+                      input_key=job.input_key, logo_key=job.logo_key, charged_seconds=0.0))
+            s.commit()
     jobs_queue.enqueue(new_id)
     return {"job_id": new_id}
 
