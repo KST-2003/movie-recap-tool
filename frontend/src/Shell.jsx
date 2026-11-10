@@ -71,9 +71,9 @@ export default function Shell({ view, setView, account, onLogout, children }) {
   const left = account ? Math.floor(account.remaining_seconds / 60) : null;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white font-sans lg:flex">
+    <div className="min-h-screen bg-slate-950 text-white font-sans lg:flex lg:h-screen lg:overflow-hidden">
       {/* Wide screens: fixed sidebar */}
-      <aside className="hidden lg:block w-64 shrink-0 border-r border-slate-800 bg-slate-900 sticky top-0 h-screen overflow-y-auto">
+      <aside className="hidden lg:block w-64 shrink-0 h-full border-r border-slate-800 bg-slate-900 overflow-y-auto">
         <SidebarBody view={view} setView={setView} account={account} onLogout={onLogout} />
       </aside>
 
@@ -96,7 +96,7 @@ export default function Shell({ view, setView, account, onLogout, children }) {
         </div>
       )}
 
-      <main className="flex-1 min-w-0 p-4 sm:p-6">{children}</main>
+      <main className="flex-1 min-w-0 p-4 sm:p-6 lg:h-full lg:overflow-y-auto">{children}</main>
     </div>
   );
 }

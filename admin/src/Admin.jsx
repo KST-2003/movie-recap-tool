@@ -59,8 +59,8 @@ export default function Admin({ account, onLogout }) {
   );
 
   return (
-    <div className="min-h-screen bg-slate-950 font-sans text-white md:flex">
-      <aside className="sticky top-0 hidden h-screen w-60 flex-shrink-0 flex-col border-r border-slate-800 bg-slate-900 p-4 md:flex">
+    <div className="min-h-screen bg-slate-950 font-sans text-white md:flex md:h-screen md:overflow-hidden">
+      <aside className="hidden h-full w-60 flex-shrink-0 flex-col border-r border-slate-800 bg-slate-900 p-4 md:flex">
         <div className="mb-6 text-lg font-bold text-purple-400">🎬 {tr('Admin')}</div>
         {nav}{footer}
       </aside>
@@ -76,7 +76,7 @@ export default function Admin({ account, onLogout }) {
         </div>
       )}
 
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 md:h-full md:overflow-y-auto">
         <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-slate-800 bg-slate-950/90 px-4 py-3 backdrop-blur">
           <button onClick={() => setDrawer(true)} aria-label={tr('Menu')} className="rounded-lg p-1.5 text-slate-300 hover:bg-slate-800 md:hidden"><Menu size={20} /></button>
           <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">{title}</h1>
