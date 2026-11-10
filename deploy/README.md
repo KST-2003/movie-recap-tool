@@ -66,8 +66,16 @@ Tested on 2026-11-10 with the real Caddy image against a stand-in API (nothing p
 a login body over 64 KB and an upload over the limit get `413`, normal requests pass, a forged `X-Forwarded-For` is replaced by the real address,
 the headers and CSP are sent, hashed files are cached as immutable, deep links fall back to the app, the admin site is `noindex`.
 
-**Not tested:** real certificates (needs public DNS), the full stack with Postgres / Redis / workers, and the CSP in a real browser (click through
-login, upload, preview, editor and the admin pages with the console open and look for `Refused to ...` lines before launch).
+**The CSP was tested in a real browser** (2026-11-10, `backend/browser_check_csp.py`: headless Chrome against the apps served by this Caddyfile over HTTPS with the
+hardened backend image behind it, 25 of 25 checks): normal use of both apps (sign-in, `blob:` video and logo previews, the usage page, all 8 admin pages)
+produces **0 policy violations**; 15 injection attempts (inline / external script, `eval`, `new Function`, `onerror`, `javascript:`, and fetch / image /
+beacon / WebSocket / stylesheet / iframe / object / form / `<base>` to an attacker's server) are all blocked and the attacker's server received nothing.
+A control with the policy switched off in the same page shows the same attacks DO work without it. Re-run it after any change to the policy or the apps
+(`python browser_check_csp.py`, see its docstring); `test_frontend_guards.py` fails if the policy is loosened or an XSS-prone code pattern is added.
+Not covered: the editor page (needs a finished video, which costs a Gemini run), other browsers, a real domain.
+
+**Not tested:** real certificates (needs public DNS) and the full stack with Postgres / Redis / workers. Note for your own tests: with `--read-only` a root-owned
+`tmpfs` mounted on `/app/data`, `/app/uploads` or `/app/outputs` is NOT writable by the app user; use named volumes like `docker-compose.yml` does.
 
 ## Other proxies (nginx etc.)
 Same rules: `client_max_body_size 1049m;` (and `64k` in `location /api/auth/`), `proxy_set_header X-Forwarded-For $remote_addr;` (REPLACE, do not append
