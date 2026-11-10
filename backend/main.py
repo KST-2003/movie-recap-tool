@@ -1,5 +1,5 @@
 import json
-from config import (ALLOW_SIGNUP, CORS_ORIGINS, DEFAULT_DAILY_MINUTES, FILE_TTL_HOURS,
+from config import (ALLOW_SIGNUP, CORS_ORIGINS, DEFAULT_DAILY_MINUTES, FILE_TTL_HOURS, SIGNUP_DAILY_MINUTES, SIGNUP_MAX_PER_DAY, SIGNUP_MONTHLY_MINUTES,
                     LOGOS_DIR, MAX_ACTIVE_JOBS_PER_USER, MAX_UPLOAD_MB, MAX_VIDEO_MINUTES,
                     OUTPUT_DIR, SIGNED_URL_SECONDS, UPLOAD_DIR)
 
@@ -19,6 +19,7 @@ from sqlalchemy import func, select
 
 import auth
 from admin import router as admin_router, settings as runtime_settings
+import alerts
 import capacity
 import edit_limits
 import usage as usage_log   # (main.py has an endpoint function called usage)
@@ -134,12 +135,22 @@ def register(body: Credentials, request: Request):
         raise HTTPException(status_code=400, detail="Enter a valid email address.")
     if len(body.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+    password_hash = auth.hash_password(body.password)   # slow on purpose: done before taking the lock
     with Session() as s:
-        if s.execute(select(User).where(User.email == email)).scalar_one_or_none():
-            raise HTTPException(status_code=409, detail="That email is already registered.")
-        user = User(email=email, password_hash=auth.hash_password(body.password), daily_minutes=DEFAULT_DAILY_MINUTES)
-        s.add(user)
-        s.commit()
+        with capacity.lock:   # the daily cap is checked and the account created as one step: a burst cannot exceed it
+            lock_admission(s)
+            if s.execute(select(User).where(User.email == email)).scalar_one_or_none():
+                raise HTTPException(status_code=409, detail="That email is already registered.")
+            if SIGNUP_MAX_PER_DAY:
+                today = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+                made = s.execute(select(func.count()).select_from(User).where(User.created_at >= today)).scalar_one()
+                if made >= SIGNUP_MAX_PER_DAY:
+                    alerts.raise_alert("signups", f"{made} accounts were created today (limit {SIGNUP_MAX_PER_DAY}): new sign-ups are paused until tomorrow. "
+                                                  "Raise SIGNUP_MAX_PER_DAY if this is real growth, otherwise someone is mass-registering.")
+                    raise HTTPException(status_code=503, detail="Sign-ups are very busy today. Please try again tomorrow.")
+            user = User(email=email, password_hash=password_hash, daily_minutes=SIGNUP_DAILY_MINUTES, monthly_minutes=SIGNUP_MONTHLY_MINUTES)
+            s.add(user)
+            s.commit()
     return {"token": auth.make_token(user), "email": email, "is_admin": False, **_quota(user)}
 
 

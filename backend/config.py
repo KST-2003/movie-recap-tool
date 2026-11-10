@@ -20,6 +20,10 @@ QUEUE_MODE = os.getenv("QUEUE_MODE", "rq" if REDIS_URL else "inline")  # inline 
 ALLOW_SIGNUP = os.getenv("ALLOW_SIGNUP", "true").lower() == "true"
 DEFAULT_DAILY_MINUTES = int(os.getenv("DEFAULT_DAILY_MINUTES", "100"))   # per user, per UTC day
 DEFAULT_MONTHLY_MINUTES = int(os.getenv("DEFAULT_MONTHLY_MINUTES", "2000"))   # per user, per UTC calendar month
+# Self-service sign-ups get a small TRIAL allowance (an admin raises it in the dashboard); accounts made by an admin / manage.py get the defaults above.
+SIGNUP_DAILY_MINUTES = int(os.getenv("SIGNUP_DAILY_MINUTES", "10"))
+SIGNUP_MONTHLY_MINUTES = int(os.getenv("SIGNUP_MONTHLY_MINUTES", "30"))
+SIGNUP_MAX_PER_DAY = int(os.getenv("SIGNUP_MAX_PER_DAY", "100"))   # new accounts per UTC day, all addresses together (0 = no cap): a circuit breaker
 MAX_VIDEO_MINUTES = float(os.getenv("MAX_VIDEO_MINUTES", "15"))         # per single upload
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "1024"))
 MAX_ACTIVE_JOBS_PER_USER = int(os.getenv("MAX_ACTIVE_JOBS_PER_USER", "2"))

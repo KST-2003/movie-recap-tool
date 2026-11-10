@@ -256,6 +256,7 @@ const SERVER = [
   [/^Monthly limit reached: ([\d.]+) of your (\d+) minutes left this month, this video is ([\d.]+) minutes\.$/,
     'ယခုလ ကန့်သတ်ချက် ပြည့်သွားပြီ — သင့်ထံ ကျန်ချိန် $2 မိနစ်အနက် $1 မိနစ်သာ ကျန်ပြီး ဤဗီဒီယိုမှာ $3 မိနစ် ရှည်ပါသည်။'],
   [/^Too many attempts\. Try again in (\d+) minutes?\.$/, 'ကြိုးစားမှု များလွန်းနေပါသည်။ $1 မိနစ်အကြာတွင် ပြန်ကြိုးစားပါ။'],
+  [/^Sign-ups are very busy today\. Please try again tomorrow\.$/, 'ယနေ့ အကောင့်သစ်ဖွင့်သူ များပြားနေပါသည်။ မနက်ဖြန် ပြန်ကြိုးစားပါ။'],
   [/^Password can be at most (\d+) characters\.$/, 'စကားဝှက်သည် အက္ခရာ $1 လုံးထက် မပိုရပါ။'],
   [/^(Session expired\. Please log in again\.|Please log in\.|Account unavailable\.)$/, 'အကောင့်ဝင်ချိန် ကုန်သွားပါပြီ။ ပြန်လည်ဝင်ရောက်ပါ။'],
   [/^That file type is not supported\. Use MP4, MOV, MKV, WebM, AVI, FLV or TS\.$/, 'ဤဖိုင်အမျိုးအစားကို မထောက်ပံ့ပါ။ MP4၊ MOV၊ MKV၊ WebM၊ AVI၊ FLV သို့မဟုတ် TS ကို အသုံးပြုပါ။'],
