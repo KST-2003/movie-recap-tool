@@ -5,6 +5,7 @@ Subtitles are text that sits at one vertical position but changes between frames
 text that stays put and does not change.
 """
 import cv2
+from safe_media import SAFE_IN
 
 _ocr = None
 
@@ -129,7 +130,7 @@ def subtitle_windows(video_path: str, duration: float, rect, step: float | None 
     import subprocess
     import numpy as np
     try:
-        info = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+        info = subprocess.run(["ffprobe", *SAFE_IN, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
                                "-of", "csv=p=0", video_path], capture_output=True, text=True, timeout=30).stdout.strip().split(",")
         W, H = int(info[0]), int(info[1])
         step = step or max(0.5, duration / 700.0)          # <= ~700 samples however long the video is
@@ -141,7 +142,7 @@ def subtitle_windows(video_path: str, duration: float, rect, step: float | None 
         cap_w = 640                                              # keep the detector input small
         out_w = min(cw, cap_w) // 2 * 2
         out_h = max(int(ch * out_w / cw) // 2 * 2, 16)
-        cmd = ["ffmpeg", "-loglevel", "error", "-i", video_path, "-an", "-vf",
+        cmd = ["ffmpeg", "-loglevel", "error", *SAFE_IN, "-i", video_path, "-an", "-vf",
                f"fps=1/{step:.4f},crop={cw}:{ch}:{int(x0 * W)}:{int(y0 * H)},scale={out_w}:{out_h}",
                "-f", "rawvideo", "-pix_fmt", "bgr24", "-"]
         raw = subprocess.run(cmd, capture_output=True, timeout=max(120, duration * 0.5)).stdout

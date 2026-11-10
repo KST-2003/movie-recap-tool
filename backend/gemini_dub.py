@@ -8,6 +8,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 from gemini_tts import get_text_client as _get_client
+from safe_media import SAFE_IN
 
 MODEL = os.getenv("GEMINI_DUB_MODEL", "gemini-3.8-flash")
 CHUNK_SECONDS = float(os.getenv("GEMINI_DUB_CHUNK_SECONDS", "75"))
@@ -43,7 +44,7 @@ def _run(cmd: list[str], timeout: int = 300) -> subprocess.CompletedProcess:
 
 def _duration(path: str) -> float:
     out = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+        ["ffprobe", *SAFE_IN, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
         capture_output=True, text=True, check=True, timeout=30,
     )
     return float(out.stdout.strip())
@@ -293,7 +294,7 @@ def dub(video_path: str, target_language: str, timeout_seconds: int = 600,
     attempts = retries or int(os.getenv("GEMINI_DUB_RETRIES", "6"))
     with tempfile.TemporaryDirectory() as tmp:
         audio = os.path.join(tmp, "audio.mp3")
-        _run(["ffmpeg", "-y", "-i", video_path, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "48k", audio])
+        _run(["ffmpeg", "-y", *SAFE_IN, "-i", video_path, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "48k", audio])
         chunks = _plan_chunks(audio, _duration(audio))
         paths = []
         for n, (a, b) in enumerate(chunks):

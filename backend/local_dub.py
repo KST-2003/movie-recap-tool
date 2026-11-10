@@ -2,6 +2,7 @@
 import os
 import subprocess
 import tempfile
+from safe_media import SAFE_IN
 
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small")
 NLLB_MODEL = os.getenv("NLLB_MODEL", "facebook/nllb-200-distilled-600M")
@@ -59,7 +60,7 @@ def dub(video_path: str, target_language: str) -> tuple[str | None, list[dict]]:
     with tempfile.TemporaryDirectory() as tmp:
         wav = os.path.join(tmp, "audio.wav")
         subprocess.run(
-            ["ffmpeg", "-y", "-i", video_path, "-vn", "-ac", "1", "-ar", "16000", wav],
+            ["ffmpeg", "-y", *SAFE_IN, "-i", video_path, "-vn", "-ac", "1", "-ar", "16000", wav],
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True, timeout=300,
         )
         segs, info = _get_whisper().transcribe(wav, vad_filter=True, beam_size=5)

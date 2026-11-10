@@ -1,13 +1,17 @@
 """Small helpers shared by the API and the workers (kept free of heavy imports)."""
 import os
-import subprocess
 
 import gemini_tts
+import subprocess
+
+import safe_media
+from safe_media import SAFE_IN
 
 
 def media_duration(path: str) -> float:
+    """Length of a media file in seconds (the server's own audio clips and the already-validated video). Protocol-restricted."""
     result = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", path],
+        ["ffprobe", *SAFE_IN, "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", path],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -15,6 +19,11 @@ def media_duration(path: str) -> float:
         check=True,
     )
     return float(result.stdout.strip())
+
+
+def upload_duration(path: str) -> float:
+    """Length of a file a USER uploaded. This is the upload gate: only real video containers pass (raises safe_media.UnsafeMedia)."""
+    return safe_media.inspect_video(path)["duration"]
 
 
 def tts_provider() -> str:

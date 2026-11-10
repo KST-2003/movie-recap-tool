@@ -23,9 +23,10 @@ import capacity
 import edit_limits
 import usage as usage_log   # (main.py has an endpoint function called usage)
 import jobs_queue
+import safe_media
 import looks
 import storage
-from common import media_duration, tts_provider
+from common import tts_provider, upload_duration
 from db import Job, Session, User, active_jobs, lock_admission, month_start, used_seconds_month, used_seconds_today, utcnow
 from voices import VOICES, VOICE_NAMES
 
@@ -346,9 +347,17 @@ def create_job(
     logo_path = save_upload(custom_logo, LOGOS_DIR, 20) if custom_logo else None
     try:
         try:
-            seconds = media_duration(video_path)
+            seconds = upload_duration(video_path)
+        except safe_media.UnsafeMedia as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
         except Exception:
             raise HTTPException(status_code=400, detail="That file doesn't look like a valid video.")
+        if logo_path:   # decode + re-save as a fresh PNG: the uploaded bytes never reach ffmpeg
+            try:
+                logo_path = safe_media.clean_logo(logo_path)
+            except safe_media.UnsafeMedia as exc:
+                logo_path = None
+                raise HTTPException(status_code=400, detail=str(exc))
         if seconds > MAX_VIDEO_MINUTES * 60:
             raise HTTPException(status_code=413, detail=f"Videos can be at most {MAX_VIDEO_MINUTES:g} minutes long.")
         job_id = uuid.uuid4().hex[:12]

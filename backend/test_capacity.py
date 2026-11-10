@@ -20,7 +20,7 @@ from admin import settings as S  # noqa: E402
 from db import Job, Session, User, update_job  # noqa: E402
 
 main.jobs_queue.enqueue = lambda job_id: None
-main.media_duration = lambda path: 600.0   # every video is 10 minutes
+main.upload_duration = lambda path: 600.0   # every video is 10 minutes
 sent = []
 alerts._send = lambda m: sent.append(m)
 

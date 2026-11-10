@@ -19,7 +19,7 @@ import main  # noqa: E402
 from db import Job, Session, User  # noqa: E402
 
 main.jobs_queue.enqueue = lambda job_id: None      # jobs stay 'queued' = they count as active
-main.media_duration = lambda path: 600.0           # every video is 10 minutes
+main.upload_duration = lambda path: 600.0           # every video is 10 minutes
 _decide = capacity.decide
 
 

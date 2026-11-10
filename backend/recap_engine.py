@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 
 from PIL import Image, ImageDraw, ImageFont
+from safe_media import SAFE_IN
 
 BREATH = 0.10  # silence kept after each voice clip so clips never run together
 MIN_SCENE = 0.05
@@ -335,7 +336,7 @@ def build_caption_track(cues, total_len: float, work_dir: str, tag: str, width: 
 # ---------- render ----------
 
 def has_audio(path: str) -> bool:
-    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=index",
+    out = subprocess.run(["ffprobe", *SAFE_IN, "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=index",
                           "-of", "csv=p=0", path], capture_output=True, text=True, timeout=30)
     return bool(out.stdout.strip())
 
@@ -375,7 +376,7 @@ def plan_source_timing(segments: list[dict], video_duration: float) -> list[Scen
 
 def probe_video(path: str) -> dict:
     out = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+        ["ffprobe", *SAFE_IN, "-v", "error", "-select_streams", "v:0", "-show_entries",
          "stream=width,height,r_frame_rate:format=duration", "-of", "json", path],
         capture_output=True, text=True, check=True, timeout=30).stdout
     info = json.loads(out)
@@ -413,7 +414,7 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
     speed = min(max(fx.speed, 0.5), 2.0)
     total_len = sum(s.out_len for s in scenes) / speed
 
-    cmd = ["ffmpeg", "-y"] + (["-ss", f"{src_offset:.3f}"] if src_offset else []) + ["-i", video_path]
+    cmd = ["ffmpeg", "-y"] + (["-ss", f"{src_offset:.3f}"] if src_offset else []) + [*SAFE_IN, "-i", video_path]
     audio_inputs: dict[int, int] = {}
     nxt = 1
     for sc in scenes:
@@ -423,7 +424,7 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
             nxt += 1
     logo_idx = None
     if fx.logo_path and os.path.exists(fx.logo_path):
-        cmd += ["-i", fx.logo_path]
+        cmd += [*SAFE_IN, "-i", fx.logo_path]
         logo_idx = nxt
         nxt += 1
 
