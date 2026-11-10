@@ -2,6 +2,11 @@
 # Scale workers with:  docker compose up -d --scale worker=4   (each worker = one job at a time)
 # For several machines: run api + redis + postgres on one, and only `worker` on the others, with
 # STORAGE_BACKEND=s3 and REDIS_URL / DATABASE_URL pointing at the first machine.
+# Set POSTGRES_PASSWORD and REDIS_PASSWORD before `docker compose up` (shell env or a .env file next to this one):
+#   POSTGRES_PASSWORD=... REDIS_PASSWORD=... docker compose up -d --build
+# Redis has NO password by default in the base image; anything on the compose network could otherwise read/write the job
+# queue, rate-limit counters and quota reservations. mem_limit on every service stops one bad file / burst of load from
+# exhausting the host and taking down everything else on it (tune for your machine; worker needs the most: ffmpeg + Demucs).
 # Containers that decode files uploaded by strangers (api, worker) run locked down: read-only root file system (they write only to /tmp, which is
 # memory, and to the three volumes), no Linux capabilities, no privilege gain. A bug in ffmpeg then cannot change the image or become root.
 # Checked 2026-11-10 with `docker run` and the same flags: the app starts, test_modes / test_editor / test_media_safety pass.
@@ -15,23 +20,26 @@ x-hardened: &hardened
 services:
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD}"]
     volumes: ["redis-data:/data"]
+    mem_limit: 512m
   postgres:
     image: postgres:16-alpine
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       POSTGRES_DB: recap
     volumes: ["pg-data:/var/lib/postgresql/data"]
+    mem_limit: 1g
   api:
     <<: *hardened
     build: ./backend
     env_file: ./backend/.env
     environment:
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD}@postgres:5432/recap
     ports: ["8000:8000"]
     depends_on: [redis, postgres]
+    mem_limit: 2g
     # app-data is shared with the workers: the admin dashboard's runtime settings, the voice-quota counters and the alerts are files in /app/data
     volumes: ["shared-files:/app/uploads", "shared-outputs:/app/outputs", "app-data:/app/data"]
   worker:
@@ -40,9 +48,10 @@ services:
     command: ["./run_worker.sh"]
     env_file: ./backend/.env
     environment:
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD}@postgres:5432/recap
     depends_on: [redis, postgres]
+    mem_limit: 6g
     volumes: ["shared-files:/app/uploads", "shared-outputs:/app/outputs", "app-data:/app/data"]
 volumes:
   redis-data:

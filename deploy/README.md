@@ -13,6 +13,9 @@ browser ──HTTPS──> Caddy ──> app.example.com    static files  fronte
 1. **DNS:** three names (for example `app.`, `admin.`, `api.` + your domain) pointing at the server's public address. Ports 80 and 443 open.
 2. **Backend settings** (`backend/.env`, see `backend/.env.example`). These matter for security, none has a safe default for production:
    - `SECRET_KEY` (long random string), `DATABASE_URL` (Postgres), `REDIS_URL` (also shares the login limits between workers), `STORAGE_BACKEND`.
+   - `POSTGRES_PASSWORD` and `REDIS_PASSWORD` (shell env or a `.env` next to `docker-compose.yml`): `docker compose up` refuses to start without
+     them. Redis has no password in the base image; without `REDIS_PASSWORD` anything on the compose network could read/write the job queue and
+     the login rate-limit counters. `mem_limit` is set on every service so one bad upload can't take down the whole host.
    - `TRUSTED_PROXIES`: the compose override sets it for you (`172.16.0.0/12`). Without it every visitor looks like the proxy and shares one login limit.
    - `CORS_ORIGINS` and `ADMIN_ORIGINS`: the override sets them from `APP_DOMAIN` and `ADMIN_DOMAIN`. Logins are **httpOnly cookies** (not a token in
      `localStorage`), and the two apps share the API's cookie jar, so the API accepts admin sessions only from `ADMIN_ORIGINS`. Without that
