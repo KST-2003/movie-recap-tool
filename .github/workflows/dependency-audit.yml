@@ -1,0 +1,123 @@
+# Recurring dependency-vulnerability check (pip-audit for the backend, npm audit for both front ends).
+# Added 2026-11-10 after a manual audit found 65 advisories in four old Python pins and an esbuild dev-server
+# issue; both were fixed, but that result decays as new CVEs land, so this runs on a schedule, not just once.
+#
+# - Weekly schedule: catches a newly disclosed CVE in an already-pinned dependency (nothing in the repo changed).
+# - On every PR that touches a dependency file: catches a new vulnerability being introduced by a version bump.
+# - manual (workflow_dispatch): run it on demand.
+#
+# A finding fails the job (visible as a red check on a PR). On the SCHEDULED run specifically, a finding also
+# files/updates one tracking issue labelled "dependency-audit" (not on every PR -- that would spam an issue per push).
+name: Dependency audit
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # every Monday 06:00 UTC
+  pull_request:
+    paths:
+      - "backend/requirements.txt"
+      - "backend/requirements-prod.txt"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "admin/package.json"
+      - "admin/package-lock.json"
+      - ".github/workflows/dependency-audit.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  audit:
+    name: pip-audit + npm audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: pip-audit (backend/requirements-prod.txt)
+        id: pip
+        continue-on-error: true
+        run: |
+          python -m venv /tmp/audit-venv
+          /tmp/audit-venv/bin/pip install -q --upgrade pip
+          /tmp/audit-venv/bin/pip install -q -r backend/requirements-prod.txt
+          /tmp/audit-venv/bin/pip install -q pip-audit
+          /tmp/audit-venv/bin/pip-audit --path /tmp/audit-venv/lib/python3.11/site-packages 2>&1 | tee pip-audit.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: npm audit (frontend)
+        id: npm_frontend
+        continue-on-error: true
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm audit 2>&1 | tee ../npm-audit-frontend.txt
+
+      - name: npm audit (admin)
+        id: npm_admin
+        continue-on-error: true
+        working-directory: admin
+        run: |
+          npm ci --no-audit --no-fund
+          npm audit 2>&1 | tee ../npm-audit-admin.txt
+
+      - name: Summarise
+        if: always()
+        run: |
+          {
+            echo "## Dependency audit"
+            echo
+            echo "| Check | Result |"
+            echo "|---|---|"
+            echo "| pip-audit (backend) | ${{ steps.pip.outcome }} |"
+            echo "| npm audit (frontend) | ${{ steps.npm_frontend.outcome }} |"
+            echo "| npm audit (admin) | ${{ steps.npm_admin.outcome }} |"
+            echo
+            for f in pip-audit.txt npm-audit-frontend.txt npm-audit-admin.txt; do
+              if [ -f "$f" ]; then
+                echo "<details><summary>$f</summary>"
+                echo
+                echo '```'
+                tail -c 20000 "$f"
+                echo '```'
+                echo "</details>"
+                echo
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: File or update a tracking issue (scheduled runs only)
+        if: always() && github.event_name == 'schedule' && (steps.pip.outcome == 'failure' || steps.npm_frontend.outcome == 'failure' || steps.npm_admin.outcome == 'failure')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          body="Weekly dependency audit found new issue(s) on $(date -u +%Y-%m-%d). See the job summary for the run:
+          ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          | Check | Result |
+          |---|---|
+          | pip-audit (backend) | ${{ steps.pip.outcome }} |
+          | npm audit (frontend) | ${{ steps.npm_frontend.outcome }} |
+          | npm audit (admin) | ${{ steps.npm_admin.outcome }} |
+
+          Re-run \`pip-audit\` / \`npm audit\` locally, upgrade the affected package(s), close this issue once clean."
+          existing=$(gh issue list --repo "${{ github.repository }}" --label dependency-audit --state open --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "${{ github.repository }}" --body "$body"
+          else
+            gh issue create --repo "${{ github.repository }}" --title "Dependency audit: new vulnerability found" --label dependency-audit --body "$body"
+          fi
+
+      - name: Fail the job if anything was found
+        if: steps.pip.outcome == 'failure' || steps.npm_frontend.outcome == 'failure' || steps.npm_admin.outcome == 'failure'
+        run: |
+          echo "One or more audits found a vulnerability. See the job summary above."
+          exit 1
