@@ -168,8 +168,11 @@ def patch_user(user_id: int, body: UserPatch, admin: User = Depends(require_admi
             if new is not None and new != getattr(user, field):
                 changes[field] = {"from": getattr(user, field), "to": new}
                 setattr(user, field, new)
+                if field in ("is_active", "is_admin"):
+                    auth.revoke_tokens(s, user)   # disabled-then-enabled or promoted/demoted accounts must log in again
         if body.password is not None:
             user.password_hash = auth.hash_password(body.password)
+            auth.revoke_tokens(s, user)   # a password reset signs the account out everywhere
             changes["password_reset"] = True   # the password itself is never stored in the log
         if changes:
             _audit(s, admin, "user.update", "user", user.id, user.email, changes)

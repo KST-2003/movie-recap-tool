@@ -66,6 +66,23 @@ export default function App() {
     return () => axios.interceptors.response.eject(id);
   }, []);
 
+  // Admin tokens last 60 minutes: renew every 10 minutes (and when the tab comes back) while the dashboard is open. A 401 means the session
+  // was cancelled (password reset, demotion, "log out everywhere") or is older than the 12-hour maximum: back to the sign-in screen.
+  useEffect(() => {
+    if (!token) return undefined;
+    let stopped = false;
+    const renew = () => axios.post('/api/auth/refresh').then((r) => {
+      if (stopped) return;
+      saveToken(r.data.token);
+      axios.defaults.headers.common.Authorization = `Bearer ${r.data.token}`;
+      setToken(r.data.token);
+    }).catch((err) => { if (err.response?.status === 401) logout(); });
+    const timer = setInterval(renew, 10 * 60 * 1000);
+    const onVisible = () => { if (document.visibilityState === 'visible') renew(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { stopped = true; clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
+  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // who am I? (also catches a stored token of an account that lost admin rights)
   useEffect(() => {
     if (!token) return;

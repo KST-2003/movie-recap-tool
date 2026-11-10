@@ -123,6 +123,22 @@ function App() {
     return () => axios.interceptors.response.eject(id);
   }, []);
   useEffect(() => { if (token) refreshAccount(); }, [token]);
+  // Keep the session alive while the app is open (admin accounts get 60-minute tokens): renew every 10 minutes and when the tab comes back.
+  // A 401 here means the session was cancelled (password reset, "log out everywhere") or is too old: back to the sign-in screen.
+  useEffect(() => {
+    if (!token) return undefined;
+    let stopped = false;
+    const renew = () => axios.post(`${API_BASE}/api/auth/refresh`).then((r) => {
+      if (stopped) return;
+      localStorage.setItem('token', r.data.token);
+      axios.defaults.headers.common.Authorization = `Bearer ${r.data.token}`;
+      setToken(r.data.token);
+    }).catch((err) => { if (err.response?.status === 401) logout(); });
+    const timer = setInterval(renew, 10 * 60 * 1000);
+    const onVisible = () => { if (document.visibilityState === 'visible') renew(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { stopped = true; clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
+  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
   const absUrl = (u) => (u.startsWith('http') ? u : API_BASE + u);
 
   // Form State

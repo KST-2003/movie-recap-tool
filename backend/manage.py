@@ -40,6 +40,7 @@ def main(argv):
                 user.monthly_minutes = int(args[1])
             else:
                 user.is_active = cmd == "activate"
+                auth.revoke_tokens(s, user)
             s.commit()
             print("ok")
         elif cmd == "set-budget":

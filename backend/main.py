@@ -157,6 +157,23 @@ def login(body: Credentials, request: Request):
     return {"token": auth.make_token(user), "email": user.email, "is_admin": user.is_admin, **_quota(user)}
 
 
+@app.post("/api/auth/refresh")
+def refresh(creds=Depends(auth._bearer)):
+    """A new token for a valid one. The apps call it every few minutes while open, which is what lets admin tokens be short."""
+    user, token = auth.renewed_token(creds)
+    return {"token": token, "is_admin": user.is_admin}
+
+
+@app.post("/api/auth/logout-all")
+def logout_all(user: User = Depends(auth.current_user)):
+    """Cancel every session of this account (this device and all others)."""
+    with Session() as s:
+        row = s.get(User, user.id)
+        auth.revoke_tokens(s, row)
+        s.commit()
+    return {"ok": True}
+
+
 @app.get("/api/auth/me")
 def me(user: User = Depends(auth.current_user)):
     return {"id": user.id, "email": user.email, "is_admin": user.is_admin, **_quota(user)}

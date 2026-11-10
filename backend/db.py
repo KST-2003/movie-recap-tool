@@ -26,6 +26,7 @@ class User(Base):
     monthly_minutes = Column(Integer, default=DEFAULT_MONTHLY_MINUTES, nullable=False)
     is_admin = Column(Boolean, default=False, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    token_version = Column(Integer, default=0, nullable=False)   # bumped to cancel every token issued so far (password reset, disable, promote/demote, log out everywhere)
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
 
@@ -77,6 +78,10 @@ Base.metadata.create_all(engine)
 if "monthly_minutes" not in {c["name"] for c in inspect(engine).get_columns("users")}:
     with engine.begin() as _conn:
         _conn.execute(text(f"ALTER TABLE users ADD COLUMN monthly_minutes INTEGER NOT NULL DEFAULT {int(DEFAULT_MONTHLY_MINUTES)}"))
+
+if "token_version" not in {c["name"] for c in inspect(engine).get_columns("users")}:
+    with engine.begin() as _conn:
+        _conn.execute(text("ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0"))
 
 _COLUMNS = {"status", "stage", "progress", "error"}
 
