@@ -71,8 +71,9 @@ export function Sheet({ title, onClose, children }) {
   const { tr } = useI18n();
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 md:items-center" onClick={onClose}>
-      <div className="max-h-[90vh] w-full overflow-y-auto rounded-t-2xl border border-slate-800 bg-slate-900 p-5 md:max-w-md md:rounded-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-4 flex items-center justify-between gap-2">
+      {/* dvh = the VISIBLE height on phones (vh counts the area behind the address bar, which pushed the top of the sheet off screen) */}
+      <div className="max-h-[85vh] w-full overflow-y-auto overscroll-contain rounded-t-2xl border border-slate-800 bg-slate-900 px-5 pb-8 md:max-w-md md:rounded-2xl md:pb-5" style={{ maxHeight: '85dvh' }} onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 -mx-5 mb-4 flex items-center justify-between gap-2 bg-slate-900 px-5 pb-3 pt-5">
           <h3 className="min-w-0 break-all font-semibold">{title}</h3>
           <button onClick={onClose} aria-label={tr('Close')} className="flex-shrink-0 rounded-lg p-1 text-slate-400 hover:bg-slate-800"><X size={18} /></button>
         </div>
