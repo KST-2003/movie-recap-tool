@@ -11,8 +11,8 @@ tmp = tempfile.mkdtemp()
 os.environ.update(PASSWORD_SCRYPT_LOG2_N="10", PASSWORD_SCRYPT_P="1", AZURE_SPEECH_KEY="", AZURE_SPEECH_REGION="", DATA_DIR=f"{tmp}/data", UPLOAD_DIR=f"{tmp}/up", OUTPUT_DIR=f"{tmp}/out",
                   TTS_PROVIDER="fake", GEMINI_API_KEY="x", DATABASE_URL=f"sqlite:///{tmp}/t.db", GLOBAL_DAILY_MINUTES="0",
                   GCP_PROJECT_ID="", GCP_SERVICE_ACCOUNT_FILE="", ADMIN_WEBHOOK_URL="")
-for k in ("PREVIEWS_PER_VIDEO", "PREVIEWS_PER_DAY", "RERENDERS_PER_VIDEO", "RERENDERS_PER_DAY"):
-    os.environ.pop(k, None)
+# the numbers below are the ones this test was written with; the real defaults are checked at the end
+os.environ.update(PREVIEWS_PER_VIDEO="10", PREVIEWS_PER_DAY="30", RERENDERS_PER_VIDEO="5", RERENDERS_PER_DAY="15")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -148,5 +148,14 @@ with Session() as s:
 ok(rerender(he, "video0000011").status_code == 200, "next day: a new video can be re-rendered again")
 ok(rerender(he, "video0000008", "again").status_code == 429, "but the per-video limit of an old video stays")
 ok(preview(ha, "video0000004", "fresh day").status_code == 200, "next day: previews work again")
+
+# ---- the defaults a fresh install gets (doubled on request) ----
+import subprocess  # noqa: E402
+import sys  # noqa: E402
+
+clean = {k: v for k, v in os.environ.items() if k not in ("PREVIEWS_PER_VIDEO", "PREVIEWS_PER_DAY", "RERENDERS_PER_VIDEO", "RERENDERS_PER_DAY")}
+out = subprocess.run([sys.executable, "-c", "import edit_limits;print(edit_limits.LIMITS['preview'][:2], edit_limits.LIMITS['rerender'][:2])"],
+                     capture_output=True, text=True, env=clean).stdout.strip().splitlines()[-1]
+ok(out == "(20, 60) (10, 30)", f"defaults: previews 20 per video / 60 per day, re-renders 10 per video / 30 per day ({out})")
 
 print("ALL OK")

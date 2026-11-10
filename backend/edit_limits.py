@@ -4,7 +4,7 @@ could use up the shared voice quota (about 100 requests a day per model) and mak
 
 Counted in the DATABASE (survives restarts, shared by all API processes), per user per UTC day and per source video (a re-render of a
 re-render still counts against the original video). Checked and recorded under the same admission lock as uploads, so parallel clicks
-cannot all pass. Env: PREVIEWS_PER_VIDEO=10, PREVIEWS_PER_DAY=30, RERENDERS_PER_VIDEO=5, RERENDERS_PER_DAY=15."""
+cannot all pass. Env: PREVIEWS_PER_VIDEO=20, PREVIEWS_PER_DAY=60, RERENDERS_PER_VIDEO=10, RERENDERS_PER_DAY=30 (doubled on request, 2026-11-10)."""
 import os
 
 from fastapi import HTTPException
@@ -14,8 +14,8 @@ import capacity
 from db import EditUse, Session, lock_admission, utcnow
 
 LIMITS = {   # kind -> (per video, per day, what the user sees)
-    "preview": (int(os.getenv("PREVIEWS_PER_VIDEO", "10")), int(os.getenv("PREVIEWS_PER_DAY", "30")), "voice previews"),
-    "rerender": (int(os.getenv("RERENDERS_PER_VIDEO", "5")), int(os.getenv("RERENDERS_PER_DAY", "15")), "re-renders"),
+    "preview": (int(os.getenv("PREVIEWS_PER_VIDEO", "20")), int(os.getenv("PREVIEWS_PER_DAY", "60")), "voice previews"),
+    "rerender": (int(os.getenv("RERENDERS_PER_VIDEO", "10")), int(os.getenv("RERENDERS_PER_DAY", "30")), "re-renders"),
 }
 
 
