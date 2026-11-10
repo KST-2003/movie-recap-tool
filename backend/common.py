@@ -26,6 +26,22 @@ def upload_duration(path: str) -> float:
     return safe_media.inspect_video(path)["duration"]
 
 
+class UserError(RuntimeError):
+    """An error whose message was written FOR THE USER (no paths, vendors, keys, project ids): safe to show as it is.
+    Every other exception is shown as GENERIC_ERROR and its real text goes to the server log and to the admin only."""
+
+
+GENERIC_ERROR = ("Something went wrong while processing this video. Please try again. "
+                 "If it keeps happening, contact support and quote this code: {ref}")
+
+
+def user_message(exc: BaseException, ref: str) -> str:
+    """What the user is told about a failed job. `ref` (the job id) lets support find the real error in the log / admin page."""
+    if isinstance(exc, (UserError, gemini_tts.QuotaExceeded)):
+        return str(exc)
+    return GENERIC_ERROR.format(ref=ref)
+
+
 def tts_provider() -> str:
     """TTS_PROVIDER=gemini|elevenlabs; default is Gemini when a Google key is present."""
     choice = os.getenv("TTS_PROVIDER", "").lower()

@@ -162,8 +162,8 @@ def all_blocked() -> bool:
 def blocked_message() -> str:
     waits = [gemini_tts.blocked_for(m) for m, _, _ in models()]
     left = min((w for w in waits if w > 0), default=0)
-    return (f"All Gemini voice models have used up their daily request limit (the first one resets in about "
-            f"{int(left // 3600)}h {int(left % 3600 // 60)}m). Upgrade the Gemini tier or try again later.")
+    return (f"The voice service has reached its daily limit (it resets in about "
+            f"{int(left // 3600)}h {int(left % 3600 // 60)}m). Please try again later.")
 
 
 class Chooser:

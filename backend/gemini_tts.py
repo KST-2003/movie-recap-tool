@@ -88,8 +88,8 @@ def learn_limit(error_text: str, model: str | None = None):
 
 def quota_message(model: str | None = None) -> str:
     left = blocked_for(model)
-    return (f"The Gemini voice service's daily request limit is used up (resets in about {int(left // 3600)}h "
-            f"{int(left % 3600 // 60)}m). Upgrade the Gemini tier or try again later.")
+    return (f"The voice service has reached its daily limit (it resets in about {int(left // 3600)}h "
+            f"{int(left % 3600 // 60)}m). Please try again later.")
 # The SDK's own HTTP timeout did not stop a voice request that never answered, so every request runs in a pool thread
 # and we stop waiting after a deadline we control (the hung thread is abandoned; we retry on a fresh one).
 _pool = ThreadPoolExecutor(max_workers=64, thread_name_prefix="tts")

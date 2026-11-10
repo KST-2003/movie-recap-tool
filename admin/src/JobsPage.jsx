@@ -22,7 +22,7 @@ export default function JobsPage({ userFilter, clearUser }) {
   };
   const mode = (j) => [j.mode ? tr(j.mode) : null, j.output === 'subtitles' ? tr('subs only') : null].filter(Boolean).join(' · ');
   const Stage = ({ j }) => (j.status === 'error' && j.error
-    ? <span className="text-red-300" title={j.error}>{trs(j.error)}</span>
+    ? <span className="text-red-300" title={j.error_detail || j.error}>{trs(j.error)}</span>
     : <span className="text-slate-400">{j.status === 'running' ? `${j.progress}% · ${trs(j.stage)}` : trs(j.stage)}</span>);
   const CancelBtn = ({ j }) => ['queued', 'running'].includes(j.status)
     ? <button className={`${btnGhost} !px-2.5 !py-1.5 text-red-300`} onClick={() => cancel(j.id)}><CircleStop size={14} />{tr('Cancel')}</button> : null;

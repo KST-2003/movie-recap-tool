@@ -203,7 +203,7 @@ def list_jobs(status: str = "", user_id: int | None = None, page: int = 1, per_p
         params, data = job.params or {}, job.data or {}
         cost = usage_log.cost_thb(data.get("usage"), table, rate) if data.get("usage") else None
         items.append({"cost_thb": round(cost["thb"], 2) if cost else None, "cost_complete": cost["complete"] if cost else None,"id": job.id, "user_id": job.user_id, "email": email, "status": job.status, "stage": job.stage,
-                      "progress": job.progress, "error": job.error, "mode": params.get("mode"), "output": params.get("output"),
+                      "progress": job.progress, "error": job.error, "error_detail": data.get("error_detail"), "mode": params.get("mode"), "output": params.get("output"),
                       "video_minutes": round((job.charged_seconds or 0) / 60, 1), "run_seconds": data.get("run_seconds"),
                       "created_at": _iso(job.created_at), "finished_at": _iso(job.finished_at)})
     return {"total": total, "page": page, "per_page": per_page, "items": items}

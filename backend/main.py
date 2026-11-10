@@ -11,7 +11,7 @@ import uuid
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from datetime import timedelta, timezone
 
@@ -443,6 +443,15 @@ def _file_url(key: str, download: bool) -> str:
     return f"/api/files/{name}?exp={exp}&sig={sig}" + ("&dl=1" if download else "")
 
 
+@app.exception_handler(Exception)
+async def _unexpected_error(request: Request, exc: Exception):
+    """Anything nobody planned for: log it with a code, tell the caller only the code (never a traceback, path or SQL)."""
+    import traceback
+    ref = uuid.uuid4().hex[:8]
+    print(f"[error {ref}] {request.method} {request.url.path}\n{''.join(traceback.format_exception(exc))}", flush=True)
+    return JSONResponse(status_code=500, content={"detail": f"Something went wrong. Please try again. If it keeps happening, quote this code: {ref}"})
+
+
 WORKERS = int(os.getenv("QUEUE_WORKERS", os.getenv("RECAP_WORKERS", "2")))  # jobs that run at the same time
 DEFAULT_JOB_SECONDS = 300.0
 
@@ -461,9 +470,12 @@ def _queue_info(job: Job) -> dict:
     return {"queue_position": ahead + 1, "eta_seconds": int(waiting_for * avg / WORKERS)}
 
 
+_HIDDEN_FROM_USERS = ("result", "started_at", "run_seconds", "usage", "error_detail")   # internals: cost, raw error text
+
+
 def _job_view(job: Job) -> dict:
     view = {"id": job.id, "status": job.status, "stage": job.stage, "progress": job.progress,
-            "error": job.error, **{k: v for k, v in (job.data or {}).items() if k not in ("result", "started_at", "run_seconds")}}
+            "error": job.error, **{k: v for k, v in (job.data or {}).items() if k not in _HIDDEN_FROM_USERS}}
     if job.status == "queued":
         view.update(_queue_info(job))
     result = (job.data or {}).get("result")
@@ -618,7 +630,10 @@ def preview_line(job_id: str, body: PreviewBody, user: User = Depends(auth.curre
     except Exception as exc:
         for use_id in used:
             edit_limits.refund(use_id)
-        raise HTTPException(status_code=502, detail=f"Voice preview failed: {str(exc)[:160]}")
+        print(f"[preview {job_id}] failed: {exc!r}", flush=True)   # the real reason stays in the server log
+        if isinstance(exc, pipeline.LineBlocked):
+            raise HTTPException(status_code=422, detail="The voice service refused this line. Try different wording.")
+        raise HTTPException(status_code=502, detail="Voice preview failed. Please try again in a moment.")
     return FileResponse(path, media_type="audio/wav")
 
 

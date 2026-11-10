@@ -23,7 +23,7 @@ import gemini_dub
 import gemini_tts
 import local_dub
 import storage
-from common import audio_ext, dub_provider, media_duration, tts_provider
+from common import UserError, audio_ext, dub_provider, media_duration, tts_provider, user_message
 from audio_tools import cleanup_separation, make_soft_tone, mix_music, separate_background
 from config import LOGOS_DIR, OUTPUT_DIR, UPLOAD_DIR
 import usage
@@ -184,7 +184,7 @@ def clip_name(text: str, voice: str, style: str | None = None) -> str:
     return hashlib.sha1(f"{voice}|{text}{'|' + style if style else ''}".encode()).hexdigest() + audio_ext()
 
 
-class JobTooSlow(RuntimeError):
+class JobTooSlow(UserError):
     """The job passed its hard time limit: must stop (never swallowed by the 'skip optional step' handlers)."""
 
 
@@ -214,11 +214,17 @@ JOB_HARD_LIMIT = float(os.getenv("JOB_HARD_LIMIT_SECONDS", "720"))   # a job tha
 _job_started: dict[str, float] = {}
 
 
+def fail_job(job_id: str, exc: BaseException) -> None:
+    """Mark a job failed. The user sees a safe message (+ the job id as a support code); the real error text is kept in the job's
+    data (`error_detail`, shown to admins only) and was printed to the server log by the caller."""
+    update_job(job_id, status="error", error=user_message(exc, job_id), error_detail=f"{exc.__class__.__name__}: {exc}"[:2000])
+
+
 def check_cancelled(job_id: str):
     """Cheap DB look so long loops stop spending TTS/CPU after Cancel (or once the hard time limit has passed)."""
     started = _job_started.get(job_id)
     if started and time.time() - started > JOB_HARD_LIMIT:
-        raise JobTooSlow(f"This video took longer than {JOB_HARD_LIMIT / 60:.0f} minutes (Gemini was slow or busy). "
+        raise JobTooSlow(f"This video took longer than {JOB_HARD_LIMIT / 60:.0f} minutes (the services were slow or busy). "
                            "Please try again; nothing was charged.")
     with Session() as sess:
         job = sess.get(Job, job_id)
@@ -673,7 +679,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                 if not sg["speaker"] and mode == "full":
                     sg["speaker"] = segments[k - 1]["speaker"] if k else None
             if not segments:
-                raise RuntimeError("The edited project has no lines.")
+                raise UserError("The edited project has no lines.")
         with pipeline_stage("Transcribe + Translate"):
             primary = dub_provider()
             runners = {
@@ -776,7 +782,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                     segments[todo[k]]["silent"] = True
                     segments[todo[k]]["style"] = None
                 if len(blocked_idx) > max(5, 0.25 * len(todo)):
-                    raise RuntimeError(f"The voice service failed or refused {len(blocked_idx)} of {len(todo)} lines, so the "
+                    raise UserError(f"The voice service failed or refused {len(blocked_idx)} of {len(todo)} lines, so the "
                                        "film would be mostly silent. Please try again later.")
                 if blocked_idx:
                     when = ", ".join(f"{segments[todo[k]]['start']:.0f}s" for k in blocked_idx[:8])
@@ -944,12 +950,12 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
         print(f"[job {job_id}] cancelled by the user", flush=True)
     except gemini_tts.QuotaExceeded as exc:
         print(f"[job {job_id}] stopped: {exc}", flush=True)
-        update_job(job_id, status="error", error=str(exc))
+        fail_job(job_id, exc)
     except ElevenLabsRateLimited:
         update_job(job_id, status="error", error="ElevenLabs rate-limited this dubbing request. Please retry later.")
     except Exception as exc:
-        print(f"[job {job_id}] FAILED: {exc}", flush=True)
-        update_job(job_id, status="error", error=f"Recap generation failed: {exc}")
+        print(f"[job {job_id}] FAILED: {exc!r}", flush=True)
+        fail_job(job_id, exc)
     finally:
         _job_started.pop(job_id, None)
         if bg_thread:
@@ -982,8 +988,8 @@ def run_job_by_id(job_id: str):
         logo_path = storage.fetch(logo_key, LOGOS_DIR) if logo_key else None
         run_job(job_id, video_path, logo_path, params)
     except Exception as exc:  # e.g. the upload could not be fetched
-        print(f"[job {job_id}] FAILED before start: {exc}", flush=True)
-        update_job(job_id, status="error", error=f"Recap generation failed: {exc}")
+        print(f"[job {job_id}] FAILED before start: {exc!r}", flush=True)
+        fail_job(job_id, exc)
     finally:
         usage.flush(job_id, force=True)   # also for failed / cancelled videos: their tokens were paid
         usage.forget(job_id)
