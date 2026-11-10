@@ -11,7 +11,7 @@ os.environ.update(AZURE_SPEECH_KEY="", AZURE_SPEECH_REGION="", DATA_DIR=f"{tmp}/
 from fastapi.testclient import TestClient  # noqa: E402
 
 import auth  # noqa: E402
-from db import Job, Session, User  # noqa: E402
+from db import Job, Session, User, update_job  # noqa: E402
 from admin import google_quota  # noqa: E402
 from main import app  # noqa: E402
 
@@ -104,4 +104,21 @@ ok(c.get("/api/admin/audit", headers=H(b)).status_code in (401, 403), "audit is 
 ok(c.get("/api/admin/audit").status_code == 401, "audit needs a token")
 c.put("/api/admin/settings", headers=H(a), json={"maintenance": False})
 ok(c.get("/api/admin/audit", headers=H(a)).json()["total"] == 6, "no-op settings save is not logged")
+
+# job detail: full error, where it failed, every option the user chose
+with Session() as s:
+    s.add(Job(id="jobx", user_id=user_id, status="queued", params={"mode": "full", "voice_quality": "standard", "voice_type": "Kore", "aspect": "9:16", "manual_blurs": [{"x": 0.1}], "filename": "movie.mp4"},
+              data={}, charged_seconds=120.0, credit_seconds=60.0))
+    s.commit()
+update_job("jobx", status="running", stage="Starting", progress=1)
+update_job("jobx", stage="Voiceover (gemini)", progress=40)
+update_job("jobx", status="error", error="Recap generation failed: ffmpeg: Unrecognized option", error_detail="Traceback (most recent call last):\n  File x\nRuntimeError: boom")
+d = c.get("/api/admin/jobs/jobx", headers=H(a)).json()
+ok(d["status"] == "error" and d["error"].endswith("Unrecognized option") and "RuntimeError: boom" in d["error_detail"], "detail: full error + technical details")
+ok(d["failed_stage"]["stage"] == "Voiceover (gemini)" and d["failed_stage"]["progress"] == 40, "detail: knows which stage failed")
+ok([x["stage"] for x in d["stages"]] == ["Starting", "Voiceover (gemini)"], f"detail: stage history {[x['stage'] for x in d['stages']]}")
+ok(d["params"]["voice_quality"] == "standard" and d["params"]["aspect"] == "9:16" and d["params"]["manual_blurs"] == [{"x": 0.1}] and d["params"]["filename"] == "movie.mp4", "detail: every option the user chose")
+ok(d["user"]["email"] == "bob@x.com" and d["bought_minutes"] == 0.0, "detail: user shown; a failed video's bought minutes were given back")
+ok(c.get("/api/admin/jobs/nope", headers=H(a)).status_code == 404, "detail: unknown job -> 404")
+ok(c.get("/api/admin/jobs/jobx", headers=H(b)).status_code in (401, 403) and c.get("/api/admin/jobs/jobx").status_code == 401, "detail is closed to non-admins")
 print("all admin tests passed")

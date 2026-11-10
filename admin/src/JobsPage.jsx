@@ -3,6 +3,7 @@ import axios from 'axios';
 import { StopCircle as CircleStop } from 'lucide-react';
 import { useI18n } from './i18n.jsx';
 import { errText, fmtTime, Badge, Card, btnGhost, Pager, useApi, ErrorBox } from './ui.jsx';
+import JobDetail from './JobDetail.jsx';
 
 const STATUS_FILTERS = ['', 'queued', 'running', 'done', 'error', 'cancelled'];
 
@@ -11,6 +12,7 @@ export default function JobsPage({ userFilter, clearUser }) {
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
   const [actionError, setActionError] = useState('');
+  const [openId, setOpenId] = useState(null);
   const url = `/api/admin/jobs?page=${page}${status ? `&status=${status}` : ''}${userFilter ? `&user_id=${userFilter.id}` : ''}`;
   const { data, error, loading, reload } = useApi(url, { every: 8000 });
   const items = data?.items || [];
@@ -25,7 +27,7 @@ export default function JobsPage({ userFilter, clearUser }) {
     ? <span className="text-red-300" title={j.error}>{trs(j.error)}</span>
     : <span className="text-slate-400">{j.status === 'running' ? `${j.progress}% · ${trs(j.stage)}` : trs(j.stage)}</span>);
   const CancelBtn = ({ j }) => ['queued', 'running'].includes(j.status)
-    ? <button className={`${btnGhost} !px-2.5 !py-1.5 text-red-300`} onClick={() => cancel(j.id)}><CircleStop size={14} />{tr('Cancel')}</button> : null;
+    ? <button className={`${btnGhost} !px-2.5 !py-1.5 text-red-300`} onClick={(e) => { e.stopPropagation(); cancel(j.id); }}><CircleStop size={14} />{tr('Cancel')}</button> : null;
 
   return (
     <div>
@@ -48,7 +50,7 @@ export default function JobsPage({ userFilter, clearUser }) {
           </thead>
           <tbody className="divide-y divide-slate-800">
             {items.map((j) => (
-              <tr key={j.id} className="hover:bg-slate-800/40">
+              <tr key={j.id} className="cursor-pointer hover:bg-slate-800/40" onClick={() => setOpenId(j.id)}>
                 <td className="px-4 py-3"><Badge status={j.status} /></td>
                 <td className="px-4 py-3"><div className="truncate" title={j.email}>{j.email}</div><div className="text-[11px] text-slate-500">{mode(j)}</div></td>
                 <td className="px-4 py-3"><div className="line-clamp-2 break-words text-xs"><Stage j={j} /></div></td>
@@ -62,7 +64,7 @@ export default function JobsPage({ userFilter, clearUser }) {
         </table>
         <ul className="divide-y divide-slate-800 md:hidden">
           {items.map((j) => (
-            <li key={j.id} className="p-4">
+            <li key={j.id} className="cursor-pointer p-4 active:bg-slate-800/40" onClick={() => setOpenId(j.id)}>
               <div className="flex items-center justify-between gap-2"><Badge status={j.status} /><span className="text-xs text-slate-500">{fmtTime(j.created_at)}</span></div>
               <div className="mt-1.5 break-all text-sm">{j.email}</div>
               <div className="mt-0.5 break-words text-xs"><Stage j={j} /></div>
@@ -75,6 +77,7 @@ export default function JobsPage({ userFilter, clearUser }) {
         </ul>
         {!items.length && <p className="p-6 text-center text-sm text-slate-500">{loading ? tr('Loading…') : tr('No videos.')}</p>}
       </Card>
+      {openId && <JobDetail id={openId} onClose={() => setOpenId(null)} />}
       {data && <Pager page={data.page} perPage={data.per_page} total={data.total} onPage={setPage} />}
     </div>
   );

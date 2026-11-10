@@ -386,6 +386,34 @@ def probe_video(path: str) -> dict:
             "fps": float(num) / float(den or 1), "duration": float(info["format"]["duration"])}
 
 
+def ffmpeg_error(stderr: bytes) -> str:
+    """The useful part of ffmpeg's error output: its long version / build banner is dropped, the end (the real reason) is kept."""
+    lines = [l for l in stderr.decode(errors="replace").splitlines()
+             if l.strip() and not l.startswith(("ffmpeg version", "  built with", "  configuration:", "  lib"))]
+    return ("ffmpeg: " + "\n".join(lines))[-1500:]
+
+
+_FFMPEG_MAJOR: int | None = None
+
+
+def ffmpeg_major() -> int:
+    """Major version of the ffmpeg on this machine (cached); 99 when it cannot be read (a git build: assume new)."""
+    global _FFMPEG_MAJOR
+    if _FFMPEG_MAJOR is None:
+        try:
+            first = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True, timeout=10).stdout.splitlines()[0]
+            m = re.search(r"version n?(\d+)\.", first)
+            _FFMPEG_MAJOR = int(m.group(1)) if m else 99
+        except Exception:
+            _FFMPEG_MAJOR = 99
+    return _FFMPEG_MAJOR
+
+
+def filter_script_args(path: str) -> list:
+    """Read the filter graph from a file. ffmpeg 7+ spells it `-/filter_complex file`; ffmpeg 6 (Ubuntu 24.04) only knows `-filter_complex_script file`."""
+    return ["-/filter_complex", path] if ffmpeg_major() >= 7 else ["-filter_complex_script", path]
+
+
 def _blur_region(rect, src: str, name: str, windows: list | None = None) -> str:
     """Blur `rect`; with `windows` [(a, b)] only while the stream time t is inside one of them."""
     x, y, w, h = rect
@@ -560,7 +588,7 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
     script = os.path.join(work_dir, f"{tag}_filter.txt")
     with open(script, "w") as fh:
         fh.write(";\n".join(f))
-    cmd += ["-/filter_complex", script, "-map", f"[{cur}]", "-map", f"[{acur}]",
+    cmd += [*filter_script_args(script), "-map", f"[{cur}]", "-map", f"[{acur}]",
             "-r", f"{fps:.3f}", "-c:v", "libx264", "-preset", "veryfast", "-crf", str(runtime_settings.video_crf()), "-pix_fmt", "yuv420p"]
     if threads:
         cmd += ["-threads", str(threads)]
@@ -572,7 +600,7 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
             if os.path.exists(p):
                 os.remove(p)
     if res.returncode != 0:
-        raise RuntimeError(res.stderr.decode(errors="replace")[-2000:])
+        raise RuntimeError(ffmpeg_error(res.stderr))
     return {"duration": total_len, "cues": cue_list}
 
 
@@ -631,7 +659,7 @@ def render(video_path: str, segments: list[dict], scenes: list[Scene], fx: Effec
              "-b:a", "160k", "-movflags", "+faststart", output_path],
             capture_output=True, timeout=timeout)
         if res.returncode != 0:
-            raise RuntimeError(res.stderr.decode(errors="replace")[-2000:])
+            raise RuntimeError(ffmpeg_error(res.stderr))
     finally:
         for p in chunk_paths + [playlist]:
             if os.path.exists(p):

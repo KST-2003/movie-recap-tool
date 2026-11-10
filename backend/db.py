@@ -144,13 +144,20 @@ def update_job(job_id: str, **fields) -> bool:
         if job.status == "cancelled" and fields.get("status") != "cancelled":
             return False
         extra = {}
+        prev_stage, prev_progress = job.stage, job.progress
         for k, v in fields.items():
             if k in _COLUMNS:
-                setattr(job, k, v)
+                setattr(job, k, (v[:2000] if k == "error" and isinstance(v, str) else v))
             else:
                 extra[k] = v
-        if extra:
-            job.data = {**(job.data or {}), **extra}
+        data = dict(job.data or {})
+        now = utcnow().isoformat(timespec="seconds")
+        if fields.get("stage") and fields["stage"] != prev_stage:   # what the video was doing and when: shows where a failure happened
+            data["stages"] = (data.get("stages") or [])[-59:] + [{"stage": fields["stage"], "progress": fields.get("progress", job.progress), "at": now}]
+        if fields.get("status") == "error":
+            data["failed_stage"] = {"stage": prev_stage, "progress": prev_progress, "at": now}
+        if extra or "stages" in data or "failed_stage" in data:
+            job.data = {**data, **extra}
         if fields.get("status") in ("done", "error", "cancelled"):
             job.finished_at = utcnow()
         if fields.get("status") in ("error", "cancelled"):

@@ -318,6 +318,36 @@ def list_jobs(status: str = "", user_id: int | None = None, page: int = 1, per_p
     return {"total": total, "page": page, "per_page": per_page, "items": items}
 
 
+@router.get("/jobs/{job_id}")
+def job_detail(job_id: str):
+    """Everything about one video for the owner: the full error, where it failed, the stage history and EVERY option the user chose."""
+    with Session() as s:
+        job = s.get(Job, job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Unknown job")
+        owner = s.get(User, job.user_id)
+        params, data = dict(job.params or {}), dict(job.data or {})
+        result = dict(data.get("result") or {})
+        project = result.pop("project", None)
+        result.pop("transcript", None)
+        result.pop("timeline", None)
+        for k in ("video_file", "subtitle_file"):
+            result.pop(k, None)
+        table, rate = usage_log.prices(), runtime_settings.usd_thb()
+        cost = usage_log.cost_thb(data.get("usage"), table, rate) if data.get("usage") else None
+        return {
+            "id": job.id, "status": job.status, "stage": job.stage, "progress": job.progress,
+            "user": {"id": job.user_id, "email": owner.email if owner else None, "status": getattr(owner, "status", None)},
+            "error": job.error, "error_detail": data.get("error_detail"), "failed_stage": data.get("failed_stage"), "stages": data.get("stages") or [],
+            "params": params,
+            "charged_minutes": round((job.charged_seconds or 0) / 60, 2), "bought_minutes": round((job.credit_seconds or 0) / 60, 2),
+            "run_seconds": data.get("run_seconds"), "created_at": _iso(job.created_at), "finished_at": _iso(job.finished_at),
+            "cost_thb": round(cost["thb"], 2) if cost else None, "cost_complete": cost["complete"] if cost else None, "usage": data.get("usage"),
+            "result": result or None, "result_lines": len(project["lines"]) if isinstance(project, dict) and isinstance(project.get("lines"), list) else None,
+            "source_kept": storage.source_exists(job.input_key), "has_logo": bool(job.logo_key),
+        }
+
+
 @router.post("/jobs/{job_id}/cancel")
 def cancel_job(job_id: str, admin: User = Depends(require_admin)):
     with Session() as s:

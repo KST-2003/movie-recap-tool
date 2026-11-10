@@ -1,5 +1,6 @@
 """The dubbing pipeline. Runs inside a queue worker (or an in-process thread in dev), never inside a request."""
 import hashlib
+import traceback
 import shutil
 import math
 import mimetypes
@@ -943,7 +944,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
         update_job(job_id, status="error", error="ElevenLabs rate-limited this dubbing request. Please retry later.")
     except Exception as exc:
         print(f"[job {job_id}] FAILED: {exc}", flush=True)
-        update_job(job_id, status="error", error=f"Recap generation failed: {exc}")
+        update_job(job_id, status="error", error=f"Recap generation failed: {exc}", error_detail=traceback.format_exc()[-8000:])
     finally:
         _job_started.pop(job_id, None)
         if bg_thread:
@@ -977,7 +978,7 @@ def run_job_by_id(job_id: str):
         run_job(job_id, video_path, logo_path, params)
     except Exception as exc:  # e.g. the upload could not be fetched
         print(f"[job {job_id}] FAILED before start: {exc}", flush=True)
-        update_job(job_id, status="error", error=f"Recap generation failed: {exc}")
+        update_job(job_id, status="error", error=f"Recap generation failed: {exc}", error_detail=traceback.format_exc()[-8000:])
     finally:
         usage.flush(job_id, force=True)   # also for failed / cancelled videos: their tokens were paid
         usage.forget(job_id)
