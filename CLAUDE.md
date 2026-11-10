@@ -267,6 +267,15 @@ Checked on the real API (`test_azure_tts.py`): Burmese heard-back clarity 0.98-1
 Voice cache: Azure clips use their own cache key (`pipeline.clip_voice` -> `"<voice>|azure"`, via `tts_pool.note_model`) so Gemini and Azure clips are never mixed through the clip cache. A video that used Azure gets a warning in both languages (`VOICE_AZURE_WARNING`: "standard Burmese voice (Nilar or Thiha) instead of the voice you picked"); a plain model switch keeps `VOICE_SWITCH_WARNING`.
 Unverified: bulk batches (several sentences per request, split at pauses) on Azure's pauses - the splitter falls back to smaller groups / single lines, fine at Azure's throughput. Tests: `test_azure_fallback.py` (offline).
 
+### Security hardening (branch `feature/security-hardening`, started 2026-11-10)
+Source audit on 2026-11-10 (no live attacks); every fix gets its own offline test. Full list of findings: 3 high (open signup with free quota and no spending cap; unmetered re-render/preview;
+check-then-act race on limits), 5 medium (ffmpeg on untrusted uploads without protocol/format allowlist; body size before auth; weak in-memory per-IP login limiter; 14-day non-revocable
+tokens in localStorage without CSP; raw exception text shown to users), several low (account enumeration, scrypt cost, shared secret for JWT + file links, admin API on the public host, Docker as root).
+**Done:**
+- **Race on limits (high):** daily/monthly/active-job/global checks, the capacity decision and the job insert now run in ONE critical section (`capacity.lock` + `db.lock_admission`, a Postgres advisory lock for several API processes); re-render rechecks the active-job limit under it. `main._check_limits`. Test: `test_admission_race.py` (8 parallel uploads vs a 15-minute allowance: 8 admitted before, 1 now). The Postgres lock itself is NOT exercised by the tests (SQLite): check on a real Postgres.
+- **Editor spend limits (high):** `edit_limits.py` + table `edit_use`: live line previews 10 per video / 30 per user per day, re-renders 5 per video / 15 per day (env `PREVIEWS_PER_VIDEO`, `PREVIEWS_PER_DAY`, `RERENDERS_PER_VIDEO`, `RERENDERS_PER_DAY`). Counted in the database (the old preview limiter was in process memory), per ORIGINAL video (`params.bg_source_job`), under the admission lock. A preview whose clip is already cached is free and not counted; a failed preview gives its use back. The pre-generated voice SAMPLE buttons are static files and unlimited. Not done: the frontend does not show remaining counts (it shows the 429 text), re-render/preview money is still not part of the budget gate before they start, a re-render can still voice up to 600 lines. Test: `test_edit_limits.py`.
+**Open (in this order):** signup policy (close or verify + trial minutes + global ceiling default), ffmpeg allowlist + non-root container, body size limit + CSP at the proxy, login limiter (IP + email, trusted proxy), short/revocable admin tokens, generic error messages.
+
 ### Progress UI
 The source video previews as soon as a file is chosen; on Generate the player shows a spinner overlay + Cancel and a step
 checklist (upload %, subtitles/cuts, translate, voice, fit, render) with the live stage text and an elapsed timer. Backend progress:
@@ -401,3 +410,4 @@ Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user 
 - 2026-11-09: admission control (`capacity.py`): money budget gate + per-video voice-request reservation + "server busy" 503 + admin alerts; settings in admin.
 - 2026-11-09: Google Cloud TTS added to the voice pool as a fallback after the AI Studio models (`cloud_tts.py`).
 - 2026-11-09: monthly allowance (2000/month, 100/day), `/api/usage`, sidebar + usage dashboard in the main app, monthly minutes in admin.
+- 2026-11-10: security audit + hardening branch: quota race fixed (`test_admission_race.py`), editor preview/re-render limits in the database (`edit_limits.py`, `test_edit_limits.py`). Windows setup: `httpx<0.28` for TestClient, `PYTHONUTF8=1`, pydantic pin loosened.

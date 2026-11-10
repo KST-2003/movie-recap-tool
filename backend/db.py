@@ -60,6 +60,17 @@ class AuditLog(Base):
     details = Column(JSON, default=dict)   # {field: {"from": old, "to": new}} or small facts; never passwords
 
 
+class EditUse(Base):
+    """One editor action that can spend voice requests (a live line preview, or a re-render). Counted per user per day and per source
+    video so nobody can use up the shared voice quota (see edit_limits.py)."""
+    __tablename__ = "edit_use"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    video_id = Column(String(32), index=True, nullable=False)   # the ORIGINAL job id (re-renders point back to it)
+    kind = Column(String(12), nullable=False)                    # preview | rerender
+    created_at = Column(DateTime(timezone=True), default=utcnow, index=True)
+
+
 Base.metadata.create_all(engine)
 
 # Small migration for databases created before the monthly allowance existed (create_all never alters tables).

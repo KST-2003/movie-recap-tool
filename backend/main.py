@@ -20,6 +20,7 @@ from sqlalchemy import func, select
 import auth
 from admin import router as admin_router, settings as runtime_settings
 import capacity
+import edit_limits
 import usage as usage_log   # (main.py has an endpoint function called usage)
 import jobs_queue
 import looks
@@ -546,6 +547,7 @@ def rerender(job_id: str, body: RerenderBody, user: User = Depends(auth.current_
             lock_admission(s)
             if active_jobs(s, user.id) >= MAX_ACTIVE_JOBS_PER_USER:   # re-checked under the lock: parallel clicks cannot pass together
                 raise HTTPException(status_code=429, detail="You already have videos processing. Wait for one to finish.")
+            edit_limits.record(s, user.id, edit_limits.video_id(job), "rerender")   # per-video + per-day cap, committed with the job
             s.add(Job(id=new_id, user_id=user.id, status="queued", params=params, data={},
                       input_key=job.input_key, logo_key=job.logo_key, charged_seconds=0.0))
             s.commit()
@@ -559,9 +561,6 @@ class PreviewBody(BaseModel):
     voice: str = Field(max_length=40)      # voice name to hear it in (e.g. the voice of the character you picked)
 
 
-_preview_times: dict[int, list[float]] = {}
-
-
 @app.post("/api/jobs/{job_id}/preview-line")
 def preview_line(job_id: str, body: PreviewBody, user: User = Depends(auth.current_user)):
     """Hear ONE line in a chosen voice before pressing Apply: one TTS request, cached for the render."""
@@ -569,11 +568,6 @@ def preview_line(job_id: str, body: PreviewBody, user: User = Depends(auth.curre
         raise HTTPException(status_code=400, detail=f"Unknown voice: {body.voice}")
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="This line has no text.")
-    now = time.time()
-    recent = [t for t in _preview_times.get(user.id, []) if now - t < 60]
-    if len(recent) >= 12:
-        raise HTTPException(status_code=429, detail="Too many previews. Wait a moment.")
-    _preview_times[user.id] = recent + [now]
     with Session() as s:
         job = s.get(Job, job_id)
     project = ((job.data or {}).get("result") or {}).get("project") if job and job.user_id == user.id else None
@@ -582,10 +576,16 @@ def preview_line(job_id: str, body: PreviewBody, user: User = Depends(auth.curre
     _refuse_if_voice_limit()
     src = next((sg for sg in project["segments"] if sg["id"] == body.id), None) if body.id is not None else None
     import pipeline
+    used = []   # counted only when a voice request is really about to be sent (cached clips are free); given back if it fails
     try:
         path = pipeline.preview_line(body.text.strip(), body.voice, (src or {}).get("style"),
-                                     project.get("voice_model") or {}, project.get("tts_model"), (job.params or {}).get("mode"))
+                                     project.get("voice_model") or {}, project.get("tts_model"), (job.params or {}).get("mode"),
+                                     before_spend=lambda: used.append(edit_limits.charge(user.id, edit_limits.video_id(job), "preview")))
+    except HTTPException:
+        raise
     except Exception as exc:
+        for use_id in used:
+            edit_limits.refund(use_id)
         raise HTTPException(status_code=502, detail=f"Voice preview failed: {str(exc)[:160]}")
     return FileResponse(path, media_type="audio/wav")
 

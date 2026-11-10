@@ -994,13 +994,16 @@ def run_job_by_id(job_id: str):
                 storage.delete_local(path)
 
 
-def preview_line(text: str, voice: str, style: str | None, model: dict, preferred_model: str | None = None, mode: str | None = None) -> str:
+def preview_line(text: str, voice: str, style: str | None, model: dict, preferred_model: str | None = None, mode: str | None = None,
+                 before_spend=None) -> str:
     """Voice ONE line right now (editor preview). The clip goes into the same cache the render uses
     (key = voice + text + style), so pressing Apply afterwards does not pay for it again. Returns the clip's local path."""
     import tempfile
     path = os.path.join(tempfile.mkdtemp(), "preview" + audio_ext())
     if storage.fetch_clip(clip_name(text, clip_voice(voice, model=preferred_model), style), path):
-        return path
+        return path   # cached: no voice request, nothing to count
+    if before_spend:
+        before_spend()   # the caller counts this preview against the user's limit (raises to refuse)
     chooser = tts_pool.Chooser(1, preferred_model, mode=mode) if tts_provider() == "gemini" else None
     styles = [style]
     voice_many([text], [path], [voice], model, "", None, chooser, styles)
