@@ -157,10 +157,11 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import auth  # noqa: E402
 import main  # noqa: E402
+from api import jobs as api_jobs  # noqa: E402
 from db import Job, Session, User  # noqa: E402
 
-main.jobs_queue.enqueue = lambda job_id: None
-main.MAX_ACTIVE_JOBS_PER_USER = 1000   # this test is about file safety, not the active-job limit
+api_jobs.jobs_queue.enqueue = lambda job_id: None
+api_jobs.MAX_ACTIVE_JOBS_PER_USER = 1000   # this test is about file safety, not the active-job limit
 with Session() as s:
     u = User(email="u@x.com", password_hash=auth.hash_password("password1"), daily_minutes=1000, monthly_minutes=100000)
     s.add(u)

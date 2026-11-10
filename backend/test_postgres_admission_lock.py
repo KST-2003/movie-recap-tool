@@ -86,7 +86,8 @@ CHILD_SERVER = textwrap.dedent('''
     os.chdir(%r)
     import main
     if os.environ.get("DISABLE_PG_LOCK") == "1":
-        main.lock_admission = lambda s: None   # the fix under test, removed -- this is the CONTROL only
+        from api import jobs as api_jobs   # create_job / rerender live here; a bare name is resolved from THIS module at call time
+        api_jobs.lock_admission = lambda s: None   # the fix under test, removed -- this is the CONTROL only
         import capacity
         _real = capacity.decide
         def _slow(*a, **kw):

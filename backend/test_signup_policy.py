@@ -20,6 +20,7 @@ import auth  # noqa: E402
 import config  # noqa: E402
 import main  # noqa: E402
 import ratelimit  # noqa: E402
+from api import accounts as api_accounts, jobs as api_jobs  # noqa: E402
 from db import Session, User, utcnow  # noqa: E402
 
 
@@ -31,7 +32,7 @@ def ok(cond, msg):
 
 client = TestClient(main.app)
 ratelimit.REGISTER_PER_IP = (10000, 3600)   # this test is about the daily cap, not the per-address limit
-main.SIGNUP_MAX_PER_DAY = 1000
+api_accounts.SIGNUP_MAX_PER_DAY = 1000
 
 
 def register(email):
@@ -66,13 +67,13 @@ ok(r.status_code == 200 and r.json()["daily_minutes"] == 100, "an admin raises a
 # ---- 2. other sign-up rules unchanged ----
 ok(register("new1@x.com").status_code == 409, "duplicate e-mail: still refused")
 ok(client.post("/api/auth/register", json={"email": "bad", "password": "password123"}).status_code == 400, "bad e-mail: still refused")
-main.ALLOW_SIGNUP = False
+api_accounts.ALLOW_SIGNUP = False
 ok(register("closed@x.com").status_code == 403, "ALLOW_SIGNUP off: still closed")
-main.ALLOW_SIGNUP = True
+api_accounts.ALLOW_SIGNUP = True
 
 # ---- 3. the daily cap ----
 base = users_today()
-main.SIGNUP_MAX_PER_DAY = base + 3
+api_accounts.SIGNUP_MAX_PER_DAY = base + 3
 codes = [register(f"cap{i}@x.com").status_code for i in range(5)]
 ok(codes == [200, 200, 200, 503, 503], f"cap reached after 3 more accounts: {codes}")
 r = register("cap9@x.com")
@@ -88,7 +89,7 @@ with Session() as s:
     s.query(User).filter(User.email.like("cap%")).delete(synchronize_session=False)
     s.commit()
 base = users_today()
-main.SIGNUP_MAX_PER_DAY = base + 5
+api_accounts.SIGNUP_MAX_PER_DAY = base + 5
 with ThreadPoolExecutor(max_workers=12) as ex:
     codes = list(ex.map(lambda i: register(f"burst{i}@x.com").status_code, range(25)))
 ok(codes.count(200) == 5 and codes.count(503) == 20, f"25 parallel sign-ups, room for 5: {codes.count(200)} created, {codes.count(503)} refused")
@@ -102,12 +103,12 @@ with Session() as s:
 ok(register("tomorrow@x.com").status_code == 200, "next day: sign-ups work again")
 
 # ---- 6. 0 = no cap ----
-main.SIGNUP_MAX_PER_DAY = 0
+api_accounts.SIGNUP_MAX_PER_DAY = 0
 ok(all(register(f"free{i}@x.com").status_code == 200 for i in range(8)), "SIGNUP_MAX_PER_DAY=0 turns the cap off")
 
 # ---- 7. a trial account really is limited ----
-main.upload_duration = lambda path: 15 * 60.0
-main.jobs_queue.enqueue = lambda job_id: None
+api_jobs.upload_duration = lambda path: 15 * 60.0
+api_jobs.jobs_queue.enqueue = lambda job_id: None
 trial = client.post("/api/auth/register", json={"email": "trial@x.com", "password": "password123"}).json()["token"]
 r = client.post("/api/jobs", headers={"Authorization": f"Bearer {trial}"}, files={"video_file": ("a.mp4", b"x" * 50, "video/mp4")}, data={"output": "subtitles"})
 ok(r.status_code == 402 and "Daily limit reached" in r.json()["detail"], f"a trial account cannot upload a 15-minute video ({r.status_code}: {r.json()['detail'][:60]})")

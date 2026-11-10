@@ -19,6 +19,7 @@ from starlette.requests import Request  # noqa: E402
 import auth  # noqa: E402
 import main  # noqa: E402
 import ratelimit  # noqa: E402
+from api import accounts as api_accounts  # noqa: E402
 from db import Session, User  # noqa: E402
 
 
@@ -72,7 +73,7 @@ ok(ratelimit.client_ip(fake_request("10.0.0.1")) == "10.0.0.1", "no header: the 
 os.environ.pop("TRUSTED_PROXIES")
 
 # ================= 3. the API =================
-main.ALLOW_SIGNUP = True
+api_accounts.ALLOW_SIGNUP = True   # register() reads this name from api/accounts.py now, not main.py
 client = TestClient(main.app)
 with Session() as s:
     for n in ("alice", "bob", "carol"):

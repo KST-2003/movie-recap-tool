@@ -19,11 +19,12 @@ from fastapi.testclient import TestClient  # noqa: E402
 import auth  # noqa: E402
 import edit_limits  # noqa: E402
 import main  # noqa: E402
+from api import jobs as api_jobs  # noqa: E402
 import pipeline  # noqa: E402
 from db import EditUse, Job, Session, User, utcnow  # noqa: E402
 
-main.jobs_queue.enqueue = lambda job_id: None
-main.MAX_ACTIVE_JOBS_PER_USER = 1000   # these tests are about the edit limits, not the active-job limit
+api_jobs.jobs_queue.enqueue = lambda job_id: None
+api_jobs.MAX_ACTIVE_JOBS_PER_USER = 1000   # these tests are about the edit limits, not the active-job limit
 client = TestClient(main.app)
 src = os.path.join(tmp, "src.mp4")
 open(src, "wb").write(b"x")

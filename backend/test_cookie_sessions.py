@@ -19,12 +19,13 @@ from starlette.requests import Request  # noqa: E402
 
 import auth  # noqa: E402
 import main  # noqa: E402
+from api import jobs as api_jobs  # noqa: E402
 import ratelimit  # noqa: E402
 from db import Job, Session, User  # noqa: E402
 
-main.jobs_queue.enqueue = lambda job_id: None
-main.upload_duration = lambda path: 60.0
-main.MAX_ACTIVE_JOBS_PER_USER = 1000
+api_jobs.jobs_queue.enqueue = lambda job_id: None
+api_jobs.upload_duration = lambda path: 60.0
+api_jobs.MAX_ACTIVE_JOBS_PER_USER = 1000
 
 
 def ok(cond, msg):

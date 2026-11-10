@@ -21,10 +21,12 @@ from fastapi.testclient import TestClient  # noqa: E402
 import auth  # noqa: E402
 import guard  # noqa: E402
 import main  # noqa: E402
+from api import jobs as api_jobs  # noqa: E402
+import config  # noqa: E402
 from db import Session, User  # noqa: E402
 
-main.jobs_queue.enqueue = lambda job_id: None
-main.upload_duration = lambda path: 60.0
+api_jobs.jobs_queue.enqueue = lambda job_id: None
+api_jobs.upload_duration = lambda path: 60.0
 
 MB = 1024 * 1024
 
@@ -105,7 +107,7 @@ opening = b'--x\r\nContent-Disposition: form-data; name="video_file"; filename="
 st, h, body, pulled = asgi("POST", "/api/jobs", stream=itertools.chain([opening], chunks(500)), headers=multipart)   # a well-formed upload that never ends, no Content-Length
 ok(st == 413 and pulled <= 4 * MB, f"500 MB chunked body, limit 3 MB: 413 after reading {pulled / MB:.0f} MB")
 ok(b"too large" in body, "the answer is plain JSON")
-guard.UPLOAD_LIMIT = (main.MAX_UPLOAD_MB + 25) * MB
+guard.UPLOAD_LIMIT = (config.MAX_UPLOAD_MB + 25) * MB
 st, _, _, pulled = asgi("POST", "/api/auth/login", stream=chunks(1), content_length=100 * 1024, headers={"content-type": "application/json"})
 ok(st == 413 and pulled == 0, "a 100 KB login body: 413 (login bodies are tiny)")
 st, _, _, pulled = asgi("POST", "/api/jobs/abc/rerender", stream=chunks(50), headers=bearer)

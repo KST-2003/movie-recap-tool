@@ -16,10 +16,11 @@ from fastapi.testclient import TestClient  # noqa: E402
 import auth  # noqa: E402
 import capacity  # noqa: E402
 import main  # noqa: E402
+from api import jobs as api_jobs  # noqa: E402
 from db import Job, Session, User  # noqa: E402
 
-main.jobs_queue.enqueue = lambda job_id: None      # jobs stay 'queued' = they count as active
-main.upload_duration = lambda path: 600.0           # every video is 10 minutes
+api_jobs.jobs_queue.enqueue = lambda job_id: None      # jobs stay 'queued' = they count as active
+api_jobs.upload_duration = lambda path: 600.0           # every video is 10 minutes
 _decide = capacity.decide
 
 
@@ -64,7 +65,7 @@ def jobs_of(uid):
 
 
 # 1. daily allowance of 15 minutes, 10-minute videos, active-job limit out of the way: exactly ONE may be admitted
-main.MAX_ACTIVE_JOBS_PER_USER = 50
+api_jobs.MAX_ACTIVE_JOBS_PER_USER = 50
 uid, tok = make_user(1, daily=15)
 codes = burst(lambda: upload(tok))
 ok(codes.count(200) == 1 and codes.count(402) == 7, f"8 parallel uploads, room for one: {sorted(codes)}")
@@ -76,7 +77,7 @@ codes = burst(lambda: upload(tok))
 ok(codes.count(200) == 2 and codes.count(402) == 6, f"monthly allowance of 25 min = two 10-min videos: {sorted(codes)}")
 
 # 3. at most MAX_ACTIVE_JOBS_PER_USER jobs queued/running at once
-main.MAX_ACTIVE_JOBS_PER_USER = 2
+api_jobs.MAX_ACTIVE_JOBS_PER_USER = 2
 uid, tok = make_user(3, daily=100000)
 codes = burst(lambda: upload(tok))
 ok(codes.count(200) == 2 and codes.count(429) == 6, f"active-job limit 2: {sorted(codes)}")
