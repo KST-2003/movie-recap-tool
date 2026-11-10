@@ -29,6 +29,10 @@ MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "1024"))
 MAX_ACTIVE_JOBS_PER_USER = int(os.getenv("MAX_ACTIVE_JOBS_PER_USER", "2"))
 GLOBAL_DAILY_MINUTES = float(os.getenv("GLOBAL_DAILY_MINUTES", "0"))    # 0 = unlimited; protects the API bill
 MAINTENANCE_MODE = os.getenv("MAINTENANCE_MODE", "").lower() in ("1", "true")  # kill switch for new jobs
+# OFF by default: FastAPI's interactive docs (/docs, /redoc) and /openapi.json need no login and hand out a full map of
+# every route, including every admin one (route names only, never data, but still unnecessary attack-surface mapping
+# for a production API nobody browses by hand). Turn on locally with API_DOCS=true if you want to click through them.
+API_DOCS = os.getenv("API_DOCS", "").lower() in ("1", "true")
 
 CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001").split(",") if o.strip()]
 # Browser sessions live in an httpOnly cookie (see auth.py). The user app and the admin app share the API host, so the server also checks WHICH app a request

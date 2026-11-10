@@ -1,5 +1,5 @@
 import json
-from config import (ALLOW_SIGNUP, CORS_ORIGINS, DEFAULT_DAILY_MINUTES, FILE_TTL_HOURS, SIGNUP_DAILY_MINUTES, SIGNUP_MAX_PER_DAY, SIGNUP_MONTHLY_MINUTES,
+from config import (ALLOW_SIGNUP, API_DOCS, CORS_ORIGINS, DEFAULT_DAILY_MINUTES, FILE_TTL_HOURS, SIGNUP_DAILY_MINUTES, SIGNUP_MAX_PER_DAY, SIGNUP_MONTHLY_MINUTES,
                     LOGOS_DIR, MAX_ACTIVE_JOBS_PER_USER, MAX_UPLOAD_MB, MAX_VIDEO_MINUTES,
                     OUTPUT_DIR, SIGNED_URL_SECONDS, UPLOAD_DIR)
 
@@ -58,7 +58,9 @@ async def lifespan(_app):
     yield
 
 
-app = FastAPI(title="Movie Recap Tool Backend", version="3.0.0", lifespan=lifespan)
+app = FastAPI(title="Movie Recap Tool Backend", version="3.0.0", lifespan=lifespan,
+             docs_url="/docs" if API_DOCS else None, redoc_url="/redoc" if API_DOCS else None,
+             openapi_url="/openapi.json" if API_DOCS else None)
 app.add_middleware(RequestGuard)   # BEFORE the CORS middleware: its 401 / 413 answers must still carry the CORS headers
 app.add_middleware(
     CORSMiddleware,

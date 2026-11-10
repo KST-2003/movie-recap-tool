@@ -9,7 +9,8 @@ import tempfile
 tmp = tempfile.mkdtemp()
 os.environ.update(PASSWORD_SCRYPT_LOG2_N="10", PASSWORD_SCRYPT_P="1", AZURE_SPEECH_KEY="", AZURE_SPEECH_REGION="", DATA_DIR=f"{tmp}/data", UPLOAD_DIR=f"{tmp}/up", OUTPUT_DIR=f"{tmp}/out",
                   TTS_PROVIDER="fake", GEMINI_API_KEY="x", DATABASE_URL=f"sqlite:///{tmp}/t.db", GLOBAL_DAILY_MINUTES="0",
-                  GCP_PROJECT_ID="", GCP_SERVICE_ACCOUNT_FILE="", ADMIN_WEBHOOK_URL="")
+                  GCP_PROJECT_ID="", GCP_SERVICE_ACCOUNT_FILE="", ADMIN_WEBHOOK_URL="", API_DOCS="true")  # docs ARE enabled here on
+                  # purpose: this file checks the HEADERS on the docs page, not whether it exists. test_docs_disabled.py checks the default (off).
 for k in ("ADMIN_ALLOWED_IPS", "TRUSTED_PROXIES", "REDIS_URL"):
     os.environ.pop(k, None)
 
