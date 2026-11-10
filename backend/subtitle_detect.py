@@ -6,6 +6,7 @@ text that stays put and does not change.
 """
 import cv2
 from safe_media import SAFE_IN
+import sandbox
 
 _ocr = None
 
@@ -130,7 +131,7 @@ def subtitle_windows(video_path: str, duration: float, rect, step: float | None 
     import subprocess
     import numpy as np
     try:
-        info = subprocess.run(["ffprobe", *SAFE_IN, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+        info = sandbox.run(["ffprobe", *SAFE_IN, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
                                "-of", "csv=p=0", video_path], capture_output=True, text=True, timeout=30).stdout.strip().split(",")
         W, H = int(info[0]), int(info[1])
         step = step or max(0.5, duration / 700.0)          # <= ~700 samples however long the video is
@@ -145,7 +146,7 @@ def subtitle_windows(video_path: str, duration: float, rect, step: float | None 
         cmd = ["ffmpeg", "-loglevel", "error", *SAFE_IN, "-i", video_path, "-an", "-vf",
                f"fps=1/{step:.4f},crop={cw}:{ch}:{int(x0 * W)}:{int(y0 * H)},scale={out_w}:{out_h}",
                "-f", "rawvideo", "-pix_fmt", "bgr24", "-"]
-        raw = subprocess.run(cmd, capture_output=True, timeout=max(120, duration * 0.5)).stdout
+        raw = sandbox.run(cmd, capture_output=True, timeout=max(120, duration * 0.5)).stdout
         n = len(raw) // (out_w * out_h * 3)
         if n == 0:
             return None

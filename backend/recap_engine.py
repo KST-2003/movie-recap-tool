@@ -13,6 +13,7 @@ from dataclasses import dataclass, field, replace
 
 from PIL import Image, ImageDraw, ImageFont
 from safe_media import SAFE_IN
+import sandbox
 
 BREATH = 0.10  # silence kept after each voice clip so clips never run together
 MIN_SCENE = 0.05
@@ -336,7 +337,7 @@ def build_caption_track(cues, total_len: float, work_dir: str, tag: str, width: 
 # ---------- render ----------
 
 def has_audio(path: str) -> bool:
-    out = subprocess.run(["ffprobe", *SAFE_IN, "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=index",
+    out = sandbox.run(["ffprobe", *SAFE_IN, "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=index",
                           "-of", "csv=p=0", path], capture_output=True, text=True, timeout=30)
     return bool(out.stdout.strip())
 
@@ -375,7 +376,7 @@ def plan_source_timing(segments: list[dict], video_duration: float) -> list[Scen
 
 
 def probe_video(path: str) -> dict:
-    out = subprocess.run(
+    out = sandbox.run(
         ["ffprobe", *SAFE_IN, "-v", "error", "-select_streams", "v:0", "-show_entries",
          "stream=width,height,r_frame_rate:format=duration", "-of", "json", path],
         capture_output=True, text=True, check=True, timeout=30).stdout
@@ -564,7 +565,7 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
         cmd += ["-threads", str(threads)]
     cmd += ["-c:a", "aac", "-t", f"{total_len:.3f}", "-movflags", "+faststart", output_path]
     try:
-        res = subprocess.run(cmd, capture_output=True, timeout=timeout)
+        res = sandbox.run(cmd, capture_output=True, timeout=timeout)
     finally:
         for p in cap_files + [script, os.path.join(work_dir, f"{tag}_captions.txt")]:
             if os.path.exists(p):
@@ -624,7 +625,7 @@ def render(video_path: str, segments: list[dict], scenes: list[Scene], fx: Effec
             list(pool.map(job, range(len(groups))))
         with open(playlist, "w") as fh:
             fh.write("\n".join(f"file '{p}'" for p in chunk_paths))
-        res = subprocess.run(
+        res = sandbox.run(
             ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", playlist, "-c:v", "copy", "-c:a", "aac",
              "-b:a", "160k", "-movflags", "+faststart", output_path],
             capture_output=True, timeout=timeout)

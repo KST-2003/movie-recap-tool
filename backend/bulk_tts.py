@@ -10,6 +10,7 @@ import subprocess
 import numpy as np
 
 import duration_model
+import sandbox
 
 JOINER = os.getenv("TTS_BULK_JOINER", "\n\n")      # what separates sentences in the single request
 MAX_CHARS = int(os.getenv("TTS_BULK_MAX_CHARS", "1800"))   # characters per request (tune after testing limits)
@@ -33,7 +34,7 @@ def make_batches(texts: list[str]) -> list[list[int]]:
 
 
 def _silences(path: str) -> tuple[float, list[tuple[float, float]]]:
-    proc = subprocess.run(
+    proc = sandbox.run(
         ["ffmpeg", "-i", path, "-af", f"silencedetect=noise={SILENCE_DB}dB:d={MIN_GAP}", "-f", "null", "-"],
         capture_output=True, text=True, timeout=120)
     total = 0.0
@@ -49,7 +50,7 @@ def _silences(path: str) -> tuple[float, list[tuple[float, float]]]:
 
 def _envelope(path: str, hop: float = 0.01) -> np.ndarray:
     """Loudness in dB every `hop` seconds (so index * hop = time)."""
-    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", path, "-ac", "1", "-ar", "8000", "-f", "s16le", "-"],
+    raw = sandbox.run(["ffmpeg", "-v", "error", "-i", path, "-ac", "1", "-ar", "8000", "-f", "s16le", "-"],
                          capture_output=True, timeout=120, check=True).stdout
     x = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
     n = int(8000 * hop)
@@ -114,7 +115,7 @@ def find_spans(path: str, texts: list[str], model: dict | None = None) -> list[t
 
 def cut(path: str, spans: list[tuple[float, float]], out_paths: list[str]):
     for (a, b), out in zip(spans, out_paths):
-        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{a:.3f}", "-t", f"{b - a:.3f}", "-i", path, out],
+        sandbox.run(["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{a:.3f}", "-t", f"{b - a:.3f}", "-i", path, out],
                        check=True, timeout=60)
 
 

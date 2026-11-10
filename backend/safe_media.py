@@ -12,6 +12,7 @@ import json
 import math
 import os
 import subprocess
+import sandbox
 
 # ffmpeg input options that forbid network and other protocols. Use as: ["ffmpeg", *SAFE_IN, "-i", user_file, ...]
 SAFE_IN = ["-protocol_whitelist", "file,pipe"]
@@ -37,7 +38,7 @@ def inspect_video(path: str) -> dict:
     """Probe an uploaded video with the protocol whitelist and check it is a real video container.
     -> {"duration", "width", "height", "format"}; raises UnsafeMedia otherwise."""
     try:
-        out = subprocess.run(
+        out = sandbox.run(
             ["ffprobe", *SAFE_IN, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", path],
             capture_output=True, text=True, timeout=30, check=True).stdout
         info = json.loads(out)

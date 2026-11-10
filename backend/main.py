@@ -26,6 +26,7 @@ from guard import RequestGuard
 import usage as usage_log   # (main.py has an endpoint function called usage)
 import jobs_queue
 import ratelimit
+import sandbox
 import safe_media
 import looks
 import storage
@@ -46,6 +47,7 @@ class _QuietPolling(logging.Filter):
 logging.getLogger("uvicorn.access").addFilter(_QuietPolling())
 
 usage_log.install()
+sandbox.harden_process()   # Linux: children (ffmpeg ...) cannot read this process's environment / memory through /proc
 app = FastAPI(title="Movie Recap Tool Backend", version="3.0.0")
 app.add_middleware(RequestGuard)   # BEFORE the CORS middleware: its 401 / 413 answers must still carry the CORS headers
 app.add_middleware(

@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from gemini_tts import get_text_client as _get_client
 from safe_media import SAFE_IN
+import sandbox
 
 MODEL = os.getenv("GEMINI_DUB_MODEL", "gemini-3.8-flash")
 CHUNK_SECONDS = float(os.getenv("GEMINI_DUB_CHUNK_SECONDS", "75"))
@@ -39,11 +40,11 @@ SCHEMA = {
 
 
 def _run(cmd: list[str], timeout: int = 300) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True, timeout=timeout)
+    return sandbox.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True, timeout=timeout)
 
 
 def _duration(path: str) -> float:
-    out = subprocess.run(
+    out = sandbox.run(
         ["ffprobe", *SAFE_IN, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
         capture_output=True, text=True, check=True, timeout=30,
     )
@@ -51,7 +52,7 @@ def _duration(path: str) -> float:
 
 
 def _silence_midpoints(path: str) -> list[float]:
-    proc = subprocess.run(
+    proc = sandbox.run(
         ["ffmpeg", "-i", path, "-af", "silencedetect=noise=-30dB:d=0.2", "-f", "null", "-"],
         capture_output=True, text=True, timeout=300,
     )

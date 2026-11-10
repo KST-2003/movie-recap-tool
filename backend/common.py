@@ -6,11 +6,12 @@ import subprocess
 
 import safe_media
 from safe_media import SAFE_IN
+import sandbox
 
 
 def media_duration(path: str) -> float:
     """Length of a media file in seconds (the server's own audio clips and the already-validated video). Protocol-restricted."""
-    result = subprocess.run(
+    result = sandbox.run(
         ["ffprobe", *SAFE_IN, "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", path],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

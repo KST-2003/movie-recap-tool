@@ -3,6 +3,7 @@
 import subprocess
 
 import numpy as np
+import sandbox
 
 SR = 16000
 
@@ -11,7 +12,7 @@ def load(path: str, start: float | None = None, dur: float | None = None) -> np.
     """Any audio/video file -> mono float32 at 16 kHz (via ffmpeg)."""
     cmd = ["ffmpeg", "-loglevel", "error"] + (["-ss", f"{start:.3f}"] if start else []) + (["-t", f"{dur:.3f}"] if dur else []) + \
           ["-i", path, "-vn", "-ac", "1", "-ar", str(SR), "-f", "f32le", "-"]
-    return np.frombuffer(subprocess.run(cmd, capture_output=True, timeout=300).stdout, np.float32)
+    return np.frombuffer(sandbox.run(cmd, capture_output=True, timeout=300).stdout, np.float32)
 
 
 def f0_frames(x: np.ndarray, fmin: float = 70.0, fmax: float = 350.0) -> np.ndarray:

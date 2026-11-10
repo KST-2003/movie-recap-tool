@@ -3,16 +3,17 @@ import os
 import subprocess
 import sys
 from safe_media import SAFE_IN
+import sandbox
 
 
 def separate_background(video_path: str, work_dir: str, tag: str, timeout: int = 1800) -> str:
     """Return the path of a stereo music+effects track with the original voice removed (Demucs)."""
     work_dir = os.path.abspath(work_dir)
     src = os.path.join(work_dir, f"{tag}_srcaudio.wav")
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", *SAFE_IN, "-i", video_path, "-vn", "-ac", "2", "-ar", "44100", src],
+    sandbox.run(["ffmpeg", "-y", "-loglevel", "error", *SAFE_IN, "-i", video_path, "-vn", "-ac", "2", "-ar", "44100", src],
                    check=True, timeout=300)
     out_dir = os.path.join(work_dir, f"{tag}_demucs")
-    res = subprocess.run(
+    res = sandbox.run(
         [sys.executable, "-m", "demucs", "--two-stems=vocals", "-n", "htdemucs", "-o", out_dir, src],
         capture_output=True, text=True, timeout=timeout)
     result = os.path.join(out_dir, "htdemucs", f"{tag}_srcaudio", "no_vocals.wav")
@@ -35,7 +36,7 @@ def make_soft_tone(path: str, seconds: float):
     cmd = ["ffmpeg", "-y", "-loglevel", "error"]
     for hz in (110.0, 164.81, 220.0):
         cmd += ["-f", "lavfi", "-i", f"sine=f={hz}:d={s:.2f}:r=44100"]
-    subprocess.run(cmd + ["-filter_complex", fc, "-map", "[o]", path], check=True, timeout=120)
+    sandbox.run(cmd + ["-filter_complex", fc, "-map", "[o]", path], check=True, timeout=120)
 
 
 def mix_music(video_path: str, music_path: str, volume: float = 0.07, timeout: int = 600):
@@ -43,7 +44,7 @@ def mix_music(video_path: str, music_path: str, volume: float = 0.07, timeout: i
     tmp = video_path + ".music.mp4"
     fc = (f"[1:a]volume={volume:.3f}[m];[0:a]aformat=channel_layouts=stereo:sample_rates=44100[a0];"
           "[a0][m]amix=inputs=2:normalize=0:duration=first[a]")
-    res = subprocess.run(["ffmpeg", "-y", "-loglevel", "error", *SAFE_IN, "-i", video_path, "-i", music_path, "-filter_complex", fc,
+    res = sandbox.run(["ffmpeg", "-y", "-loglevel", "error", *SAFE_IN, "-i", video_path, "-i", music_path, "-filter_complex", fc,
                           "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-movflags", "+faststart", tmp],
                          capture_output=True, timeout=timeout)
     if res.returncode != 0:

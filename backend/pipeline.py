@@ -34,7 +34,9 @@ from scene_cuts import detect_cuts
 from recap_engine import (BREATH, EffectOptions, SyncOptions, has_audio, plan_source_timing, plan_timeline, probe_video,
                           render, write_srt)
 from subtitle_detect import detect_text_regions, subtitle_windows, to_pixels
+import sandbox
 
+sandbox.harden_process()   # Linux: the worker's ffmpeg / Demucs children cannot read its keys through /proc
 
 class ElevenLabsRateLimited(RuntimeError):
     pass
@@ -242,7 +244,7 @@ def synthesize(text: str, voice: str, path: str, chooser=None, style: str | None
         n_in = len(parts) * 2 - 1
         fc = "".join(f"[{i}:a]aresample=24000,aformat=channel_layouts=mono[a{i}];" for i in range(n_in))
         fc += "".join(f"[a{i}]" for i in range(n_in)) + f"concat=n={n_in}:v=0:a=1[out]"
-        subprocess.run(cmd + ["-filter_complex", fc, "-map", "[out]", path], check=True)
+        sandbox.run(cmd + ["-filter_complex", fc, "-map", "[out]", path], check=True)
         return media_duration(path)
     if tts_provider() == "gemini":
         # "su" is the UI's default Burmese voice slot; map it to the configured Gemini voice.
@@ -359,7 +361,7 @@ def voice_many(texts: list[str], paths: list[str], voice, model: dict, job_id: s
         except Exception as exc:   # refused every way, or failed after retries: a silent clip of the expected length, subtitle still shows
             print(f"  line refused by the voice service, left silent: {texts[i][:40]}... ({exc})", flush=True)
             durs[i] = max(duration_model.predict(texts[i], model), 0.8)
-            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"anullsrc=r=24000:cl=mono:d={durs[i]:.2f}",
+            sandbox.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"anullsrc=r=24000:cl=mono:d={durs[i]:.2f}",
                             paths[i]], check=True)
             if blocked is not None:
                 blocked.append(i)
