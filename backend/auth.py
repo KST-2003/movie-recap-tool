@@ -6,10 +6,13 @@ import secrets
 import time
 
 import jwt
-from fastapi import Depends, HTTPException
+import base64
+
+from fastapi import Depends, HTTPException, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from config import DATA_DIR
+import ratelimit
+from config import ADMIN_ORIGINS, CORS_ORIGINS, COOKIE_SAMESITE, COOKIE_SECURE, DATA_DIR
 from db import Session, User
 
 TOKEN_DAYS = int(os.getenv("TOKEN_DAYS", "14"))                          # normal accounts: how long one token lives
@@ -90,12 +93,13 @@ def needs_rehash(stored: str) -> bool:
 DUMMY_HASH = hash_password(secrets.token_hex(8))
 
 
-def make_token(user: User, session_start: int | None = None) -> str:
+def make_token(user: User, session_start: int | None = None, audience: str | None = None) -> str:
     """`tv` = the user's token_version (a bump cancels every older token), `ses` = when the password was typed (renewals keep it, so a
     stolen token cannot be renewed for ever). Admin accounts get short tokens: they are renewed by the dashboard while it is open."""
     now = int(time.time())
     life = ADMIN_TOKEN_MINUTES * 60 if user.is_admin else TOKEN_DAYS * 86400
-    return jwt.encode({"sub": str(user.id), "tv": int(user.token_version or 0), "iat": now, "ses": session_start or now, "exp": now + life},
+    audience = audience or ("admin" if user.is_admin else "app")   # which app this session is for (admin API only accepts "admin")
+    return jwt.encode({"sub": str(user.id), "tv": int(user.token_version or 0), "iat": now, "ses": session_start or now, "exp": now + life, "scope": audience, "jti": secrets.token_hex(8)},
                       SECRET, algorithm="HS256")
 
 
@@ -105,16 +109,99 @@ def _decode(token: str) -> dict:
 
 _bearer = HTTPBearer(auto_error=False)
 
+# ---- browser sessions: an httpOnly cookie instead of a token in localStorage ----
+# A script injected into a page cannot read an httpOnly cookie, so it cannot steal the session (it can still make requests while the page is open,
+# which is what the CSRF token, the Origin checks and the CSP limit). API clients keep using `Authorization: Bearer`.
+COOKIE_NAMES = {"app": "session", "admin": "admin_session"}
+_CSRF_KEY = hmac.new(SECRET, b"movie-recap-tool/csrf/v1", hashlib.sha256).digest()
 
-def current_user(creds: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> User:
-    return _user_from(creds)[0]
+
+def _norm_origin(origin: str | None) -> str:
+    return (origin or "").strip().rstrip("/").lower()
 
 
-def _user_from(creds: HTTPAuthorizationCredentials | None) -> tuple[User, dict]:
-    if creds is None:
-        raise HTTPException(status_code=401, detail="Please log in.")
+_CORS_SET = {_norm_origin(o) for o in CORS_ORIGINS}
+_ADMIN_SET = {_norm_origin(o) for o in ADMIN_ORIGINS}
+
+
+def audience_of(headers) -> str:
+    """Which cookie a request means: the admin dashboard sends `X-Audience: admin`, everything else is the normal app."""
+    return "admin" if (headers.get("x-audience") or "").strip().lower() == "admin" else "app"
+
+
+def csrf_for(token: str) -> str:
+    """The CSRF token of a session = HMAC of its token. The browser app receives it in the login / refresh / me answer (a JSON body only an allowed
+    origin can read) and sends it back in the X-CSRF-Token header; a forged cross-site request has neither the cookie nor the header."""
+    return base64.urlsafe_b64encode(hmac.new(_CSRF_KEY, token.encode(), hashlib.sha256).digest()).rstrip(b"=").decode()
+
+
+def csrf_ok(method: str, headers, token: str) -> bool:
+    """For requests that change something and are authenticated by a cookie: the Origin (when sent) must be an allowed app and X-CSRF-Token must match."""
+    if method.upper() in ("GET", "HEAD", "OPTIONS"):
+        return True
+    origin = headers.get("origin")
+    if origin and _norm_origin(origin) not in _CORS_SET:
+        return False
+    return hmac.compare_digest(headers.get("x-csrf-token") or "", csrf_for(token))
+
+
+def check_issue_origin(request: Request, audience: str) -> None:
+    """A browser may only be given a session cookie for an app it is really running: admin cookies only to the admin dashboard's origin."""
+    origin = _norm_origin(request.headers.get("origin"))
+    if audience == "admin":
+        if origin not in _ADMIN_SET:
+            raise HTTPException(status_code=403, detail="Admin sign-in is only possible from the admin dashboard.")
+    elif origin and origin not in _CORS_SET:
+        raise HTTPException(status_code=403, detail="Request blocked.")
+
+
+def _cookie_secure(request: Request) -> bool:
+    if COOKIE_SECURE in ("1", "true", "yes"):
+        return True
+    if COOKIE_SECURE in ("0", "false", "no"):
+        return False
+    return ratelimit.is_https(request)
+
+
+def set_session_cookie(response: Response, request: Request, token: str, audience: str) -> None:
+    claims = _decode(token)
+    response.set_cookie(COOKIE_NAMES[audience], token, max_age=int(claims["exp"] - claims["iat"]), httponly=True, secure=_cookie_secure(request),
+                        samesite=COOKIE_SAMESITE, path="/api")
+
+
+def clear_session_cookie(response: Response, request: Request, audience: str) -> None:
+    response.delete_cookie(COOKIE_NAMES[audience], path="/api", httponly=True, secure=_cookie_secure(request), samesite=COOKIE_SAMESITE)
+
+
+def current_user(request: Request, creds: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> User:
+    return _authenticate(request, creds)[0]
+
+
+def _authenticate(request: Request, creds: HTTPAuthorizationCredentials | None) -> tuple[User, dict, str, str]:
+    """-> (user, token claims, "bearer" | "cookie", token). A bearer token wins; else the cookie of the audience the request names."""
+    audience = audience_of(request.headers)
+    if creds is not None:
+        token, via = creds.credentials, "bearer"
+    else:
+        token, via = request.cookies.get(COOKIE_NAMES[audience]), "cookie"
+        if not token:
+            raise HTTPException(status_code=401, detail="Please log in.")
+    user, claims = _user_from_token(token)
+    if via == "cookie":
+        if audience == "admin":
+            if _norm_origin(request.headers.get("origin")) not in _ADMIN_SET:   # a script in the USER app cannot use an admin's cookie
+                raise HTTPException(status_code=403, detail="Admin sessions only work from the admin dashboard.")
+            if claims.get("scope") != "admin":
+                raise HTTPException(status_code=401, detail="Session expired. Please log in again.")
+        if not csrf_ok(request.method, request.headers, token):
+            raise HTTPException(status_code=403, detail="Security check failed. Reload the page and try again.")
+    request.state.auth_via, request.state.claims, request.state.token = via, claims, token
+    return user, claims, via, token
+
+
+def _user_from_token(token: str) -> tuple[User, dict]:
     try:
-        claims = _decode(creds.credentials)
+        claims = _decode(token)
         user_id = int(claims["sub"])
     except Exception:
         raise HTTPException(status_code=401, detail="Session expired. Please log in again.")
@@ -127,14 +214,15 @@ def _user_from(creds: HTTPAuthorizationCredentials | None) -> tuple[User, dict]:
     return user, claims
 
 
-def renewed_token(creds: HTTPAuthorizationCredentials | None) -> tuple[User, str]:
-    """A fresh token for a still valid one, unless the session (since the password was typed) is older than its maximum."""
-    user, claims = _user_from(creds)
+def renewed_token(request: Request, creds: HTTPAuthorizationCredentials | None) -> tuple[User, str, str, str]:
+    """A fresh token for a still valid one, unless the session (since the password was typed) is older than its maximum. -> (user, token, via, audience)"""
+    user, claims, via, _ = _authenticate(request, creds)
     start = int(claims.get("ses") or claims.get("iat") or time.time())
     limit = (ADMIN_SESSION_HOURS * 3600) if user.is_admin else (USER_SESSION_DAYS * 86400)
     if time.time() - start > limit:
         raise HTTPException(status_code=401, detail="Session expired. Please log in again.")
-    return user, make_token(user, start)
+    audience = claims.get("scope") or ("admin" if user.is_admin else "app")
+    return user, make_token(user, start, audience), via, audience
 
 
 def revoke_tokens(s, user: User) -> None:

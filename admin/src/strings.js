@@ -205,6 +205,12 @@ export const ADMIN_MY = {
   'Session expired. Please log in again.': 'အကောင့်ဝင်ချိန် ကုန်သွားပါပြီ။ ထပ်မံဝင်ရောက်ပါ။',
   'Account unavailable.': 'အကောင့်ကို အသုံးမပြုနိုင်ပါ။',
   'Please log in.': 'ကျေးဇူးပြု၍ ဝင်ရောက်ပါ။',
+  // httpOnly-cookie sessions (AI-written Burmese, needs native review)
+  'Admin sign-in is only possible from the admin dashboard.': 'အက်ဒမင်အဖြစ် ဝင်ရောက်ခြင်းကို အက်ဒမင် ဒက်ရှ်ဘုတ်မှသာ ပြုလုပ်နိုင်ပါသည်။',
+  'Admin sessions only work from the admin dashboard.': 'အက်ဒမင် အကောင့်ဝင်ချိန်သည် အက်ဒမင် ဒက်ရှ်ဘုတ်မှသာ အသုံးပြုနိုင်ပါသည်။',
+  'Security check failed. Reload the page and try again.': 'လုံခြုံရေး စစ်ဆေးမှု မအောင်မြင်ပါ။ စာမျက်နှာကို ပြန်ဖွင့်ပြီး ထပ်ကြိုးစားပါ။',
+  'Request blocked.': 'တောင်းဆိုမှုကို ပိတ်ဆို့ထားပါသည်။',
+  'Admins only.': 'အက်ဒမင်များသာ ဝင်ရောက်နိုင်ပါသည်။',
   // voice models: connection to Google
   'Google connection': 'Google နှင့် ချိတ်ဆက်မှု',
   'Check with Google now': 'Google နှင့် ယခုစစ်မည်',

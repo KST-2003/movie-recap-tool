@@ -9,6 +9,15 @@ import { LangSwitch, useI18n } from './i18n.jsx';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
+// The login session is an httpOnly cookie set by the API: JavaScript cannot read it, so a script injected into this page cannot steal it (the old
+// token in localStorage could be). All this file keeps is the CSRF token, in memory only; it is sent with every request that changes something.
+axios.defaults.withCredentials = true;
+let csrfToken = '';
+axios.interceptors.request.use((config) => {
+  if (csrfToken && !/^(get|head|options)$/i.test(config.method || 'get')) config.headers['X-CSRF-Token'] = csrfToken;
+  return config;
+});
+
 function AuthScreen({ onAuth }) {
   const { tr, trs } = useI18n();
   const [mode, setMode] = useState('login');
@@ -22,7 +31,7 @@ function AuthScreen({ onAuth }) {
     setBusy(true);
     setError('');
     try {
-      const { data } = await axios.post(`${API_BASE}/api/auth/${mode === 'login' ? 'login' : 'register'}`, { email, password });
+      const { data } = await axios.post(`${API_BASE}/api/auth/${mode === 'login' ? 'login' : 'register'}`, { email, password, cookie: true });
       onAuth(data);
     } catch (err) {
       setError(trs(err.response?.data?.detail) || tr('Could not reach the server.'));
@@ -96,49 +105,49 @@ function ProcessingPanel({ upload, progress, elapsed, subsOnly }) {
 
 function App() {
   const { tr, trs } = useI18n();
-  const [token, setToken] = useState(() => localStorage.getItem('token') || '');
+  const [signedIn, setSignedIn] = useState(null);   // null = still asking the server, false = sign-in screen, true = in
   const [view, setView] = useState('create');   // sidebar page: create | usage
   const [usageKey, setUsageKey] = useState(0);   // bumped when a job ends so the usage page reloads
   const [account, setAccount] = useState(null); // { email, daily_minutes, remaining_seconds }
-  if (token) axios.defaults.headers.common.Authorization = `Bearer ${token}`;
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    delete axios.defaults.headers.common.Authorization;
-    setToken('');
+  // The server deletes the cookie (JavaScript cannot touch an httpOnly cookie).
+  const logout = (callServer = true) => {
+    csrfToken = '';
+    setSignedIn(false);
     setAccount(null);
+    if (callServer) axios.post(`${API_BASE}/api/auth/logout`).catch(() => {});
   };
   const onAuth = (data) => {
-    localStorage.setItem('token', data.token);
-    axios.defaults.headers.common.Authorization = `Bearer ${data.token}`;
-    setToken(data.token);
+    csrfToken = data.csrf_token || '';
     setAccount(data);
+    setSignedIn(true);
   };
-  const refreshAccount = () => axios.get(`${API_BASE}/api/auth/me`).then((r) => setAccount(r.data)).catch(() => {});
+  const refreshAccount = () => axios.get(`${API_BASE}/api/auth/me`).then((r) => { csrfToken = r.data.csrf_token || csrfToken; setAccount(r.data); }).catch(() => {});
   useEffect(() => {
     const id = axios.interceptors.response.use((r) => r, (err) => {
-      if (err.response?.status === 401 && !String(err.config?.url).includes('/api/auth/')) logout();
+      if (err.response?.status === 401 && !String(err.config?.url).includes('/api/auth/')) logout(false);
       return Promise.reject(err);
     });
     return () => axios.interceptors.response.eject(id);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Already signed in? The cookie survives a page reload, the CSRF token in memory does not: /me hands it out again.
+  useEffect(() => {
+    try { localStorage.removeItem('token'); } catch (e) { /* the old place of the token: nothing may stay there */ }
+    axios.get(`${API_BASE}/api/auth/me`).then((r) => { csrfToken = r.data.csrf_token || ''; setAccount(r.data); setSignedIn(true); }).catch(() => setSignedIn(false));
   }, []);
-  useEffect(() => { if (token) refreshAccount(); }, [token]);
-  // Keep the session alive while the app is open (admin accounts get 60-minute tokens): renew every 10 minutes and when the tab comes back.
+  // Keep the session alive while the app is open (admin accounts get 60-minute sessions): renew every 10 minutes and when the tab comes back.
   // A 401 here means the session was cancelled (password reset, "log out everywhere") or is too old: back to the sign-in screen.
   useEffect(() => {
-    if (!token) return undefined;
+    if (!signedIn) return undefined;
     let stopped = false;
     const renew = () => axios.post(`${API_BASE}/api/auth/refresh`).then((r) => {
-      if (stopped) return;
-      localStorage.setItem('token', r.data.token);
-      axios.defaults.headers.common.Authorization = `Bearer ${r.data.token}`;
-      setToken(r.data.token);
-    }).catch((err) => { if (err.response?.status === 401) logout(); });
+      if (!stopped) csrfToken = r.data.csrf_token || csrfToken;
+    }).catch((err) => { if (err.response?.status === 401) logout(false); });
     const timer = setInterval(renew, 10 * 60 * 1000);
     const onVisible = () => { if (document.visibilityState === 'visible') renew(); };
     document.addEventListener('visibilitychange', onVisible);
     return () => { stopped = true; clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
-  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [signedIn]); // eslint-disable-line react-hooks/exhaustive-deps
   const absUrl = (u) => (u.startsWith('http') ? u : API_BASE + u);
 
   // Form State
@@ -398,7 +407,8 @@ function App() {
     }
   };
 
-  if (!token) return <AuthScreen onAuth={onAuth} />;
+  if (signedIn === null) return <div className="min-h-screen bg-slate-950 p-6 text-slate-400">…</div>;
+  if (!signedIn) return <AuthScreen onAuth={onAuth} />;
 
   return (
     <Shell view={view} setView={setView} account={account} onLogout={logout}>

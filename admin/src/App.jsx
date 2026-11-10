@@ -3,13 +3,18 @@ import axios from 'axios';
 import { LangSwitch, useI18n } from './i18n.jsx';
 import Admin from './Admin.jsx';
 
-// Sign-in gate of the admin app. It has its own login (the normal app lives on another origin, so its session is not shared);
-// the token is kept per browser under its own key. The server is what really enforces is_admin; this screen only avoids
-// showing a dashboard full of 403 errors to a normal account.
-const TOKEN_KEY = 'admin_token';
-const readToken = () => { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } };
-const saveToken = (t) => { try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch (e) { /* ignore */ } };
+// Sign-in gate of the admin app. The session is an httpOnly cookie set by the API: JavaScript cannot read it, so a script injected into this page
+// cannot steal it (the old token in localStorage could be stolen). All this file keeps is the CSRF token, in memory only. The server enforces is_admin
+// AND that admin sessions are only used from this dashboard's origin (ADMIN_ORIGINS), so a script in the normal app cannot ride an admin's cookie.
 const errText = (e) => e?.response?.data?.detail || '';
+
+axios.defaults.withCredentials = true;                    // send the session cookie to the API
+axios.defaults.headers.common['X-Audience'] = 'admin';    // "this is the admin dashboard": the API reads the admin cookie
+let csrfToken = '';
+axios.interceptors.request.use((config) => {              // anything that changes data must carry the CSRF token
+  if (csrfToken && !/^(get|head|options)$/i.test(config.method || 'get')) config.headers['X-CSRF-Token'] = csrfToken;
+  return config;
+});
 
 function Login({ onLogin }) {
   const { tr, trs } = useI18n();
@@ -22,9 +27,8 @@ function Login({ onLogin }) {
     e.preventDefault();
     setBusy(true); setError('');
     try {
-      const { data } = await axios.post('/api/auth/login', { email, password });
-      if (!data.is_admin) { setError(tr('This account is not an admin.')); return; }
-      onLogin(data.token);
+      const { data } = await axios.post('/api/auth/login', { email, password, audience: 'admin', cookie: true });
+      onLogin(data);
     } catch (err) {
       setError(errText(err) ? trs(errText(err)) : tr('Could not reach the server.'));
     } finally { setBusy(false); }
@@ -46,52 +50,56 @@ function Login({ onLogin }) {
 
 export default function App() {
   const { tr } = useI18n();
-  const [token, setToken] = useState(readToken);
+  const [signedIn, setSignedIn] = useState(null);   // null = still asking the server, false = sign-in screen, true = in
   const [account, setAccount] = useState(null);
   const [problem, setProblem] = useState('');
-  if (token) axios.defaults.headers.common.Authorization = `Bearer ${token}`;
 
-  const logout = () => {
-    saveToken('');
-    delete axios.defaults.headers.common.Authorization;
-    setToken(''); setAccount(null);
+  // The server deletes the cookie (JavaScript cannot touch an httpOnly cookie).
+  const logout = (callServer = true) => {
+    csrfToken = '';
+    setSignedIn(false); setAccount(null);
+    if (callServer) axios.post('/api/auth/logout').catch(() => {});
   };
-  const login = (t) => { saveToken(t); axios.defaults.headers.common.Authorization = `Bearer ${t}`; setProblem(''); setToken(t); };
+
+  // Who am I? Also what a page reload does: the cookie survives, the CSRF token in memory does not, /me hands it out again.
+  const loadMe = () => axios.get('/api/auth/me').then((r) => {
+    csrfToken = r.data.csrf_token || csrfToken;
+    if (r.data.is_admin) { setAccount(r.data); setSignedIn(true); } else { logout(); setProblem(tr('This account is not an admin.')); }
+  }).catch((e) => {
+    setSignedIn(false);
+    if (e.response?.status !== 401) setProblem(tr('Could not reach the server.'));
+  });
+  const login = (data) => { csrfToken = data.csrf_token || ''; setProblem(''); setSignedIn(true); loadMe(); };
+
+  useEffect(() => {
+    try { localStorage.removeItem('admin_token'); } catch (e) { /* the old place of the token: nothing may stay there */ }
+    loadMe();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const id = axios.interceptors.response.use((r) => r, (err) => {
-      if (err.response?.status === 401 && !String(err.config?.url).includes('/api/auth/')) logout();
+      if (err.response?.status === 401 && !String(err.config?.url).includes('/api/auth/')) logout(false);
       return Promise.reject(err);
     });
     return () => axios.interceptors.response.eject(id);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Admin tokens last 60 minutes: renew every 10 minutes (and when the tab comes back) while the dashboard is open. A 401 means the session
+  // Admin sessions last 60 minutes: renew every 10 minutes (and when the tab comes back) while the dashboard is open. A 401 means the session
   // was cancelled (password reset, demotion, "log out everywhere") or is older than the 12-hour maximum: back to the sign-in screen.
   useEffect(() => {
-    if (!token) return undefined;
+    if (!signedIn) return undefined;
     let stopped = false;
     const renew = () => axios.post('/api/auth/refresh').then((r) => {
-      if (stopped) return;
-      saveToken(r.data.token);
-      axios.defaults.headers.common.Authorization = `Bearer ${r.data.token}`;
-      setToken(r.data.token);
-    }).catch((err) => { if (err.response?.status === 401) logout(); });
+      if (!stopped) csrfToken = r.data.csrf_token || csrfToken;
+    }).catch((err) => { if (err.response?.status === 401) logout(false); });
     const timer = setInterval(renew, 10 * 60 * 1000);
     const onVisible = () => { if (document.visibilityState === 'visible') renew(); };
     document.addEventListener('visibilitychange', onVisible);
     return () => { stopped = true; clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
-  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [signedIn]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // who am I? (also catches a stored token of an account that lost admin rights)
-  useEffect(() => {
-    if (!token) return;
-    axios.get('/api/auth/me').then((r) => {
-      if (r.data.is_admin) setAccount(r.data); else { logout(); setProblem(tr('This account is not an admin.')); }
-    }).catch((e) => { if (e.response?.status !== 401) setProblem(tr('Could not reach the server.')); });
-  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (!token) return <><Login onLogin={login} />{problem && <p className="fixed inset-x-0 bottom-4 text-center text-sm text-red-400">{problem}</p>}</>;
+  if (signedIn === null) return <div className="min-h-screen bg-slate-950 p-6 text-slate-400">…</div>;
+  if (!signedIn) return <><Login onLogin={login} />{problem && <p className="fixed inset-x-0 bottom-4 text-center text-sm text-red-400">{problem}</p>}</>;
   if (!account) return <div className="min-h-screen bg-slate-950 p-6 text-slate-400">{problem || '…'}</div>;
   return <Admin account={account} onLogout={logout} />;
 }

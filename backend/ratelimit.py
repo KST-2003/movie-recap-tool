@@ -190,6 +190,20 @@ def client_ip(request: Request) -> str:
     return peer
 
 
+def is_https(request: Request) -> bool:
+    """True when the browser talked HTTPS to us: directly, or to a TRUSTED proxy that says so (X-Forwarded-Proto). Used for the cookie's Secure flag."""
+    if request.url.scheme == "https":
+        return True
+    trusted = _networks()
+    peer = request.client.host if request.client else ""
+    try:
+        if trusted and any(ipaddress.ip_address(peer) in net for net in trusted):
+            return request.headers.get("x-forwarded-proto", "").split(",")[-1].strip().lower() == "https"
+    except ValueError:
+        pass
+    return False
+
+
 # ---------------------------------------------------------------- the checks used by the API
 
 def _refuse(wait: int):

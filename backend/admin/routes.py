@@ -3,7 +3,7 @@
 import re
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
@@ -21,8 +21,10 @@ STATUSES = ("queued", "running", "done", "error", "cancelled")
 AUDIT_ACTIONS = ("user.create", "user.update", "job.cancel", "settings.update")
 
 
-def require_admin(user: User = Depends(auth.current_user)) -> User:
+def require_admin(request: Request, user: User = Depends(auth.current_user)) -> User:
     if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admins only.")
+    if request.state.auth_via == "cookie" and (request.state.claims or {}).get("scope") != "admin":   # a normal-app session cookie never opens the admin API
         raise HTTPException(status_code=403, detail="Admins only.")
     return user
 

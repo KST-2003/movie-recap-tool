@@ -12,6 +12,7 @@ services:
     environment:
       TRUSTED_PROXIES: "172.16.0.0/12"   # the compose network: the proxy's address, so X-Forwarded-For is believed
       CORS_ORIGINS: "https://${APP_DOMAIN:?set APP_DOMAIN},https://${ADMIN_DOMAIN:?set ADMIN_DOMAIN}"
+      ADMIN_ORIGINS: "https://${ADMIN_DOMAIN:?set ADMIN_DOMAIN}"   # admin sessions (httpOnly cookie) are only accepted from the dashboard's origin
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped

@@ -14,7 +14,12 @@ browser ──HTTPS──> Caddy ──> app.example.com    static files  fronte
 2. **Backend settings** (`backend/.env`, see `backend/.env.example`). These matter for security, none has a safe default for production:
    - `SECRET_KEY` (long random string), `DATABASE_URL` (Postgres), `REDIS_URL` (also shares the login limits between workers), `STORAGE_BACKEND`.
    - `TRUSTED_PROXIES`: the compose override sets it for you (`172.16.0.0/12`). Without it every visitor looks like the proxy and shares one login limit.
-   - `CORS_ORIGINS`: the override sets it from `APP_DOMAIN` and `ADMIN_DOMAIN`.
+   - `CORS_ORIGINS` and `ADMIN_ORIGINS`: the override sets them from `APP_DOMAIN` and `ADMIN_DOMAIN`. Logins are **httpOnly cookies** (not a token in
+     `localStorage`), and the two apps share the API's cookie jar, so the API accepts admin sessions only from `ADMIN_ORIGINS`. Without that
+     variable the admin dashboard cannot sign in.
+   - **The three host names must share one registrable domain** (`app.example.com`, `admin.example.com`, `api.example.com`): the cookies are
+     `SameSite=Strict`, which browsers only send between hosts of the same site. With unrelated domains (`myapp.com` + `my-api.net`) logins silently
+     fail. Cookies are `Secure` automatically because Caddy tells the API the request was HTTPS (`X-Forwarded-Proto`, trusted through `TRUSTED_PROXIES`).
    - `ADMIN_ALLOWED_IPS` (optional): your office / VPN addresses; everyone else gets 404 on `/api/admin/*`.
    - `ALLOW_SIGNUP`, `SIGNUP_*`, `GLOBAL_DAILY_MINUTES` and the admin Settings budget gate: decide how open sign-up is BEFORE you announce the site.
 3. **Build the front ends** against the API host (the address is baked into the files):

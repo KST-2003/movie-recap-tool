@@ -31,5 +31,10 @@ GLOBAL_DAILY_MINUTES = float(os.getenv("GLOBAL_DAILY_MINUTES", "0"))    # 0 = un
 MAINTENANCE_MODE = os.getenv("MAINTENANCE_MODE", "").lower() in ("1", "true")  # kill switch for new jobs
 
 CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001").split(",") if o.strip()]
+# Browser sessions live in an httpOnly cookie (see auth.py). The user app and the admin app share the API host, so the server also checks WHICH app a request
+# comes from: admin sessions are only accepted from ADMIN_ORIGINS (the browser sets Origin; page scripts cannot forge it).
+ADMIN_ORIGINS = [o.strip() for o in os.getenv("ADMIN_ORIGINS", "http://localhost:3001,http://127.0.0.1:3001").split(",") if o.strip()]
+COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "strict").lower()   # strict | lax. The apps and the API must share one registrable domain (app.x.com, admin.x.com, api.x.com)
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "auto").lower()         # auto = Secure when the request came in over HTTPS (also behind a trusted proxy) | 1 | 0
 FILE_TTL_HOURS = float(os.getenv("FILE_TTL_HOURS", "24"))
 SIGNED_URL_SECONDS = int(os.getenv("SIGNED_URL_SECONDS", "3600"))

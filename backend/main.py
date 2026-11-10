@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 import time
 import uuid
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
@@ -62,8 +62,8 @@ app = FastAPI(title="Movie Recap Tool Backend", version="3.0.0", lifespan=lifesp
 app.add_middleware(RequestGuard)   # BEFORE the CORS middleware: its 401 / 413 answers must still carry the CORS headers
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
-    allow_credentials=False,  # bearer tokens, not cookies
+    allow_origins=[o for o in CORS_ORIGINS if o != "*"],   # explicit origins only: browsers refuse "*" together with cookies
+    allow_credentials=True,   # the apps' session is an httpOnly cookie
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -118,6 +118,18 @@ def health():
 class Credentials(BaseModel):
     email: str
     password: str
+    audience: str = "app"   # "admin" = the owner dashboard (needs an admin account and the dashboard's origin)
+    cookie: bool = False    # True = browser apps: the session goes into an httpOnly cookie and the body carries only a CSRF token; False = the token is in the body
+
+
+def _session_reply(request: Request, response: Response, user: User, payload: dict, audience: str, cookie: bool) -> dict:
+    token = auth.make_token(user, audience=audience)
+    if cookie:
+        auth.set_session_cookie(response, request, token, audience)
+        payload["csrf_token"] = auth.csrf_for(token)
+    else:
+        payload["token"] = token
+    return payload
 
 
 def _quota(user: User) -> dict:
@@ -132,9 +144,11 @@ def _quota(user: User) -> dict:
 
 
 @app.post("/api/auth/register")
-def register(body: Credentials, request: Request):
+def register(body: Credentials, request: Request, response: Response):
     ratelimit.register_attempt(request)
     ratelimit.check_password_length(body.password)
+    if body.cookie:
+        auth.check_issue_origin(request, "app")
     if not ALLOW_SIGNUP:
         raise HTTPException(status_code=403, detail="Sign-ups are closed.")
     email = body.email.strip().lower()
@@ -158,12 +172,15 @@ def register(body: Credentials, request: Request):
             user = User(email=email, password_hash=password_hash, daily_minutes=SIGNUP_DAILY_MINUTES, monthly_minutes=SIGNUP_MONTHLY_MINUTES)
             s.add(user)
             s.commit()
-    return {"token": auth.make_token(user), "email": email, "is_admin": False, **_quota(user)}
+    return _session_reply(request, response, user, {"email": email, "is_admin": False, **_quota(user)}, "app", body.cookie)
 
 
 @app.post("/api/auth/login")
-def login(body: Credentials, request: Request):
+def login(body: Credentials, request: Request, response: Response):
     ratelimit.check_password_length(body.password)
+    audience = "admin" if body.audience == "admin" else "app"
+    if body.cookie:
+        auth.check_issue_origin(request, audience)
     email = body.email.strip().lower()[:255]
     keys = ratelimit.login_attempt(request, email)   # counted BEFORE the password check; a correct password gives it back
     with Session() as s:
@@ -172,6 +189,8 @@ def login(body: Credentials, request: Request):
     if not user or not user.is_active or not password_ok:
         raise HTTPException(status_code=401, detail="Wrong email or password.")
     ratelimit.login_succeeded(keys)
+    if audience == "admin" and not user.is_admin:
+        raise HTTPException(status_code=403, detail="This account is not an admin.")
     if auth.needs_rehash(user.password_hash):   # old, cheaper hash: store a stronger one now that we hold the password
         upgraded = auth.hash_password(body.password)
         with Session() as s:
@@ -179,29 +198,45 @@ def login(body: Credentials, request: Request):
             if row is not None and row.password_hash == user.password_hash:   # not if the password was changed meanwhile
                 row.password_hash = upgraded
                 s.commit()
-    return {"token": auth.make_token(user), "email": user.email, "is_admin": user.is_admin, **_quota(user)}
+    return _session_reply(request, response, user, {"email": user.email, "is_admin": user.is_admin, **_quota(user)}, audience, body.cookie)
 
 
 @app.post("/api/auth/refresh")
-def refresh(creds=Depends(auth._bearer)):
-    """A new token for a valid one. The apps call it every few minutes while open, which is what lets admin tokens be short."""
-    user, token = auth.renewed_token(creds)
+def refresh(request: Request, response: Response, creds=Depends(auth._bearer)):
+    """A new token for a valid one. The apps call it every few minutes while open, which is what lets admin tokens be short.
+    A cookie session gets a new cookie and a new CSRF token; a bearer session gets the new token in the body."""
+    user, token, via, audience = auth.renewed_token(request, creds)
+    if via == "cookie":
+        auth.set_session_cookie(response, request, token, audience)
+        return {"csrf_token": auth.csrf_for(token), "is_admin": user.is_admin}
     return {"token": token, "is_admin": user.is_admin}
 
 
+@app.post("/api/auth/logout")
+def logout(request: Request, response: Response):
+    """Forget this browser's session cookie. (JavaScript cannot delete an httpOnly cookie, the server has to.) Needs no login: logging out must
+    always work, even with an expired session."""
+    auth.clear_session_cookie(response, request, auth.audience_of(request.headers))
+    return {"ok": True}
+
+
 @app.post("/api/auth/logout-all")
-def logout_all(user: User = Depends(auth.current_user)):
+def logout_all(request: Request, response: Response, user: User = Depends(auth.current_user)):
     """Cancel every session of this account (this device and all others)."""
     with Session() as s:
         row = s.get(User, user.id)
         auth.revoke_tokens(s, row)
         s.commit()
+    auth.clear_session_cookie(response, request, auth.audience_of(request.headers))
     return {"ok": True}
 
 
 @app.get("/api/auth/me")
-def me(user: User = Depends(auth.current_user)):
-    return {"id": user.id, "email": user.email, "is_admin": user.is_admin, **_quota(user)}
+def me(request: Request, user: User = Depends(auth.current_user)):
+    out = {"id": user.id, "email": user.email, "is_admin": user.is_admin, **_quota(user)}
+    if request.state.auth_via == "cookie":   # a page reload lost the CSRF token held in memory: hand it out again (only an allowed origin can read this answer)
+        out["csrf_token"] = auth.csrf_for(request.state.token)
+    return out
 
 
 @app.get("/api/usage")

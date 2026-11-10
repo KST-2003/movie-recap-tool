@@ -12,6 +12,7 @@ Put it BEFORE the CORS middleware in main.py so its 401 / 413 answers still carr
 import ipaddress
 import json
 import os
+from http.cookies import SimpleCookie
 
 from starlette.requests import Request
 
@@ -90,12 +91,23 @@ class RequestGuard:
 
         # 2. an upload needs a signed, unexpired token before its body is read (the endpoint still checks the account)
         if method == "POST" and path == "/api/jobs":
-            header = dict(scope["headers"]).get(b"authorization", b"").decode("latin-1")
-            token = header[7:] if header.lower().startswith("bearer ") else ""
+            headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope["headers"]}
+            header = headers.get("authorization", "")
+            token, via_cookie = (header[7:], False) if header.lower().startswith("bearer ") else ("", False)
+            if not token:   # a browser app: the session cookie, which must come with a matching CSRF token
+                cookie = SimpleCookie()
+                try:
+                    cookie.load(headers.get("cookie", ""))
+                except Exception:
+                    pass
+                morsel = cookie.get(auth.COOKIE_NAMES["app"])
+                token, via_cookie = (morsel.value if morsel else ""), True
             try:
                 auth._decode(token)
             except Exception:
                 return await _reply(send, 401, "Please log in.")
+            if via_cookie and not auth.csrf_ok(method, headers, token):
+                return await _reply(send, 403, "Security check failed. Reload the page and try again.")
 
         # 3. body size
         limit = _limit_for(method, path)
