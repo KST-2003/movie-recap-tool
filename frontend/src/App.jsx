@@ -1,8 +1,13 @@
-import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import axios from 'axios';
+import React, { lazy, Suspense, useState } from 'react';
+import AuthScreen from './AuthScreen.jsx';
+import ProcessingPanel from './ProcessingPanel.jsx';
 import PreviewStudio, { ASPECTS } from './PreviewStudio.jsx';
 import Shell from './Shell.jsx';
-import { LangSwitch, useI18n } from './i18n.jsx';
+import { useI18n } from './i18n.jsx';
+import useSession from './hooks/useSession.js';
+import useRenderSettings from './hooks/useRenderSettings.js';
+import useVideoJob from './hooks/useVideoJob.js';
+import useVoicePlayback from './hooks/useVoicePlayback.js';
 
 // Code-split: each of these is shown only after an action (a finished job, "see more voices", the usage sidebar page),
 // never on first paint, so there's no reason to make every visitor download them before they've even picked a file.
@@ -13,410 +18,27 @@ const UsageDashboard = lazy(() => import('./UsageDashboard.jsx'));
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
-// The login session is an httpOnly cookie set by the API: JavaScript cannot read it, so a script injected into this page cannot steal it (the old
-// token in localStorage could be). All this file keeps is the CSRF token, in memory only; it is sent with every request that changes something.
-axios.defaults.withCredentials = true;
-let csrfToken = '';
-axios.interceptors.request.use((config) => {
-  if (csrfToken && !/^(get|head|options)$/i.test(config.method || 'get')) config.headers['X-CSRF-Token'] = csrfToken;
-  return config;
-});
-
-function AuthScreen({ onAuth }) {
-  const { tr, trs } = useI18n();
-  const [mode, setMode] = useState('login');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const submit = async (e) => {
-    e.preventDefault();
-    setBusy(true);
-    setError('');
-    try {
-      const { data } = await axios.post(`${API_BASE}/api/auth/${mode === 'login' ? 'login' : 'register'}`, { email, password, cookie: true });
-      onAuth(data);
-    } catch (err) {
-      setError(trs(err.response?.data?.detail) || tr('Could not reach the server.'));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const input = 'w-full rounded-xl bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-white outline-none focus:border-purple-500';
-  return (
-    <div className="min-h-screen bg-slate-950 text-white p-6 font-sans flex items-center justify-center">
-      <form onSubmit={submit} className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
-        <div className="flex items-center justify-between"><h1 className="text-xl font-bold text-purple-400">🎬 Movie Recap Tool</h1><LangSwitch /></div>
-        <input className={input} type="email" placeholder={tr('Email')} value={email} onChange={(e) => setEmail(e.target.value)} required />
-        <input className={input} type="password" placeholder={tr('Password (8+ characters)')} value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} />
-        {error && <p className="text-sm text-red-400">{error}</p>}
-        <button disabled={busy} className="w-full py-2 rounded-xl bg-purple-600 hover:bg-purple-500 font-semibold disabled:opacity-50">
-          {mode === 'login' ? tr('Log in') : tr('Create account')}
-        </button>
-        <button type="button" onClick={() => setMode(mode === 'login' ? 'register' : 'login')} className="text-xs text-slate-400 hover:text-white">
-          {mode === 'login' ? tr('New here? Create an account') : tr('Already have an account? Log in')}
-        </button>
-      </form>
-    </div>
-  );
-}
-
-const STEPS = [
-  { label: 'Uploading your video', from: -1, to: 0 },
-  { label: 'Finding subtitles and scene cuts', from: 0, to: 10 },
-  { label: 'Transcribing and translating to Burmese', from: 10, to: 30 },
-  { label: 'Shortening long lines to fit their scenes', from: 30, to: 35 },
-  { label: 'Generating the Burmese voice-over', from: 35, to: 62 },
-  { label: 'Fitting each line to its scene', from: 62, to: 75 },
-  { label: 'Rendering the final video', from: 75, to: 100 },
-];
-const mmss = (t) => `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
-
-// What is done, what is running now, what is left, so a long job never looks stuck.
-function ProcessingPanel({ upload, progress, elapsed, subsOnly }) {
-  const { tr, trs } = useI18n();
-  const uploading = upload !== null && upload < 100;
-  const pct = uploading ? -1 : progress.pct;
-  return (
-    <div className="w-full max-w-xs mt-3 rounded-xl border border-slate-800 bg-slate-900/60 p-3 text-xs">
-      <div className="flex justify-between text-slate-400 mb-2">
-        <span>{tr('Working on your video')}</span>
-        <span className="font-mono">{mmss(elapsed)}</span>
-      </div>
-      <ol className="space-y-1.5">
-        {STEPS.map((st, i) => (subsOnly && i >= 3 && i <= 5 ? null : (st && { st, i }))).filter(Boolean).map(({ st, i }) => {
-          const done = i === 0 ? !uploading : pct >= st.to;
-          const active = !done && (i === 0 ? uploading : pct >= st.from && pct < st.to);
-          return (
-            <li key={st.label} className="flex items-start gap-2">
-              <span className={`mt-0.5 w-4 h-4 flex-shrink-0 rounded-full flex items-center justify-center text-[10px] ${
-                done ? 'bg-emerald-500 text-slate-900' : active ? 'border-2 border-purple-400 border-t-transparent animate-spin' : 'border border-slate-600'
-              }`}>{done ? '✓' : ''}</span>
-              <span className={done ? 'text-slate-400' : active ? 'text-white' : 'text-slate-500'}>
-                {tr(st.label)}
-                {active && <span className="block text-purple-300">{i === 0 ? `${upload}%` : trs(progress.stage)}</span>}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
-      <p className="mt-2 text-[11px] text-slate-500">{tr('Longer videos can take a few minutes. You can cancel at any time.')}</p>
-    </div>
-  );
-}
-
 function App() {
   const { tr, trs } = useI18n();
-  const [signedIn, setSignedIn] = useState(null);   // null = still asking the server, false = sign-in screen, true = in
   const [view, setView] = useState('create');   // sidebar page: create | usage
   const [usageKey, setUsageKey] = useState(0);   // bumped when a job ends so the usage page reloads
-  const [account, setAccount] = useState(null); // { email, daily_minutes, remaining_seconds }
-
-  // The server deletes the cookie (JavaScript cannot touch an httpOnly cookie).
-  const logout = (callServer = true) => {
-    csrfToken = '';
-    setSignedIn(false);
-    setAccount(null);
-    if (callServer) axios.post(`${API_BASE}/api/auth/logout`).catch(() => {});
-  };
-  const onAuth = (data) => {
-    csrfToken = data.csrf_token || '';
-    setAccount(data);
-    setSignedIn(true);
-  };
-  const refreshAccount = () => axios.get(`${API_BASE}/api/auth/me`).then((r) => { csrfToken = r.data.csrf_token || csrfToken; setAccount(r.data); }).catch(() => {});
-  useEffect(() => {
-    const id = axios.interceptors.response.use((r) => r, (err) => {
-      if (err.response?.status === 401 && !String(err.config?.url).includes('/api/auth/')) logout(false);
-      return Promise.reject(err);
-    });
-    return () => axios.interceptors.response.eject(id);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  // Already signed in? The cookie survives a page reload, the CSRF token in memory does not: /me hands it out again.
-  useEffect(() => {
-    try { localStorage.removeItem('token'); } catch (e) { /* the old place of the token: nothing may stay there */ }
-    axios.get(`${API_BASE}/api/auth/me`).then((r) => { csrfToken = r.data.csrf_token || ''; setAccount(r.data); setSignedIn(true); }).catch(() => setSignedIn(false));
-  }, []);
-  // Keep the session alive while the app is open (admin accounts get 60-minute sessions): renew every 10 minutes and when the tab comes back.
-  // A 401 here means the session was cancelled (password reset, "log out everywhere") or is too old: back to the sign-in screen.
-  useEffect(() => {
-    if (!signedIn) return undefined;
-    let stopped = false;
-    const renew = () => axios.post(`${API_BASE}/api/auth/refresh`).then((r) => {
-      if (!stopped) csrfToken = r.data.csrf_token || csrfToken;
-    }).catch((err) => { if (err.response?.status === 401) logout(false); });
-    const timer = setInterval(renew, 10 * 60 * 1000);
-    const onVisible = () => { if (document.visibilityState === 'visible') renew(); };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => { stopped = true; clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
-  }, [signedIn]); // eslint-disable-line react-hooks/exhaustive-deps
-  const absUrl = (u) => (u.startsWith('http') ? u : API_BASE + u);
-
-  // Form State
-  const [videoFile, setVideoFile] = useState(null);
-  const [customLogo, setCustomLogo] = useState(null);
-  const [voiceType, setVoiceType] = useState('Kore');
-  const [voices, setVoices] = useState([]);
-  const [looks, setLooks] = useState([]);
   const [showLibrary, setShowLibrary] = useState(false);
-  const [voiceGender, setVoiceGender] = useState('female');
-  const [playing, setPlaying] = useState(null);
-  const audioRef = useRef(null);
-  const previewBlobUrlRef = useRef('');   // the one in-flight preview-line blob: revoked before the next one and on unmount
 
-  useEffect(() => {
-    axios.get(`${API_BASE}/api/voices`).then((r) => setVoices(r.data)).catch(() => setVoices([]));
-    axios.get(`${API_BASE}/api/looks`).then((r) => setLooks(r.data)).catch(() => setLooks([]));
-    return () => {
-      audioRef.current?.pause();
-      if (previewBlobUrlRef.current) URL.revokeObjectURL(previewBlobUrlRef.current);
-    };
-  }, []);
-
-  const playSample = (voice) => {
-    audioRef.current?.pause();
-    if (playing === voice.name) {
-      setPlaying(null);
-      return;
-    }
-    const audio = new Audio(`${API_BASE}${voice.sample_url}`);
-    audio.onended = () => setPlaying(null);
-    audio.play();
-    audioRef.current = audio;
-    setPlaying(voice.name);
-  };
-  const [previewing, setPreviewing] = useState(null);
-  const previewLine = async (line, voiceName) => {
-    if (!jobId) return;
-    audioRef.current?.pause();
-    setPreviewing(line.key);
-    try {
-      const { data } = await axios.post(`${API_BASE}/api/jobs/${jobId}/preview-line`, { id: line.id ?? null, text: line.text, voice: voiceName }, { responseType: 'blob', timeout: 120000 });
-      if (previewBlobUrlRef.current) URL.revokeObjectURL(previewBlobUrlRef.current);   // release the previous preview's blob before making a new one
-      const url = URL.createObjectURL(data);
-      previewBlobUrlRef.current = url;
-      const audio = new Audio(url);
-      audioRef.current = audio;
-      audio.play();
-    } catch (err) {
-      let msg = err.message;
-      try { msg = JSON.parse(await err.response.data.text()).detail || msg; } catch { /* keep */ }
-      window.alert(trs(msg));
-    } finally {
-      setPreviewing(null);
-    }
-  };
-  // Feature Toggles
-  // Finishing settings: not in the form any more, edited in the editor AFTER the first result (they re-render the video).
-  const [finish, setFinish] = useState({ blur_subtitles: true, enable_subtitles: true, remove_watermark: false, enable_flip: false, bg_volume: null });
-  const [bgKept, setBgKept] = useState(false);   // the result has the film's own music/effects under the voice
-  // Sync policy: by default the voice is never sped up; the video slows/freezes to fit it.
-  const [allowVoiceSpeedup, setAllowVoiceSpeedup] = useState(true);
-  // Grading & speed
-  const [videoSpeed, setVideoSpeed] = useState(1);
-  const [brightness, setBrightness] = useState(0);
-  const [contrast, setContrast] = useState(1);
-  const [saturation, setSaturation] = useState(1);
-  const [logoPosition, setLogoPosition] = useState('top-right');
-  const [logoSize, setLogoSize] = useState(0.15);
-  const [logoXY, setLogoXY] = useState(null); // dragged position in the preview (fractions of the frame); null = use logoPosition
-  const [blurBoxes, setBlurBoxes] = useState([]); // user blur boxes, DISPLAYED coordinates (fractions)
-  const [aspect, setAspect] = useState('original'); // output format, chosen BEFORE uploading (like CapCut)
-  const [fitMode, setFitMode] = useState('blur');     // 'blur' = whole picture over a blurred copy | 'crop' = fill the frame
-  const [pan, setPan] = useState({ x: 0.5, y: 0.5 });  // crop mode: which part of the picture stays
-  const previewFx = { videoSpeed, brightness, contrast, saturation, logoSize, logoPosition, logoXY, blurBoxes, flip: false,
-    aspect, fitMode, panX: pan.x, panY: pan.y };
-  const changePreviewFx = (patch) => {
-    const set = { videoSpeed: setVideoSpeed, brightness: setBrightness, contrast: setContrast, saturation: setSaturation,
-      logoSize: setLogoSize, logoPosition: setLogoPosition, logoXY: setLogoXY, blurBoxes: setBlurBoxes };
-    if ('panX' in patch) setPan((p) => ({ ...p, x: patch.panX }));
-    if ('panY' in patch) setPan((p) => ({ ...p, y: patch.panY }));
-    Object.entries(patch).forEach(([k, v]) => set[k]?.(v));
-  };
-  const [fitTranslation, setFitTranslation] = useState(true);
-  const [keepBackground, setKeepBackground] = useState(false);
-  const [filmMode, setFilmMode] = useState('recap'); // 'recap' = one narrator voice | 'full' = characters with their own voices
-  const [outputKind, setOutputKind] = useState('dub'); // 'dub' = Burmese voice-over | 'subtitles' = keep original sound, subtitles only
-  const [bgMode, setBgMode] = useState('separate'); // full mode: the film's own sounds ('separate' = effects kept, speech removed | 'original' = all lowered | 'off')
-  const [emotionOn, setEmotionOn] = useState(true);
-  const [softMusic, setSoftMusic] = useState(false);
-  const [progress, setProgress] = useState({ pct: 0, stage: '' });
-  const [notes, setNotes] = useState('');
-  const [subtitleUrl, setSubtitleUrl] = useState('');
-  const [timeline, setTimeline] = useState([]);
-  const [project, setProject] = useState(null); // editable lines of the finished job
-  const [jobId, setJobId] = useState('');
-  const videoRef = useRef(null);
-  const activeJob = useRef('');
-  const [upload, setUpload] = useState(null); // % uploaded while the video is being sent
-  const [elapsed, setElapsed] = useState(0);
-  const [sourceUrl, setSourceUrl] = useState('');
-  const cancelled = useRef(false);
-
-  // UI Processing & Result State
-  const [loading, setLoading] = useState(false);
-  const [resultVideoUrl, setResultVideoUrl] = useState('');
-  const [resultDownloadUrl, setResultDownloadUrl] = useState('');
-  const [errorMessage, setErrorMessage] = useState('');
-
-  useEffect(() => {
-    if (!videoFile) { setSourceUrl(''); return undefined; }
-    const url = URL.createObjectURL(videoFile);
-    setSourceUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [videoFile]);
-  useEffect(() => {
-    if (!loading) return undefined;
-    setElapsed(0);
-    const t0 = Date.now();
-    const id = setInterval(() => setElapsed(Math.floor((Date.now() - t0) / 1000)), 1000);
-    return () => clearInterval(id);
-  }, [loading]);
-
-  // Handle Form Submission
-  const handleGenerateRecap = async (e) => {
-    e.preventDefault();
-    if (!videoFile) {
-      alert(tr('Please select a video file.'));
-      return;
-    }
-
-    cancelled.current = false;
-    activeJob.current = '';
-    setLoading(true);
-    setErrorMessage('');
-    setNotes('');
-    setResultVideoUrl('');
-    setTimeline([]);
-    setProject(null);
-
-    const formData = new FormData();
-    formData.append('video_file', videoFile);
-    if (customLogo) formData.append('custom_logo', customLogo);
-    formData.append('voice_type', voiceType);
-    formData.append('target_language', 'my');
-    formData.append('blur_subtitles', finish.blur_subtitles);
-    formData.append('enable_subtitles', finish.enable_subtitles);
-    formData.append('remove_watermark', finish.remove_watermark);
-    formData.append('enable_flip', finish.enable_flip);
-    if (finish.bg_volume != null) formData.append('bg_volume', finish.bg_volume);
-    formData.append('allow_voice_speedup', allowVoiceSpeedup);
-    formData.append('video_speed', videoSpeed);
-    formData.append('brightness', brightness);
-    formData.append('contrast', contrast);
-    formData.append('saturation', saturation);
-    formData.append('logo_position', logoPosition);
-    formData.append('logo_size', logoSize);
-    if (customLogo && logoXY) {
-      formData.append('logo_x', logoXY[0]);
-      formData.append('logo_y', logoXY[1]);
-    }
-    // Boxes are in the output frame as shown (the render applies them after reframe and flip).
-    formData.append('manual_blurs', JSON.stringify(blurBoxes.map((b) => [b.x, b.y, b.w, b.h])));
-    formData.append('aspect', aspect);
-    formData.append('fit_mode', fitMode);
-    formData.append('pan_x', pan.x);
-    formData.append('pan_y', pan.y);
-    formData.append('fit_translation', fitTranslation);
-    formData.append('keep_background', keepBackground);
-    formData.append('mode', filmMode);
-    formData.append('output', outputKind);
-    if (filmMode === 'full') formData.append('background', bgMode);
-    formData.append('emotion', emotionOn);
-    formData.append('soft_music', softMusic);
-
-    try {
-      setUpload(0);
-      setProgress({ pct: 0, stage: tr('Uploading') });
-      const { data: started } = await axios.post(`${API_BASE}/api/jobs`, formData, {
-        onUploadProgress: (e) => e.total && setUpload(Math.round((100 * e.loaded) / e.total)),
-      });
-      setUpload(null);
-      setProgress({ pct: 0, stage: tr('Queued') });
-      await followJob(started.job_id);
-    } catch (error) {
-      showError(error);
-    } finally {
-      setLoading(false);
-      setUpload(null);
-      refreshAccount();
-      setUsageKey((k) => k + 1);
-    }
-  };
-
-  const cancelJob = async () => {
-    cancelled.current = true;
-    if (activeJob.current) {
-      try { await axios.post(`${API_BASE}/api/jobs/${activeJob.current}/cancel`); } catch (e) { /* the loop below stops anyway */ }
-    }
-  };
-
-  const showError = (error) => {
-    if (error.cancelled) {
-      setErrorMessage('');
-      setNotes(resultVideoUrl ? tr('Cancelled. Your previous video is unchanged.') : '');
-      return;
-    }
-    console.error('Processing error:', error);
-    setErrorMessage(trs(error.response?.data?.detail || error.message) || tr('Something went wrong while making the video.'));
-  };
-
-  // Poll a job until it finishes, then show its result (used for new videos and for editor re-renders).
-  const followJob = async (id) => {
-    let job;
-    activeJob.current = id;
-    const stopped = () => Object.assign(new Error('Cancelled'), { cancelled: true });
-    if (cancelled.current) { await cancelJob(); throw stopped(); } // Cancel was pressed while the job was being created
-    do {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      if (cancelled.current) throw stopped();
-      ({ data: job } = await axios.get(`${API_BASE}/api/jobs/${id}`));
-      const waiting = job.status === 'queued' && job.queue_position
-        ? (job.eta_seconds
-          ? tr('Waiting in line: you are #{n}, about {m} min', { n: job.queue_position, m: Math.max(1, Math.ceil(job.eta_seconds / 60)) })
-          : tr('Waiting in line: you are #{n}, starting soon', { n: job.queue_position }))
-        : job.stage;
-      setProgress({ pct: job.progress, stage: waiting });
-    } while (job.status === 'running' || job.status === 'queued');
-
-    if (job.status === 'cancelled') throw stopped();
-    if (job.status === 'error') throw new Error(job.error);
-    const result = job.result;
-    if (result.expired) throw new Error(tr('This result has expired. Please generate it again.'));
-    setResultVideoUrl(absUrl(result.video_url));
-    setResultDownloadUrl(absUrl(result.download_url));
-    setSubtitleUrl(absUrl(result.subtitle_url));
-    setTimeline(result.timeline.filter((scene) => scene.text));
-    setProject(result.project || null);
-    setBgKept(!!result.background_kept);
-    setJobId(job.id);
-    setNotes(
-      [
-        result.subtitles_detected ? tr('Source subtitles detected and blurred.') : tr('No source subtitles found, nothing blurred.'),
-        keepBackground && outputKind === 'dub' && !result.background_kept ? tr('Background music separation failed; voice-only audio.') : '',
-        ...(result.warnings || []).map(trs),
-      ].filter(Boolean).join(' ')
-    );
-  };
-
-  const applyEdits = async (lines, speakerVoices) => {
-    cancelled.current = false;
-    activeJob.current = '';
-    setLoading(true);
-    setErrorMessage('');
-    setNotes('');
-    try {
-      const { data } = await axios.post(`${API_BASE}/api/jobs/${jobId}/rerender`, { segments: lines, speaker_voices: speakerVoices || undefined, ...finish });
-      setProgress({ pct: 0, stage: tr('Queued') });
-      await followJob(data.job_id);
-    } catch (error) {
-      showError(error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { signedIn, account, logout, onAuth, refreshAccount } = useSession();
+  const settings = useRenderSettings();
+  const {
+    voiceType, setVoiceType, voiceGender, setVoiceGender, finish, setFinish, allowVoiceSpeedup, setAllowVoiceSpeedup,
+    aspect, setAspect, fitMode, setFitMode, previewFx, changePreviewFx, fitTranslation, setFitTranslation,
+    keepBackground, setKeepBackground, filmMode, setFilmMode, outputKind, setOutputKind, bgMode, setBgMode,
+    emotionOn, setEmotionOn, softMusic, setSoftMusic,
+  } = settings;
+  const job = useVideoJob(settings, () => { refreshAccount(); setUsageKey((k) => k + 1); });
+  const {
+    videoFile, setVideoFile, customLogo, setCustomLogo, sourceUrl, loading, resultVideoUrl, resultDownloadUrl,
+    subtitleUrl, errorMessage, notes, timeline, project, jobId, bgKept, upload, elapsed, progress, videoRef,
+    handleGenerateRecap, cancelJob, applyEdits,
+  } = job;
+  const { voices, looks, playing, previewing, playSample, previewLine } = useVoicePlayback(jobId);
 
   if (signedIn === null) return <div className="min-h-screen bg-slate-950 p-6 text-slate-400">…</div>;
   if (!signedIn) return <AuthScreen onAuth={onAuth} />;
@@ -433,7 +55,7 @@ function App() {
       <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl">
 
         <form onSubmit={handleGenerateRecap} className="space-y-6">
-          
+
           {/* Format first, then the video (like CapCut) */}
           <div className="rounded-xl border border-slate-800 bg-slate-800/30 p-4 space-y-3">
             <label className="block text-sm font-medium text-slate-300">{tr('Video format')}</label>
