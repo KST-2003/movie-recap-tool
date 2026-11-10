@@ -24,6 +24,7 @@ import gemini_tts
 import local_dub
 import storage
 from common import audio_ext, dub_provider, media_duration, tts_provider
+FULL_MODE_BACKGROUND = os.getenv("FULL_MODE_BACKGROUND", "separate")   # full-movie original sound: separate (Demucs, slow, CPU heavy) | original (whole track lowered, fast) | off
 from audio_tools import cleanup_separation, make_soft_tone, mix_music, separate_background
 from config import LOGOS_DIR, OUTPUT_DIR, UPLOAD_DIR
 import usage
@@ -628,7 +629,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
 
         # 2. Keep the original music/effects (voice removed) — runs alongside dubbing.
         src_has_audio = has_audio(video_path)
-        bg_choice = p.get("background") or ("separate" if p.get("keep_background") else ("separate" if mode == "full" else "off"))
+        bg_choice = p.get("background") or ("separate" if p.get("keep_background") else (FULL_MODE_BACKGROUND if mode == "full" else "off"))
         if not dub or not src_has_audio:
             bg_choice = "off"
         warn: list[str] = []

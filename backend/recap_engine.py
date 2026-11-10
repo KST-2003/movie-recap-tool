@@ -13,6 +13,8 @@ from dataclasses import dataclass, field, replace
 
 from PIL import Image, ImageDraw, ImageFont
 
+from admin import settings as runtime_settings
+
 BREATH = 0.10  # silence kept after each voice clip so clips never run together
 MIN_SCENE = 0.05
 
@@ -517,8 +519,9 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
             px, py = min(max(fx.pan_x, 0.0), 1.0), min(max(fx.pan_y, 0.0), 1.0)
             chain(f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}:x='(iw-{W})*{px:.4f}':y='(ih-{H})*{py:.4f}',setsar=1", "rf")
         else:
+            sw, sh = max(16, int(W / 8) // 2 * 2), max(16, int(H / 8) // 2 * 2)   # blur a small copy, then scale up: same look, ~5x faster than blurring full size
             f.append(f"[{cur}]split=2[rf_a][rf_b];"
-                     f"[rf_a]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=25:5[rf_bg];"
+                     f"[rf_a]scale={sw}:{sh}:force_original_aspect_ratio=increase,crop={sw}:{sh},boxblur=3:2,scale={W}:{H}:flags=bilinear[rf_bg];"
                      f"[rf_b]scale={W}:{H}:force_original_aspect_ratio=decrease[rf_fg];"
                      f"[rf_bg][rf_fg]overlay=(W-w)/2:(H-h)/2,setsar=1[rf]")
             cur = "rf"
@@ -558,7 +561,7 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
     with open(script, "w") as fh:
         fh.write(";\n".join(f))
     cmd += ["-/filter_complex", script, "-map", f"[{cur}]", "-map", f"[{acur}]",
-            "-r", f"{fps:.3f}", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p"]
+            "-r", f"{fps:.3f}", "-c:v", "libx264", "-preset", "veryfast", "-crf", str(runtime_settings.video_crf()), "-pix_fmt", "yuv420p"]
     if threads:
         cmd += ["-threads", str(threads)]
     cmd += ["-c:a", "aac", "-t", f"{total_len:.3f}", "-movflags", "+faststart", output_path]

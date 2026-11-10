@@ -439,6 +439,7 @@ class SettingsPatch(BaseModel):
     payment_note: str | None = Field(None, max_length=500)           # shown next to the QR (account name, what to write on the slip...)
     keep_result_days: float | None = Field(None, ge=1, le=3650)   # how long finished videos are kept
     keep_source_days: float | None = Field(None, ge=1, le=3650)   # how long uploaded sources / voice clips are kept (editing needs them)
+    video_crf: int | None = Field(None, ge=16, le=30)   # x264 quality of new renders (lower = sharper, bigger, slower)
     prices: dict[str, dict[str, float]] | None = None   # {model: {"in","audio_in","out","audio_out"}} USD per 1M tokens
 
 

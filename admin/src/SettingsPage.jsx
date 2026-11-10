@@ -17,13 +17,14 @@ export default function SettingsPage() {
   const [floor, setFloor] = useState('');
   const [keepR, setKeepR] = useState('');
   const [keepS, setKeepS] = useState('');
+  const [crf, setCrf] = useState('23');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [confirm, setConfirm] = useState(false);
   useEffect(() => {
     if (data) { setCap(String(data.global_daily_minutes)); setBal(data.budget_thb == null ? '' : String(data.budget_thb)); setCost(String(data.cost_per_minute_thb)); setCostStd(String(data.cost_per_minute_standard_thb)); setFloor(String(data.min_free_minutes)); }
   }, [data]);
-  useEffect(() => { if (data) { setKeepR(String(data.keep_result_days)); setKeepS(String(data.keep_source_days)); } }, [data]);
+  useEffect(() => { if (data) { setKeepR(String(data.keep_result_days)); setKeepS(String(data.keep_source_days)); setCrf(String(data.video_crf)); } }, [data]);
   if (!data) return error ? <ErrorBox error={error} onRetry={reload} /> : <Loading />;
 
   const save = async (patch, ok) => {
@@ -75,6 +76,18 @@ export default function SettingsPage() {
         </div>
       </Card>
       <PricingCard settings={data} onSaved={reload} />
+      <Card title={tr('Video quality')}>
+        <p className="mb-3 text-sm text-slate-400">{tr('How sharp the finished video is. Sharper = bigger files and slower renders. It applies to videos made from now on (the picture size is the same as the upload, up to 1080p).')}</p>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="block flex-1 text-xs text-slate-400">{tr('Picture quality')}
+            <select className={`${field} mt-1`} value={crf} onChange={(e) => setCrf(e.target.value)}>
+              {[['18', 'Best (largest files, slowest)'], ['20', 'Sharper'], ['23', 'Standard (default)'], ['26', 'Smaller files, faster'], ['28', 'Smallest, softer']].map(([v, l]) => <option key={v} value={v}>{tr(l)}</option>)}
+              {!['18', '20', '23', '26', '28'].includes(crf) && <option value={crf}>{crf}</option>}
+            </select>
+          </label>
+          <button className={btnPrimary} disabled={busy} onClick={() => save({ video_crf: Number(crf) }, tr('Video quality saved. New videos use it.'))}>{tr('Save')}</button>
+        </div>
+      </Card>
       <Card title={tr('Keeping videos')}>
         <p className="mb-3 text-sm text-slate-400">{tr('Users see their list of videos for ever (it is tiny). The video files are what costs storage, so they are deleted after these days. The source video and voice clips are needed for editing, so a video can only be edited while its source is kept.')}</p>
         <div className="grid gap-3 sm:grid-cols-2">
