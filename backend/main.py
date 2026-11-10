@@ -23,6 +23,7 @@ import capacity
 import edit_limits
 import usage as usage_log   # (main.py has an endpoint function called usage)
 import jobs_queue
+import ratelimit
 import safe_media
 import looks
 import storage
@@ -124,7 +125,8 @@ def _quota(user: User) -> dict:
 
 @app.post("/api/auth/register")
 def register(body: Credentials, request: Request):
-    auth.rate_limit(request)
+    ratelimit.register_attempt(request)
+    ratelimit.check_password_length(body.password)
     if not ALLOW_SIGNUP:
         raise HTTPException(status_code=403, detail="Sign-ups are closed.")
     email = body.email.strip().lower()
@@ -143,11 +145,15 @@ def register(body: Credentials, request: Request):
 
 @app.post("/api/auth/login")
 def login(body: Credentials, request: Request):
-    auth.rate_limit(request)
+    ratelimit.check_password_length(body.password)
+    email = body.email.strip().lower()[:255]
+    keys = ratelimit.login_attempt(request, email)   # counted BEFORE the password check; a correct password gives it back
     with Session() as s:
-        user = s.execute(select(User).where(User.email == body.email.strip().lower())).scalar_one_or_none()
-    if not user or not user.is_active or not auth.verify_password(body.password, user.password_hash):
+        user = s.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    password_ok = auth.verify_password(body.password, user.password_hash if user else auth.DUMMY_HASH)   # same work for unknown emails
+    if not user or not user.is_active or not password_ok:
         raise HTTPException(status_code=401, detail="Wrong email or password.")
+    ratelimit.login_succeeded(keys)
     return {"token": auth.make_token(user), "email": user.email, "is_admin": user.is_admin, **_quota(user)}
 
 

@@ -6,7 +6,7 @@ import secrets
 import time
 
 import jwt
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from config import DATA_DIR
@@ -45,6 +45,10 @@ def verify_password(password: str, stored: str) -> bool:
         return False
 
 
+# A real hash to check against when the email is unknown, so "no such user" takes as long as "wrong password" (no account guessing by timing).
+DUMMY_HASH = hash_password(secrets.token_hex(8))
+
+
 def make_token(user: User) -> str:
     return jwt.encode({"sub": str(user.id), "exp": int(time.time()) + TOKEN_DAYS * 86400}, SECRET, algorithm="HS256")
 
@@ -79,18 +83,3 @@ def check_signature(filename: str, exp: int, sig: str) -> bool:
         return False
     good = hmac.new(SECRET, f"{filename}.{exp}".encode(), hashlib.sha256).hexdigest()
     return hmac.compare_digest(good, sig)
-
-
-# ---- minimal brute-force guard for login/signup (per IP, in-memory; use a gateway/Redis for multi-replica) ----
-
-_hits: dict[str, list[float]] = {}
-
-
-def rate_limit(request: Request, limit: int = 10, window: int = 600):
-    ip = request.client.host if request.client else "?"
-    now = time.time()
-    recent = [t for t in _hits.get(ip, []) if now - t < window]
-    if len(recent) >= limit:
-        raise HTTPException(status_code=429, detail="Too many attempts. Try again in a few minutes.")
-    recent.append(now)
-    _hits[ip] = recent
