@@ -1,19 +1,20 @@
-import React, { useEffect, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import {
   LayoutDashboard, Users, ListVideo, Mic, Settings as SettingsIcon, Menu, X, LogOut, ExternalLink, ScrollText,
 } from 'lucide-react';
 import { LangSwitch, useI18n } from './i18n.jsx';
 import { btnGhost } from './ui.jsx';
-import OverviewPage from './OverviewPage.jsx';
-import UsersPage from './UsersPage.jsx';
-import JobsPage from './JobsPage.jsx';
-import TtsPage from './TtsPage.jsx';
-import AuditPage from './AuditPage.jsx';
-import SettingsPage from './SettingsPage.jsx';
 
 // Admin dashboard shell: sidebar (desktop) / slide-in drawer (phone), header with language switch, and the page switch.
 // Pages are one file each in this folder, shared pieces are in ui.jsx, Burmese texts in strings.js (used by i18n.jsx).
 // Talks to /api/admin/* (backend/admin/); the API refuses anyone who is not is_admin.
+// Code-split: only ONE page is ever shown at a time, so there's no reason to make every admin download all six on login.
+const OverviewPage = lazy(() => import('./OverviewPage.jsx'));
+const UsersPage = lazy(() => import('./UsersPage.jsx'));
+const JobsPage = lazy(() => import('./JobsPage.jsx'));
+const TtsPage = lazy(() => import('./TtsPage.jsx'));
+const AuditPage = lazy(() => import('./AuditPage.jsx'));
+const SettingsPage = lazy(() => import('./SettingsPage.jsx'));
 
 const APP_URL = import.meta.env.VITE_APP_URL || ''; // optional link to the normal app
 
@@ -83,12 +84,14 @@ export default function Admin({ account, onLogout }) {
           <LangSwitch />
         </header>
         <main className="mx-auto max-w-6xl p-4 pb-16 md:p-6">
-          {page === 'overview' && <OverviewPage go={go} />}
-          {page === 'users' && <UsersPage me={account.id} openJobsFor={(u) => { setUserFilter(u); setPage('jobs'); }} />}
-          {page === 'jobs' && <JobsPage userFilter={userFilter} clearUser={() => setUserFilter(null)} />}
-          {page === 'tts' && <TtsPage />}
-          {page === 'audit' && <AuditPage />}
-          {page === 'settings' && <SettingsPage />}
+          <Suspense fallback={<p className="text-sm text-slate-400">{tr('Loading…')}</p>}>
+            {page === 'overview' && <OverviewPage go={go} />}
+            {page === 'users' && <UsersPage me={account.id} openJobsFor={(u) => { setUserFilter(u); setPage('jobs'); }} />}
+            {page === 'jobs' && <JobsPage userFilter={userFilter} clearUser={() => setUserFilter(null)} />}
+            {page === 'tts' && <TtsPage />}
+            {page === 'audit' && <AuditPage />}
+            {page === 'settings' && <SettingsPage />}
+          </Suspense>
         </main>
       </div>
     </div>

@@ -1,11 +1,15 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import Editor from './Editor.jsx';
-import VoiceLibrary from './VoiceLibrary.jsx';
 import PreviewStudio, { ASPECTS } from './PreviewStudio.jsx';
 import Shell from './Shell.jsx';
-import UsageDashboard from './UsageDashboard.jsx';
 import { LangSwitch, useI18n } from './i18n.jsx';
+
+// Code-split: each of these is shown only after an action (a finished job, "see more voices", the usage sidebar page),
+// never on first paint, so there's no reason to make every visitor download them before they've even picked a file.
+// PreviewStudio stays a normal (eager) import above: it appears right after picking a video, too soon for a loading flicker to be worth it.
+const Editor = lazy(() => import('./Editor.jsx'));
+const VoiceLibrary = lazy(() => import('./VoiceLibrary.jsx'));
+const UsageDashboard = lazy(() => import('./UsageDashboard.jsx'));
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
@@ -160,11 +164,15 @@ function App() {
   const [voiceGender, setVoiceGender] = useState('female');
   const [playing, setPlaying] = useState(null);
   const audioRef = useRef(null);
+  const previewBlobUrlRef = useRef('');   // the one in-flight preview-line blob: revoked before the next one and on unmount
 
   useEffect(() => {
     axios.get(`${API_BASE}/api/voices`).then((r) => setVoices(r.data)).catch(() => setVoices([]));
     axios.get(`${API_BASE}/api/looks`).then((r) => setLooks(r.data)).catch(() => setLooks([]));
-    return () => audioRef.current?.pause();
+    return () => {
+      audioRef.current?.pause();
+      if (previewBlobUrlRef.current) URL.revokeObjectURL(previewBlobUrlRef.current);
+    };
   }, []);
 
   const playSample = (voice) => {
@@ -186,7 +194,10 @@ function App() {
     setPreviewing(line.key);
     try {
       const { data } = await axios.post(`${API_BASE}/api/jobs/${jobId}/preview-line`, { id: line.id ?? null, text: line.text, voice: voiceName }, { responseType: 'blob', timeout: 120000 });
-      const audio = new Audio(URL.createObjectURL(data));
+      if (previewBlobUrlRef.current) URL.revokeObjectURL(previewBlobUrlRef.current);   // release the previous preview's blob before making a new one
+      const url = URL.createObjectURL(data);
+      previewBlobUrlRef.current = url;
+      const audio = new Audio(url);
       audioRef.current = audio;
       audio.play();
     } catch (err) {
@@ -413,8 +424,10 @@ function App() {
   return (
     <Shell view={view} setView={setView} account={account} onLogout={logout}>
       {showLibrary && (
-        <VoiceLibrary voices={voices} looks={looks} selected={voiceType} playing={playing} onPlay={playSample}
-          onSelect={(v) => { setVoiceType(v.name); setVoiceGender(v.gender); }} onClose={() => setShowLibrary(false)} apiBase={API_BASE} />
+        <Suspense fallback={null}>
+          <VoiceLibrary voices={voices} looks={looks} selected={voiceType} playing={playing} onPlay={playSample}
+            onSelect={(v) => { setVoiceType(v.name); setVoiceGender(v.gender); }} onClose={() => setShowLibrary(false)} apiBase={API_BASE} />
+        </Suspense>
       )}
       <div className={view === 'create' ? '' : 'hidden'}>
       <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl">
@@ -708,7 +721,9 @@ function App() {
               </a>}
               {notes && <p className="text-xs text-slate-400">{notes}</p>}
               {project && (
-                <Editor key={jobId} project={project} videoRef={videoRef} busy={loading} voices={voices} looks={looks} playingVoice={playing} onPlaySample={playSample} onPreviewLine={previewLine} previewing={previewing} onApply={applyEdits} finish={finish} onFinish={(patch) => setFinish((f) => ({ ...f, ...patch }))} hasBackground={bgKept} />
+                <Suspense fallback={<p className="text-xs text-slate-400">{tr('Loading editor…')}</p>}>
+                  <Editor key={jobId} project={project} videoRef={videoRef} busy={loading} voices={voices} looks={looks} playingVoice={playing} onPlaySample={playSample} onPreviewLine={previewLine} previewing={previewing} onApply={applyEdits} finish={finish} onFinish={(patch) => setFinish((f) => ({ ...f, ...patch }))} hasBackground={bgKept} />
+                </Suspense>
               )}
               {!project && timeline.length > 0 && (
                 <ul className="w-full text-xs text-slate-400 space-y-1">
@@ -726,7 +741,11 @@ function App() {
 
       </div>
       </div>
-      {view === 'usage' && <UsageDashboard apiBase={API_BASE} refreshKey={usageKey} />}
+      {view === 'usage' && (
+        <Suspense fallback={<p className="p-6 text-sm text-slate-400">{tr('Loading…')}</p>}>
+          <UsageDashboard apiBase={API_BASE} refreshKey={usageKey} />
+        </Suspense>
+      )}
     </Shell>
   );
 }

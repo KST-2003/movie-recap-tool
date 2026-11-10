@@ -98,6 +98,7 @@ const MY = {
   'running': 'လုပ်ဆောင်နေ',
   'cancelled': 'ပယ်ဖျက်ပြီး',
   'Loading…': 'ဖွင့်နေသည်…',
+  'Loading editor…': 'တည်းဖြတ်ကိရိယာ ဖွင့်နေသည်…',
   'Video format': 'ဗီဒီယိုဖော်မတ်',
   'Original': 'မူလအတိုင်း',
   'Fit (blurred background)': 'အပြည့်ဆန့်စေ (နောက်ခံမှုန်)',

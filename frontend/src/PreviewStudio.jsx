@@ -38,6 +38,7 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
   const [looping, setLooping] = useState(false);
   const loopStart = useRef(0);
   const scrubbing = useRef(false); // finger/mouse is on the seek bar: ignore playback time updates
+  const dragCleanupRef = useRef(null); // the active drag's window listeners, so unmounting mid-drag can't leak them
 
   const [fw, fh] = frameSize(fx.aspect, dims);   // output frame in pixels
   const reframed = fx.aspect !== 'original' && Math.abs(fw / fh - dims.w / dims.h) > 0.01;
@@ -99,18 +100,24 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
   }[fx.logoPosition] || [1 - lw - mx, my];
   const [lx, ly] = fx.logoXY || preset;
 
-  // Generic drag: fractions of the stage, relative to where the pointer went down.
+  // Generic drag: fractions of the stage, relative to where the pointer went down. The listeners live on `window` (so the
+  // drag keeps tracking outside the element), which React's own unmount does not clean up -- dragCleanupRef + the effect
+  // below are the safety net for "user clicks Generate mid-drag and this component disappears before pointerup fires".
   const drag = (e, onMove) => {
     e.preventDefault();
     e.stopPropagation();
+    dragCleanupRef.current?.();   // a stray drag from before (should not happen, but never stack listeners)
     const rect = stageRef.current.getBoundingClientRect();
     const sx = e.clientX;
     const sy = e.clientY;
     const move = (ev) => onMove((ev.clientX - sx) / rect.width, (ev.clientY - sy) / rect.height, rect);
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    const end = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end); dragCleanupRef.current = null; };
+    dragCleanupRef.current = end;
     window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    window.addEventListener('pointerup', end);
   };
+
+  useEffect(() => () => dragCleanupRef.current?.(), []);   // unmounting mid-drag must not leave window listeners behind
 
   const dragLogo = (e) => {
     const [x0, y0] = [lx, ly];
