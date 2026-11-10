@@ -6,6 +6,7 @@ from config import (ALLOW_SIGNUP, CORS_ORIGINS, DEFAULT_DAILY_MINUTES, FILE_TTL_
 import os
 import re
 import threading
+from contextlib import asynccontextmanager
 import time
 import uuid
 
@@ -48,7 +49,16 @@ logging.getLogger("uvicorn.access").addFilter(_QuietPolling())
 
 usage_log.install()
 sandbox.harden_process()   # Linux: children (ffmpeg ...) cannot read this process's environment / memory through /proc
-app = FastAPI(title="Movie Recap Tool Backend", version="3.0.0")
+@asynccontextmanager
+async def lifespan(_app):
+    """Start-up work (the old @app.on_event("startup"), deprecated in FastAPI): runs once per server process, before the first request."""
+    _fail_orphaned_jobs()
+    if storage.BACKEND == "local":
+        threading.Thread(target=_cleanup_loop, daemon=True).start()
+    yield
+
+
+app = FastAPI(title="Movie Recap Tool Backend", version="3.0.0", lifespan=lifespan)
 app.add_middleware(RequestGuard)   # BEFORE the CORS middleware: its 401 / 413 answers must still carry the CORS headers
 app.add_middleware(
     CORSMiddleware,
@@ -91,13 +101,6 @@ def _fail_orphaned_jobs():
         s.commit()
         if stuck:
             print(f"[startup] marked {len(stuck)} interrupted job(s) as failed", flush=True)
-
-
-@app.on_event("startup")
-def _startup():
-    _fail_orphaned_jobs()
-    if storage.BACKEND == "local":
-        threading.Thread(target=_cleanup_loop, daemon=True).start()
 
 
 @app.get("/")
