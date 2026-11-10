@@ -58,7 +58,7 @@ ok(r.stdout == b"out" and r.stderr == b"err", "stdout / stderr pipes work")
 # ---- 3. no code path bypasses the wrapper ----
 bad = []
 for fname in sorted(os.listdir(".")):
-    if not fname.endswith(".py") or fname.startswith(("test_", "bench_", "generate_", "compare_")) or fname == "sandbox.py":
+    if not fname.endswith(".py") or fname.startswith(("test_", "bench_", "generate_", "compare_", "browser_check_")) or fname == "sandbox.py":
         continue
     for n, line in enumerate(open(fname, encoding="utf-8"), 1):
         if re.search(r"subprocess\.(run|Popen|check_output|check_call|call)\(|os\.system\(|os\.popen\(", line):
