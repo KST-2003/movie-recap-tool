@@ -33,19 +33,57 @@ def _secret() -> bytes:
 SECRET = _secret()
 
 
+# scrypt cost. N=2^15, r=8, p=3 is one of the equivalent settings OWASP lists (32 MiB of memory, about 0.3 s); the old code used N=2^14, p=1,
+# which is about 6 times cheaper to attack. The cost is written INTO every stored hash, so it can be raised later and old hashes keep working;
+# a user's hash is upgraded the next time they log in with the right password (see needs_rehash / main.login).
+SCRYPT_LOG2_N = int(os.getenv("PASSWORD_SCRYPT_LOG2_N", "15"))
+SCRYPT_R = 8
+SCRYPT_P = int(os.getenv("PASSWORD_SCRYPT_P", "3"))
+_SCRYPT_MAXMEM = 256 * 1024 * 1024
+_LEGACY = (14, 8, 1)   # hashes written before 2026-11-10: "salt_hex$digest_hex" with these settings and a 64-byte digest
+
+
+def _scrypt(password: str, salt: bytes, log2_n: int, r: int, p: int, dklen: int) -> bytes:
+    return hashlib.scrypt(password.encode(), salt=salt, n=2 ** log2_n, r=r, p=p, maxmem=_SCRYPT_MAXMEM, dklen=dklen)
+
+
 def hash_password(password: str) -> str:
     salt = secrets.token_bytes(16)
-    digest = hashlib.scrypt(password.encode(), salt=salt, n=2 ** 14, r=8, p=1)
-    return f"{salt.hex()}${digest.hex()}"
+    digest = _scrypt(password, salt, SCRYPT_LOG2_N, SCRYPT_R, SCRYPT_P, 32)
+    return f"scrypt${SCRYPT_LOG2_N}${SCRYPT_R}${SCRYPT_P}${salt.hex()}${digest.hex()}"
+
+
+def _parse(stored: str) -> tuple[int, int, int, bytes, bytes]:
+    """-> (log2 N, r, p, salt, digest) of a stored hash, new or legacy. Raises on anything else, and on settings no honest hash uses
+    (a damaged row must not make the server allocate gigabytes)."""
+    parts = stored.split("$")
+    if len(parts) == 6 and parts[0] == "scrypt":
+        log2_n, r, p = int(parts[1]), int(parts[2]), int(parts[3])
+        salt, digest = bytes.fromhex(parts[4]), bytes.fromhex(parts[5])
+    elif len(parts) == 2:
+        (log2_n, r, p), salt, digest = _LEGACY, bytes.fromhex(parts[0]), bytes.fromhex(parts[1])
+    else:
+        raise ValueError("unknown hash format")
+    if not (10 <= log2_n <= 20 and 1 <= r <= 16 and 1 <= p <= 16 and 8 <= len(salt) <= 64 and 16 <= len(digest) <= 128):
+        raise ValueError("hash settings out of range")
+    return log2_n, r, p, salt, digest
 
 
 def verify_password(password: str, stored: str) -> bool:
     try:
-        salt_hex, digest_hex = stored.split("$")
-        digest = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt_hex), n=2 ** 14, r=8, p=1)
-        return hmac.compare_digest(digest.hex(), digest_hex)
+        log2_n, r, p, salt, digest = _parse(stored)
+        return hmac.compare_digest(_scrypt(password, salt, log2_n, r, p, len(digest)), digest)
     except Exception:
         return False
+
+
+def needs_rehash(stored: str) -> bool:
+    """True for a hash written with other settings than today's (all old accounts, until their next login)."""
+    try:
+        log2_n, r, p, _, _ = _parse(stored)
+    except Exception:
+        return False
+    return (log2_n, r, p) != (SCRYPT_LOG2_N, SCRYPT_R, SCRYPT_P)
 
 
 # A real hash to check against when the email is unknown, so "no such user" takes as long as "wrong password" (no account guessing by timing).
@@ -106,14 +144,18 @@ def revoke_tokens(s, user: User) -> None:
 
 # ---- signed file links (a <video> tag cannot send an Authorization header) ----
 
+# Its own key, derived from the secret: a file-link signature can never be mistaken for (or turned into) a login token signature.
+_FILE_KEY = hmac.new(SECRET, b"movie-recap-tool/signed-file-links/v1", hashlib.sha256).digest()
+
+
 def sign_file(filename: str, ttl: int) -> tuple[int, str]:
     exp = int(time.time()) + ttl
-    sig = hmac.new(SECRET, f"{filename}.{exp}".encode(), hashlib.sha256).hexdigest()
+    sig = hmac.new(_FILE_KEY, f"{filename}.{exp}".encode(), hashlib.sha256).hexdigest()
     return exp, sig
 
 
 def check_signature(filename: str, exp: int, sig: str) -> bool:
     if exp < time.time():
         return False
-    good = hmac.new(SECRET, f"{filename}.{exp}".encode(), hashlib.sha256).hexdigest()
+    good = hmac.new(_FILE_KEY, f"{filename}.{exp}".encode(), hashlib.sha256).hexdigest()
     return hmac.compare_digest(good, sig)

@@ -7,7 +7,7 @@ import tempfile
 import time
 
 tmp = tempfile.mkdtemp()
-os.environ.update(AZURE_SPEECH_KEY="", AZURE_SPEECH_REGION="", DATA_DIR=f"{tmp}/data", UPLOAD_DIR=f"{tmp}/up", OUTPUT_DIR=f"{tmp}/out", TTS_PROVIDER="fake", GCP_PROJECT_ID="", GCP_SERVICE_ACCOUNT_FILE="",
+os.environ.update(PASSWORD_SCRYPT_LOG2_N="10", PASSWORD_SCRYPT_P="1", AZURE_SPEECH_KEY="", AZURE_SPEECH_REGION="", DATA_DIR=f"{tmp}/data", UPLOAD_DIR=f"{tmp}/up", OUTPUT_DIR=f"{tmp}/out", TTS_PROVIDER="fake", GCP_PROJECT_ID="", GCP_SERVICE_ACCOUNT_FILE="",
                   DUB_PROVIDER="gemini", TTS_BULK="0", DATABASE_URL=f"sqlite:///{tmp}/t.db", RECAP_WORKERS="2", MAX_ACTIVE_JOBS_PER_USER="3")
 
 from fastapi.testclient import TestClient  # noqa: E402

@@ -167,6 +167,13 @@ def login(body: Credentials, request: Request):
     if not user or not user.is_active or not password_ok:
         raise HTTPException(status_code=401, detail="Wrong email or password.")
     ratelimit.login_succeeded(keys)
+    if auth.needs_rehash(user.password_hash):   # old, cheaper hash: store a stronger one now that we hold the password
+        upgraded = auth.hash_password(body.password)
+        with Session() as s:
+            row = s.get(User, user.id)
+            if row is not None and row.password_hash == user.password_hash:   # not if the password was changed meanwhile
+                row.password_hash = upgraded
+                s.commit()
     return {"token": auth.make_token(user), "email": user.email, "is_admin": user.is_admin, **_quota(user)}
 
 

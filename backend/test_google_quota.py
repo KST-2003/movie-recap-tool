@@ -7,7 +7,7 @@ import tempfile
 tmp = tempfile.mkdtemp()
 key = f"{tmp}/sa.json"
 open(key, "w").write("{}")
-os.environ.update(DATA_DIR=f"{tmp}/data", UPLOAD_DIR=f"{tmp}/up", OUTPUT_DIR=f"{tmp}/out", TTS_PROVIDER="fake",
+os.environ.update(PASSWORD_SCRYPT_LOG2_N="10", PASSWORD_SCRYPT_P="1", DATA_DIR=f"{tmp}/data", UPLOAD_DIR=f"{tmp}/up", OUTPUT_DIR=f"{tmp}/out", TTS_PROVIDER="fake",
                   DATABASE_URL=f"sqlite:///{tmp}/t.db", GCP_PROJECT_ID="my-proj", GCP_SERVICE_ACCOUNT_FILE=key)
 
 from fastapi.testclient import TestClient  # noqa: E402
