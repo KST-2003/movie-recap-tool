@@ -22,6 +22,7 @@ from admin import router as admin_router, settings as runtime_settings
 import alerts
 import capacity
 import edit_limits
+from guard import RequestGuard
 import usage as usage_log   # (main.py has an endpoint function called usage)
 import jobs_queue
 import ratelimit
@@ -46,6 +47,7 @@ logging.getLogger("uvicorn.access").addFilter(_QuietPolling())
 
 usage_log.install()
 app = FastAPI(title="Movie Recap Tool Backend", version="3.0.0")
+app.add_middleware(RequestGuard)   # BEFORE the CORS middleware: its 401 / 413 answers must still carry the CORS headers
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
