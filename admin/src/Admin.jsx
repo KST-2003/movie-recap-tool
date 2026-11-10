@@ -1,15 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import {
-  LayoutDashboard, Users, ListVideo, Mic, Settings as SettingsIcon, Menu, X, LogOut, ExternalLink, ScrollText,
+  LayoutDashboard, Users, Wallet, ListVideo, Mic, Settings as SettingsIcon, Menu, X, LogOut, ExternalLink, ScrollText,
 } from 'lucide-react';
 import { LangSwitch, useI18n } from './i18n.jsx';
-import { btnGhost } from './ui.jsx';
+import { btnGhost, useApi } from './ui.jsx';
 import OverviewPage from './OverviewPage.jsx';
 import UsersPage from './UsersPage.jsx';
 import JobsPage from './JobsPage.jsx';
 import TtsPage from './TtsPage.jsx';
 import AuditPage from './AuditPage.jsx';
 import SettingsPage from './SettingsPage.jsx';
+import TopupsPage from './TopupsPage.jsx';
 
 // Admin dashboard shell: sidebar (desktop) / slide-in drawer (phone), header with language switch, and the page switch.
 // Pages are one file each in this folder, shared pieces are in ui.jsx, Burmese texts in strings.js (used by i18n.jsx).
@@ -20,6 +21,7 @@ const APP_URL = import.meta.env.VITE_APP_URL || ''; // optional link to the norm
 const NAV = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'users', label: 'Users', icon: Users },
+  { id: 'topups', label: 'Top-ups', icon: Wallet },
   { id: 'jobs', label: 'Jobs', icon: ListVideo },
   { id: 'tts', label: 'Voice models', icon: Mic },
   { id: 'audit', label: 'Audit log', icon: ScrollText },
@@ -35,6 +37,8 @@ export default function Admin({ account, onLogout }) {
   });
   const [drawer, setDrawer] = useState(false);
   const [userFilter, setUserFilter] = useState(null);
+  const { data: ov, reload: reloadOv } = useApi('/api/admin/overview', { every: 30000 });
+  const pending = ov?.topups_pending || 0;
 
   useEffect(() => { location.hash = page; }, [page]);
   const go = (id) => { setPage(id); setDrawer(false); if (id !== 'jobs') setUserFilter(null); window.scrollTo(0, 0); };
@@ -45,7 +49,7 @@ export default function Admin({ account, onLogout }) {
       {NAV.map(({ id, label, icon: Icon }) => (
         <button key={id} onClick={() => go(id)}
           className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm ${page === id ? 'bg-purple-600/20 text-purple-200' : 'text-slate-300 hover:bg-slate-800'}`}>
-          <Icon size={18} />{tr(label)}
+          <Icon size={18} />{tr(label)}{id === 'topups' && pending > 0 && <span className="ml-auto rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-semibold text-slate-900">{pending}</span>}
         </button>
       ))}
     </nav>
@@ -85,6 +89,7 @@ export default function Admin({ account, onLogout }) {
         <main className="mx-auto max-w-6xl p-4 pb-16 md:p-6">
           {page === 'overview' && <OverviewPage go={go} />}
           {page === 'users' && <UsersPage me={account.id} openJobsFor={(u) => { setUserFilter(u); setPage('jobs'); }} />}
+          {page === 'topups' && <TopupsPage onChanged={reloadOv} />}
           {page === 'jobs' && <JobsPage userFilter={userFilter} clearUser={() => setUserFilter(null)} />}
           {page === 'tts' && <TtsPage />}
           {page === 'audit' && <AuditPage />}

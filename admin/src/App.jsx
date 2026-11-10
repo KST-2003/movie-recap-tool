@@ -10,6 +10,13 @@ const TOKEN_KEY = 'admin_token';
 const readToken = () => { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } };
 const saveToken = (t) => { try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch (e) { /* ignore */ } };
 const errText = (e) => e?.response?.data?.detail || '';
+const deviceId = () => {
+  try {
+    let id = localStorage.getItem('admin_device_id');
+    if (!id) { id = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}${Math.random().toString(36).slice(2)}`).replace(/[^A-Za-z0-9_-]/g, ''); localStorage.setItem('admin_device_id', id); }
+    return id;
+  } catch (e) { return 'unknown'; }
+};
 
 function Login({ onLogin }) {
   const { tr, trs } = useI18n();
@@ -22,7 +29,7 @@ function Login({ onLogin }) {
     e.preventDefault();
     setBusy(true); setError('');
     try {
-      const { data } = await axios.post('/api/auth/login', { email, password });
+      const { data } = await axios.post('/api/auth/login', { email: email.trim(), password, device_id: deviceId() });
       if (!data.is_admin) { setError(tr('This account is not an admin.')); return; }
       onLogin(data.token);
     } catch (err) {
@@ -35,7 +42,7 @@ function Login({ onLogin }) {
     <div className="flex min-h-screen items-center justify-center bg-slate-950 p-6 font-sans text-white">
       <form onSubmit={submit} className="w-full max-w-sm space-y-4 rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
         <div className="flex items-center justify-between gap-2"><h1 className="text-xl font-bold text-purple-400">🎬 {tr('Admin sign in')}</h1><LangSwitch /></div>
-        <input className={input} type="email" autoComplete="username" placeholder={tr('Email')} value={email} onChange={(e) => setEmail(e.target.value)} required />
+        <input className={input} type="text" autoCapitalize="none" autoComplete="username" placeholder={tr('Username')} value={email} onChange={(e) => setEmail(e.target.value)} required />
         <input className={input} type="password" autoComplete="current-password" placeholder={tr('Password')} value={password} onChange={(e) => setPassword(e.target.value)} required />
         {error && <p className="text-sm text-red-400">{error}</p>}
         <button disabled={busy} className="w-full rounded-xl bg-purple-600 py-2 font-semibold hover:bg-purple-500 disabled:opacity-50">{busy ? tr('Signing in…') : tr('Log in')}</button>

@@ -67,10 +67,11 @@ def model_of(path: str) -> str | None:
     return _MODEL_OF.get(path)
 
 
-def usable(model: str, mode: str | None) -> bool:
-    """Azure has two voices and no emotion: only for recap videos (one narrator). Full movies need many voices."""
+def usable(model: str, quality: str | None) -> bool:
+    """The user picks the voice quality per video. "standard" = Azure only (2 Burmese voices, no emotion, cheap, high throughput);
+    "premium" (default) = Gemini on AI Studio + Cloud (30 voices, emotion). A video never mixes them: no silent downgrade."""
     import azure_tts
-    return mode == "recap" or not azure_tts.is_azure(model)
+    return azure_tts.is_azure(model) == (quality == "standard")
 
 
 def _limits(model: str) -> tuple[int, int]:
@@ -123,12 +124,12 @@ def free(model: str, exclude_job: str | None = None) -> int:
     return max(remaining(model) - reserved(model, exclude_job), 0)
 
 
-def admit(need: int, mode: str | None = None) -> str | None:
-    """The first model (preference order) usable for this video `mode` with `need` free requests, "" when no voice is needed,
+def admit(need: int, quality: str | None = None) -> str | None:
+    """The first model (preference order) usable for this video `quality` with `need` free requests, "" when no voice is needed,
     None when no model has room."""
     if need <= 0:
         return ""
-    return next((m for m, _, _ in models() if usable(m, mode) and free(m) >= need), None)
+    return next((m for m, _, _ in models() if usable(m, quality) and free(m) >= need), None)
 
 
 def acquire(model: str):
@@ -169,8 +170,8 @@ def blocked_message() -> str:
 class Chooser:
     """Which TTS model a job uses. `need` = how many requests the job expects to send."""
 
-    def __init__(self, need: int, preferred: str | None = None, job_id: str | None = None, mode: str | None = None):
-        self.mode = mode   # "recap" may use Azure (last fallback); anything else may not
+    def __init__(self, need: int, preferred: str | None = None, job_id: str | None = None, quality: str | None = None):
+        self.quality = quality   # "standard" = Azure models only, otherwise Gemini (AI Studio + Cloud) only
         self.models_used: set[str] = set()   # every model this job voiced with (a warning is shown when the voice differs)
         self.need = max(need, 1)
         self.job_id = job_id   # this job's own reservation (capacity.py) counts as free for itself
@@ -181,7 +182,7 @@ class Chooser:
         print(f"  voice model: {self.current} ({remaining(self.current)} requests left today by our count)", flush=True)
 
     def _pick(self, preferred: str | None, exclude: tuple) -> str:
-        order = [m for m, _, _ in models() if m not in exclude and usable(m, self.mode)]
+        order = [m for m, _, _ in models() if m not in exclude and usable(m, self.quality)]
         if preferred in order:
             order.remove(preferred)
             order.insert(0, preferred)
@@ -198,7 +199,7 @@ class Chooser:
 
     def other(self, model: str) -> str | None:
         """Another model with requests left (for ONE line whose text `model` refused; the job keeps its own model)."""
-        return next((m for m, _, _ in models() if m != model and usable(m, self.mode) and self._free(m) > 0), None)
+        return next((m for m, _, _ in models() if m != model and usable(m, self.quality) and self._free(m) > 0), None)
 
     def failed(self, model: str):
         """`model` ran out of requests: switch (raises QuotaExceeded when no model is left)."""

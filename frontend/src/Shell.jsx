@@ -4,6 +4,8 @@ import { LangSwitch, useI18n } from './i18n.jsx';
 // App frame: sidebar on wide screens, a top bar with a toggle (drawer) on phones.
 const NAV = [
   ['create', '🎬', 'Create video'],
+  ['history', '🗂️', 'My videos'],
+  ['topup', '💳', 'Top up'],
   ['usage', '📊', 'My usage'],
 ];
 
@@ -46,6 +48,7 @@ function SidebarBody({ view, setView, account, onLogout, close }) {
         <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-950/40 p-3">
           <Meter label={tr('Today')} used={mins(account.used_seconds)} limit={account.daily_minutes} />
           <Meter label={tr('This month')} used={mins(account.month_used_seconds)} limit={account.monthly_minutes} />
+          <div className="flex justify-between text-[11px] text-slate-400"><span>{tr('Bought minutes')}</span><span className="text-slate-200">{Math.floor(mins(account.credit_seconds))} {tr('min')}</span></div>
         </div>
       )}
       <div className="mt-auto space-y-3">

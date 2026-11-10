@@ -5,7 +5,7 @@ import os
 import time
 import uuid
 
-from config import FILE_TTL_HOURS, OUTPUT_DIR, SIGNED_URL_SECONDS, UPLOAD_DIR
+from config import OUTPUT_DIR, SIGNED_URL_SECONDS, UPLOAD_DIR
 
 BACKEND = os.getenv("STORAGE_BACKEND", "local").lower()
 BUCKET = os.getenv("S3_BUCKET", "")
@@ -73,20 +73,94 @@ def output_exists(key: str) -> bool:
     return os.path.isfile(os.path.join(OUTPUT_DIR, os.path.basename(key)))
 
 
-def cleanup(max_age_hours: float = FILE_TTL_HOURS) -> int:
-    """Delete local uploads/outputs older than the retention window. (For s3, set a bucket lifecycle rule.)"""
-    cutoff, removed = time.time() - max_age_hours * 3600, 0
+RESULT_EXTENSIONS = (".mp4", ".srt")   # finished videos + subtitle files keep for "keep_result_days"; everything else for "keep_source_days"
+
+
+def source_exists(key: str | None) -> bool:
+    if not key:
+        return False
+    return True if BACKEND == "s3" else os.path.isfile(key)   # s3: expiry is the bucket's lifecycle rule
+
+
+def touch(key: str | None):
+    """Using a file (an edit) starts its keeping time again."""
+    if BACKEND != "s3" and key and os.path.isfile(key):
+        try:
+            os.utime(key, None)
+        except OSError:
+            pass
+
+
+def delete_output(key: str):
+    if BACKEND == "s3":
+        try:
+            _client().delete_object(Bucket=BUCKET, Key=key)
+        except Exception:
+            pass
+        return
+    delete_local(os.path.join(OUTPUT_DIR, os.path.basename(key)))
+
+
+def delete_source(key: str | None):
+    if not key:
+        return
+    if BACKEND == "s3":
+        try:
+            _client().delete_object(Bucket=BUCKET, Key=key)
+        except Exception:
+            pass
+        return
+    delete_local(key)
+
+
+def cleanup(result_days: float | None = None, source_days: float | None = None) -> int:
+    """Delete local files past their keeping time (the admin sets the days in Settings; for s3 use bucket lifecycle rules by prefix).
+    Finished videos + .srt: result days. Uploaded sources, logos, voice clips and work files: source days."""
+    from admin import settings as runtime_settings
+    result_days = runtime_settings.keep_result_days() if result_days is None else result_days
+    source_days = runtime_settings.keep_source_days() if source_days is None else source_days
+    now, removed = time.time(), 0
     for root in (UPLOAD_DIR, OUTPUT_DIR):
         for dirpath, _dirs, files in os.walk(root):
             for name in files:
+                days = result_days if root == OUTPUT_DIR and name.lower().endswith(RESULT_EXTENSIONS) and os.path.basename(dirpath) != "clips" else source_days
                 path = os.path.join(dirpath, name)
                 try:
-                    if os.path.getmtime(path) < cutoff:
+                    if os.path.getmtime(path) < now - days * 86400:
                         os.remove(path)
                         removed += 1
                 except OSError:
                     pass
     return removed
+
+
+_usage_cache: tuple[float, dict] = (0.0, {})
+
+
+def disk_usage() -> dict:
+    """Bytes on this machine by kind (cached 60 s): videos + subtitles, sources/logos, voice clips, other work files."""
+    global _usage_cache
+    if time.time() - _usage_cache[0] < 60 and _usage_cache[1]:
+        return _usage_cache[1]
+    out = {"results": 0, "sources": 0, "clips": 0, "other": 0}
+    for root in (UPLOAD_DIR, OUTPUT_DIR):
+        for dirpath, _dirs, files in os.walk(root):
+            for name in files:
+                try:
+                    size = os.path.getsize(os.path.join(dirpath, name))
+                except OSError:
+                    continue
+                if root == UPLOAD_DIR:
+                    out["sources"] += size
+                elif os.path.basename(dirpath) == "clips":
+                    out["clips"] += size
+                elif name.lower().endswith(RESULT_EXTENSIONS):
+                    out["results"] += size
+                else:
+                    out["other"] += size
+    out["total"] = sum(out.values())
+    _usage_cache = (time.time(), out)
+    return out
 
 
 # ---------- voice clip cache (so editing one line only re-voices that line) ----------
@@ -117,6 +191,7 @@ def fetch_clip(name: str, dest: str) -> bool:
             return False
         import shutil
         shutil.copyfile(src, dest)
+        os.utime(src, None)   # reused: keep it longer
         return True
     except Exception:
         return False

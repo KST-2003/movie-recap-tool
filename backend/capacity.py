@@ -37,12 +37,20 @@ def est_requests(seconds: float, output: str | None) -> int:
     return math.ceil(seconds / 60 * REQUESTS_PER_VIDEO_MINUTE) + REQUESTS_BASE
 
 
-def measured_cost_per_minute(s) -> float | None:
-    """Real THB per charged video minute over the last 30 finished videos whose cost is fully priced (None before 3 such videos)."""
+def quality_of(params: dict | None) -> str:
+    return "standard" if (params or {}).get("voice_quality") == "standard" else "premium"
+
+
+def configured_cost(quality: str) -> float:
+    return S.cost_per_minute_standard_thb() if quality == "standard" else S.cost_per_minute_thb()
+
+
+def measured_cost_per_minute(s, quality: str = "premium") -> float | None:
+    """Real THB per charged video minute over the last 30 finished videos of this voice quality whose cost is fully priced (None before 3)."""
     import usage
     table, rate = usage.prices(), S.usd_thb()
-    rows = s.execute(select(Job.charged_seconds, Job.data).where(Job.status == "done", Job.charged_seconds > 0)
-                     .order_by(Job.finished_at.desc()).limit(30)).all()
+    rows = [(c + (cr or 0.0), d) for c, cr, d, p in s.execute(select(Job.charged_seconds, Job.credit_seconds, Job.data, Job.params).where(Job.status == "done", Job.charged_seconds + func.coalesce(Job.credit_seconds, 0.0) > 0)
+                                           .order_by(Job.finished_at.desc()).limit(200)).all() if quality_of(p) == quality][:30]
     cost = minutes = 0.0
     n = 0
     for charged, data in rows:
@@ -58,10 +66,10 @@ def spent_thb(s, since) -> tuple[float, int, int]:
     -> (thb, videos priced from tokens, videos estimated)"""
     import usage
     table, rate = usage.prices(), S.usd_thb()
-    per_min = measured_cost_per_minute(s) or S.cost_per_minute_thb()
+    per_min = {q: measured_cost_per_minute(s, q) or configured_cost(q) for q in ("premium", "standard")}
     total, real, est_n = 0.0, 0, 0
-    for status, charged, data in s.execute(select(Job.status, Job.charged_seconds, Job.data).where(Job.created_at >= since)).all():
-        estimate = (charged or 0.0) / 60 * per_min
+    for status, charged, credit, data, params in s.execute(select(Job.status, Job.charged_seconds, Job.credit_seconds, Job.data, Job.params).where(Job.created_at >= since)).all():
+        estimate = ((charged or 0.0) + (credit or 0.0)) / 60 * per_min[quality_of(params)]
         c = usage.cost_thb((data or {}).get("usage"), table, rate) if (data or {}).get("usage") else None
         actual = c["thb"] if c and c["complete"] else None
         if status in ("queued", "running"):
@@ -80,7 +88,7 @@ def budget(s) -> dict:
     """Money view: {enabled, balance_thb, spent_thb, left_thb, cost_per_minute, available_minutes, min_free_minutes}."""
     configured, floor = S.cost_per_minute_thb(), S.min_free_minutes()
     measured = measured_cost_per_minute(s)
-    cost = measured or configured
+    cost = measured or configured   # the available minutes are shown at the premium (more expensive) rate
     out = {"enabled": S.budget_enabled(), "cost_per_minute": round(cost, 3), "cost_per_minute_measured": round(measured, 3) if measured else None,
            "min_free_minutes": floor}
     if not out["enabled"]:
@@ -94,25 +102,35 @@ def budget(s) -> dict:
             "videos_priced_from_tokens": real, "videos_estimated": est_n}
 
 
-def decide(s, seconds: float, output: str | None, mode: str | None = None) -> dict:
+def decide(s, seconds: float, output: str | None, quality: str | None = None) -> dict:
     """-> {"ok": True, "model": str, "requests": int} or {"ok": False, "reason": str}. Call under `lock`, add the job before releasing it."""
     minutes = seconds / 60
     b = budget(s)
+    q = "standard" if quality == "standard" else "premium"
+    if b["enabled"]:   # this video's share of the money: its own quality's cost per minute
+        per_min = measured_cost_per_minute(s, q) or configured_cost(q)
+        b = {**b, "available_minutes": round(max(b["left_thb"], 0) / per_min, 1) if per_min > 0 else 0.0}
     if b["enabled"] and b["available_minutes"] < max(b["min_free_minutes"], minutes):
         return {"ok": False, "reason": (f"Budget: {b['available_minutes']:.0f} video minutes left in the voice/AI budget "
                                         f"(at least {max(b['min_free_minutes'], minutes):.0f} needed for this video).")}
     need = est_requests(seconds, output)
-    model = tts_pool.admit(need, mode)
+    model = tts_pool.admit(need, quality)
     if model is None:
-        return {"ok": False, "reason": (f"Voice capacity: no voice model has {need} free requests left for this video "
-                                        f"(counting videos already running).")}
+        return {"ok": False, "quality": q, "reason": (f"Voice capacity ({q}): no {q} voice model has {need} free requests left for this video "
+                                                      f"(counting videos already running).")}
     return {"ok": True, "model": model, "requests": need}
 
 
-def refuse(reason: str):
-    """Tell the owner and raise the 503 the user sees."""
+PREMIUM_BUSY_MESSAGE = ("The high-quality voice is fully booked right now. You can choose the Standard voice instead, or try again later.")
+
+
+def refuse(reason: str, quality: str | None = None):
+    """Tell the owner and raise the 503 the user sees. When only the high-quality voice is full, the user is pointed to the Standard voice."""
     from fastapi import HTTPException
+    import azure_tts
     alerts.raise_alert("capacity", f"A video was refused because the server is out of capacity. {reason}")
+    if quality != "standard" and reason.startswith("Voice capacity") and azure_tts.enabled():
+        raise HTTPException(status_code=503, detail=PREMIUM_BUSY_MESSAGE)
     raise HTTPException(status_code=503, detail=BUSY_MESSAGE)
 
 

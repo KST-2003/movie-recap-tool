@@ -1,7 +1,6 @@
-"""Offline test: Azure Neural TTS as the last fallback for RECAP videos (no request is sent). Run: python test_azure_fallback.py"""
+"""Offline test: Azure Neural TTS as the user-chosen "standard" voice quality (no request is sent). Run: python test_azure_fallback.py"""
 import json
 import os
-import re
 import tempfile
 
 tmp = tempfile.mkdtemp()
@@ -26,24 +25,29 @@ names = [m for m, _, _ in tts_pool.models()]
 ok(names == ["a1", "a2", "azure/neural"], f"Azure is the last model in the pool: {names}")
 ok(dict((m, (a, b)) for m, a, b in tts_pool.models())["azure/neural"] == (120, 100000), "soft limits 120/min, 100000/day")
 
-# recap only
-ok(tts_pool.usable("azure/neural", "recap") and not tts_pool.usable("azure/neural", "full") and not tts_pool.usable("azure/neural", None) and tts_pool.usable("a1", "full"), "Azure usable for recap only")
+# the user's choice: standard = Azure only, premium (default) = Gemini only, never mixed
+ok(tts_pool.usable("azure/neural", "standard") and not tts_pool.usable("azure/neural", "premium") and not tts_pool.usable("azure/neural", None)
+   and tts_pool.usable("a1", "premium") and tts_pool.usable("a1", None) and not tts_pool.usable("a1", "standard"), "standard = Azure only, premium = Gemini only")
 os.makedirs(f"{tmp}/data", exist_ok=True)
 json.dump({"day": tts_pool._today(), "counts": {"a1": 100, "a2": 100}}, open(tts_pool.USAGE_FILE, "w"))
-ok(tts_pool.admit(60, "recap") == "azure/neural", "AI Studio used up: a recap video is admitted on Azure")
-ok(tts_pool.admit(60, "full") is None and tts_pool.admit(60, None) is None, "a full movie is NOT admitted on Azure (busy instead)")
-ch = tts_pool.Chooser(10, mode="recap")
-ok(ch.get() == "azure/neural" and "azure/neural" in ch.models_used, "recap Chooser picks Azure")
+ok(tts_pool.admit(60, "standard") == "azure/neural", "AI Studio used up: a standard video is still admitted (own capacity)")
+ok(tts_pool.admit(60, "premium") is None and tts_pool.admit(60, None) is None, "a premium video is NOT silently moved to Azure")
+ch = tts_pool.Chooser(10, quality="standard")
+ok(ch.get() == "azure/neural" and "azure/neural" in ch.models_used, "standard Chooser picks Azure")
 try:
-    tts_pool.Chooser(10, mode="full")
-    ok(False, "full mode must not get Azure")
+    tts_pool.Chooser(10, quality="premium")
+    ok(False, "premium must not get Azure")
 except gemini_tts.QuotaExceeded:
-    ok(True, "full mode: no model left -> QuotaExceeded (never Azure)")
+    ok(True, "premium: no model left -> QuotaExceeded (never Azure)")
 json.dump({"day": tts_pool._today(), "counts": {}}, open(tts_pool.USAGE_FILE, "w"))
-ch = tts_pool.Chooser(10, mode="recap")
+ch = tts_pool.Chooser(10, quality="premium")
+ok(ch.get() == "a1", "premium starts on the first Gemini model")
 gemini_tts._block("quota exceeded retry in 5h", "a1"); gemini_tts._block("quota exceeded retry in 5h", "a2")
-ch.failed("a1")
-ok(ch.get() == "azure/neural" and ch.switches == [("a1", "azure/neural")] and ch.models_used == {"a1", "azure/neural"}, "mid-video: recap switches to Azure and records it")
+try:
+    ch.failed("a1")
+    ok(False, "premium must not fall over to Azure mid-video")
+except gemini_tts.QuotaExceeded:
+    ok(True, "premium mid-video with every Gemini model blocked: error, not Azure")
 
 # voice mapping + SSML
 ok(azure_tts.azure_voice("Kore") == "my-MM-NilarNeural" and azure_tts.azure_voice("Charon") == "my-MM-ThihaNeural"
@@ -79,12 +83,6 @@ except RuntimeError as e:
 # cache keys never mix Gemini and Azure clips
 ok(pipeline.clip_voice("Kore", model="azure/neural") == "Kore|azure" and pipeline.clip_voice("Kore", model="a1") == "Kore", "Azure clips get their own cache key")
 ok(pipeline.clip_name("t", pipeline.clip_voice("Kore", model="azure/neural")) != pipeline.clip_name("t", "Kore"), "different cache names")
-
-# warning text matches the Burmese rule in the frontend
-src = open("../frontend/src/i18n.jsx").read()
-m = re.search(r"\[/\^(The voice service was busy.*?)\$/,", src)
-js = m.group(1).replace("\\(", "(").replace("\\)", ")").replace("\\.", ".")
-ok(js == pipeline.VOICE_AZURE_WARNING, "Burmese rule matches the English warning exactly")
 
 # off switches
 os.environ["AZURE_TTS"] = "0"

@@ -8,7 +8,13 @@ function describe(tr, e) {
   const lines = [];
   if (e.action === 'user.create') {
     lines.push(tr('Created user {email}', { email: e.target_label }));
-    lines.push(tr('{n} min/day', { n: d.daily_minutes }) + (d.is_admin ? ` · ${tr('admin')}` : ''));
+    lines.push(tr('{n} min/day', { n: d.daily_minutes }) + (d.is_admin ? ` · ${tr('admin')}` : '') + (d.device_limit === 0 ? ` · ${tr('any number of devices')}` : d.device_limit ? ` · ${tr('{n} device(s)', { n: d.device_limit })}` : ''));
+  } else if (e.action === 'user.device') {
+    lines.push(tr('Removed device of {email}', { email: e.target_label }) + `: ${d.removed || ''}${d.ip ? ` (${d.ip})` : ''}`);
+  } else if (e.action === 'topup.approve' || e.action === 'topup.reject') {
+    lines.push(tr(e.action === 'topup.approve' ? 'Approved top-up of {email}' : 'Rejected top-up of {email}', { email: e.target_label }) + `: ${d.minutes} ${tr('min')} · ${d.amount_thb} THB${d.reason ? ` · ${d.reason}` : ''}`);
+  } else if (e.action === 'credit.adjust') {
+    lines.push(tr('Bought minutes of {email}', { email: e.target_label }) + `: ${d.minutes > 0 ? '+' : ''}${d.minutes} ${tr('min')}${d.note ? ` · ${d.note}` : ''}`);
   } else if (e.action === 'job.cancel') {
     lines.push(tr('Cancelled video {id} of {email}', { id: e.target_id, email: e.target_label || '?' }));
   } else if (e.action === 'user.update' || e.action === 'settings.update') {
@@ -17,6 +23,11 @@ function describe(tr, e) {
       if (k === 'daily_minutes') lines.push(tr('Daily minutes: {from} → {to}', { from: v.from, to: v.to }));
       else if (k === 'monthly_minutes') lines.push(tr('Monthly minutes: {from} → {to}', { from: v.from, to: v.to }));
       else if (k === 'is_active') lines.push(v.to ? tr('Account enabled') : tr('Account disabled'));
+      else if (k === 'status') lines.push(tr('Status: {from} → {to}', { from: tr(v.from), to: tr(v.to) }));
+      else if (k === 'status_reason') lines.push(tr('Reason') + `: ${v.to || '–'}`);
+      else if (k === 'device_limit') lines.push(tr('Devices allowed: {from} → {to}', { from: v.from === 0 ? tr('any') : v.from, to: v.to === 0 ? tr('any') : v.to }));
+      else if (k === 'keep_result_days') lines.push(tr('Keep finished videos (days)') + `: ${v.from} → ${v.to}`);
+      else if (k === 'keep_source_days') lines.push(tr('Keep source videos + voice clips (days)') + `: ${v.from} → ${v.to}`);
       else if (k === 'is_admin') lines.push(v.to ? tr('Made admin') : tr('Removed admin'));
       else if (k === 'password_reset') lines.push(tr('Password reset'));
       else if (k === 'maintenance') lines.push(v.to ? tr('Maintenance mode turned on') : tr('Maintenance mode turned off'));
@@ -27,7 +38,7 @@ function describe(tr, e) {
   return lines;
 }
 
-const ACTION_STYLE = { 'user.create': 'bg-emerald-500/15 text-emerald-300', 'user.update': 'bg-sky-500/15 text-sky-300', 'job.cancel': 'bg-amber-500/15 text-amber-300', 'settings.update': 'bg-purple-500/15 text-purple-300' };
+const ACTION_STYLE = { 'user.create': 'bg-emerald-500/15 text-emerald-300', 'user.update': 'bg-sky-500/15 text-sky-300', 'user.device': 'bg-sky-500/15 text-sky-300', 'topup.approve': 'bg-emerald-500/15 text-emerald-300', 'topup.reject': 'bg-red-500/15 text-red-300', 'credit.adjust': 'bg-emerald-500/15 text-emerald-300', 'job.cancel': 'bg-amber-500/15 text-amber-300', 'settings.update': 'bg-purple-500/15 text-purple-300' };
 
 export default function AuditPage() {
   const { tr } = useI18n();
@@ -42,7 +53,7 @@ export default function AuditPage() {
     <div>
       <p className="mb-3 text-sm text-slate-400">{tr('Every change made from this dashboard: who did it, what changed, and when. Passwords are never recorded.')}</p>
       <div className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:px-0">
-        {['', ...(data?.actions || ['user.create', 'user.update', 'job.cancel', 'settings.update'])].map((a) => (
+        {['', ...(data?.actions || ['user.create', 'user.update', 'user.device', 'topup.approve', 'topup.reject', 'credit.adjust', 'job.cancel', 'settings.update'])].map((a) => (
           <button key={a || 'all'} onClick={() => { setAction(a); setPage(1); }}
             className={`flex-shrink-0 rounded-full px-3 py-1.5 text-xs ${action === a ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>{tr(a || 'all')}</button>
         ))}

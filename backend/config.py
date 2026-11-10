@@ -17,7 +17,7 @@ REDIS_URL = os.getenv("REDIS_URL", "")
 QUEUE_MODE = os.getenv("QUEUE_MODE", "rq" if REDIS_URL else "inline")  # inline = in-process threads (dev)
 
 # Accounts and limits
-ALLOW_SIGNUP = os.getenv("ALLOW_SIGNUP", "true").lower() == "true"
+ALLOW_SIGNUP = os.getenv("ALLOW_SIGNUP", "false").lower() == "true"   # accounts are made by the admin; true only for open sign-up
 DEFAULT_DAILY_MINUTES = int(os.getenv("DEFAULT_DAILY_MINUTES", "100"))   # per user, per UTC day
 DEFAULT_MONTHLY_MINUTES = int(os.getenv("DEFAULT_MONTHLY_MINUTES", "2000"))   # per user, per UTC calendar month
 MAX_VIDEO_MINUTES = float(os.getenv("MAX_VIDEO_MINUTES", "15"))         # per single upload
@@ -27,5 +27,7 @@ GLOBAL_DAILY_MINUTES = float(os.getenv("GLOBAL_DAILY_MINUTES", "0"))    # 0 = un
 MAINTENANCE_MODE = os.getenv("MAINTENANCE_MODE", "").lower() in ("1", "true")  # kill switch for new jobs
 
 CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001").split(",") if o.strip()]
-FILE_TTL_HOURS = float(os.getenv("FILE_TTL_HOURS", "24"))
+KEEP_RESULT_DAYS = float(os.getenv("KEEP_RESULT_DAYS", "30"))   # finished videos (+ subtitle files); the admin can change it at runtime
+KEEP_SOURCE_DAYS = float(os.getenv("KEEP_SOURCE_DAYS", "7"))    # uploaded source videos, voice clips, work files (needed for editing / re-rendering)
+TRUST_PROXY = os.getenv("TRUST_PROXY", "").lower() in ("1", "true")   # behind Nginx: take the visitor IP from X-Forwarded-For
 SIGNED_URL_SECONDS = int(os.getenv("SIGNED_URL_SECONDS", "3600"))

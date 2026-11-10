@@ -1,5 +1,5 @@
 import json
-from config import (ALLOW_SIGNUP, CORS_ORIGINS, DEFAULT_DAILY_MINUTES, FILE_TTL_HOURS,
+from config import (ALLOW_SIGNUP, CORS_ORIGINS, DEFAULT_DAILY_MINUTES,
                     LOGOS_DIR, MAX_ACTIVE_JOBS_PER_USER, MAX_UPLOAD_MB, MAX_VIDEO_MINUTES,
                     OUTPUT_DIR, SIGNED_URL_SECONDS, UPLOAD_DIR)
 
@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from datetime import timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 import auth
 from admin import router as admin_router, settings as runtime_settings
@@ -24,8 +24,9 @@ import usage as usage_log   # (main.py has an endpoint function called usage)
 import jobs_queue
 import looks
 import storage
+import topup
 from common import media_duration, tts_provider
-from db import Job, Session, User, active_jobs, month_start, used_seconds_month, used_seconds_today, utcnow
+from db import Job, Session, User, active_jobs, month_start, refund_credit, used_seconds_month, used_seconds_today, utcnow
 from voices import VOICES, VOICE_NAMES
 
 import logging
@@ -51,6 +52,7 @@ app.add_middleware(
 )
 
 app.include_router(admin_router)
+app.include_router(topup.router)
 
 SAMPLES_DIR = "voice_samples"
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -79,6 +81,7 @@ def _fail_orphaned_jobs():
         stuck = s.execute(select(Job).where(Job.status.in_(("queued", "running")))).scalars().all()
         for job in stuck:
             job.status, job.stage, job.charged_seconds = "error", "Interrupted", 0.0
+            refund_credit(s, job)
             job.error = "The server was restarted while this video was processing. Please upload it again."
         s.commit()
         if stuck:
@@ -105,8 +108,9 @@ def health():
 # ---------- accounts ----------
 
 class Credentials(BaseModel):
-    email: str
+    email: str                     # the login name ("username"; older accounts use an email address)
     password: str
+    device_id: str | None = None   # random id the browser keeps; used for the "one device per login" rule
 
 
 def _quota(user: User) -> dict:
@@ -115,7 +119,9 @@ def _quota(user: User) -> dict:
         month_used = used_seconds_month(s, user.id)
     day_left = max(0, user.daily_minutes * 60 - used)
     month_left = max(0, user.monthly_minutes * 60 - month_used)
-    return {"daily_minutes": user.daily_minutes, "used_seconds": round(used), "remaining_seconds": round(min(day_left, month_left)),
+    credit = max(0.0, user.credit_seconds or 0.0)
+    return {"daily_minutes": user.daily_minutes, "used_seconds": round(used), "remaining_seconds": round(min(day_left, month_left) + credit),
+            "allowance_remaining_seconds": round(min(day_left, month_left)), "credit_seconds": round(credit),
             "monthly_minutes": user.monthly_minutes, "month_used_seconds": round(month_used),
             "month_remaining_seconds": round(month_left), "day_remaining_seconds": round(day_left)}
 
@@ -135,8 +141,11 @@ def register(body: Credentials, request: Request):
             raise HTTPException(status_code=409, detail="That email is already registered.")
         user = User(email=email, password_hash=auth.hash_password(body.password), daily_minutes=DEFAULT_DAILY_MINUTES)
         s.add(user)
+        s.flush()
+        device_id = auth.clean_device_id(body.device_id)
+        auth.register_device(s, user, device_id, request)
         s.commit()
-    return {"token": auth.make_token(user), "email": email, "is_admin": False, **_quota(user)}
+    return {"token": auth.make_token(user, device_id), "device_id": device_id, "email": email, "is_admin": False, **_quota(user)}
 
 
 @app.post("/api/auth/login")
@@ -144,9 +153,14 @@ def login(body: Credentials, request: Request):
     auth.rate_limit(request)
     with Session() as s:
         user = s.execute(select(User).where(User.email == body.email.strip().lower())).scalar_one_or_none()
-    if not user or not user.is_active or not auth.verify_password(body.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Wrong email or password.")
-    return {"token": auth.make_token(user), "email": user.email, "is_admin": user.is_admin, **_quota(user)}
+        if not user or not auth.verify_password(body.password, user.password_hash):
+            raise HTTPException(status_code=401, detail="Wrong username or password.")
+        if user.status != "active":   # the password was right, so it is safe to say why the login does not work
+            raise HTTPException(status_code=403, detail=auth.STATUS_MESSAGES.get(user.status, "Account unavailable."))
+        device_id = auth.clean_device_id(body.device_id)
+        auth.register_device(s, user, device_id, request)   # may refuse: this login is limited to N devices
+        s.commit()
+    return {"token": auth.make_token(user, device_id), "device_id": device_id, "email": user.email, "is_admin": user.is_admin, **_quota(user)}
 
 
 @app.get("/api/auth/me")
@@ -216,6 +230,30 @@ def voice_sample(filename: str):
 
 
 LOOK_SAMPLES_DIR = "look_samples"
+
+
+@app.get("/api/voice-quality")
+def voice_quality_options():
+    """Which voice qualities can be chosen: premium (Gemini) always, standard (Azure) only when it is set up."""
+    import azure_tts
+    return {"premium": True, "standard": azure_tts.enabled()}
+
+
+@app.get("/api/azure-samples/{gender}.wav")
+def azure_sample(gender: str):
+    """A short sample of the Standard voice (made once, then kept)."""
+    import azure_tts
+    if gender not in ("female", "male") or not azure_tts.enabled():
+        raise HTTPException(status_code=404, detail="No sample.")
+    path = os.path.join(SAMPLES_DIR, f"azure-{gender}.wav")
+    if not os.path.isfile(path):
+        from voices import SAMPLE_TEXT
+        os.makedirs(SAMPLES_DIR, exist_ok=True)
+        try:
+            azure_tts.synthesize(SAMPLE_TEXT, path, "Charon" if gender == "male" else "Kore")
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Sample failed: {str(exc)[:120]}")
+    return FileResponse(path, media_type="audio/wav", headers={"Cache-Control": "public, max-age=604800"})
 
 
 @app.get("/api/looks")
@@ -288,6 +326,7 @@ def create_job(
     # product modes
     mode: str = Form("recap"),            # recap: one narrator voice | full: characters with their own voices + emotions
     output: str = Form("dub"),            # dub: Burmese voice-over | subtitles: keep the original sound, Burmese subtitles only
+    voice_quality: str = Form("premium"), # premium: Gemini voices (30, emotion) | standard: Azure Neural (2 Burmese voices, cheaper, more usage)
     background: str = Form(""),           # "", original (lowered under the voice), separate (Demucs), off
     soft_music: bool = Form(False),       # optional quiet generated pad under everything
     emotion: bool = Form(True),           # full mode: voice lines with a delivery direction (angry, sad, ...)
@@ -317,6 +356,13 @@ def create_job(
         raise HTTPException(status_code=400, detail="No video file provided.")
     if mode not in ("recap", "full") or output not in ("dub", "subtitles") or background not in ("", "original", "separate", "off"):
         raise HTTPException(status_code=400, detail="Unknown mode, output or background option.")
+    if voice_quality not in ("premium", "standard"):
+        raise HTTPException(status_code=400, detail="Unknown voice quality.")
+    if voice_quality == "standard":
+        import azure_tts
+        if output == "dub" and not azure_tts.enabled():
+            raise HTTPException(status_code=400, detail="The Standard voice is not available right now.")
+        emotion = False   # Azure has no emotion directions
     if aspect not in ("original", "9:16", "1:1", "4:5", "16:9") or fit_mode not in ("blur", "crop"):
         raise HTTPException(status_code=400, detail="Unknown video format.")
     if output == "dub":
@@ -328,14 +374,15 @@ def create_job(
     params = {"voice_type": voice_type, "target_language": target_language,
               "allow_voice_speedup": allow_voice_speedup, "max_voice_speedup": max_voice_speedup,
               "min_video_speed": min_video_speed, "fit_translation": fit_translation,
-              "keep_background": keep_background, "mode": mode, "output": output, "background": background,
+              "keep_background": keep_background, "mode": mode, "output": output, "voice_quality": voice_quality, "background": background,
               "soft_music": soft_music, "emotion": emotion, "blur_subtitles": blur_subtitles,
               "enable_subtitles": enable_subtitles, "remove_watermark": remove_watermark,
               "enable_flip": enable_flip, "flip_vertical": flip_vertical, "video_speed": video_speed,
               "brightness": brightness, "contrast": contrast, "saturation": saturation,
               "logo_position": logo_position, "logo_size": logo_size,
               "logo_x": logo_x, "logo_y": logo_y, "manual_blurs": _clean_blurs(manual_blurs),
-              "aspect": aspect, "fit_mode": fit_mode, "pan_x": pan_x, "pan_y": pan_y}
+              "aspect": aspect, "fit_mode": fit_mode, "pan_x": pan_x, "pan_y": pan_y,
+              "filename": os.path.basename(video_file.filename or "")[:120]}   # shown in "My videos"
 
     with Session() as s:
         if active_jobs(s, user.id) >= MAX_ACTIVE_JOBS_PER_USER:
@@ -352,30 +399,32 @@ def create_job(
             raise HTTPException(status_code=413, detail=f"Videos can be at most {MAX_VIDEO_MINUTES:g} minutes long.")
         job_id = uuid.uuid4().hex[:12]
         with Session() as s:
-            month_used = used_seconds_month(s, user.id)
-            if month_used + seconds > user.monthly_minutes * 60:
-                left = max(0, user.monthly_minutes * 60 - month_used)
-                raise HTTPException(status_code=402, detail=(
-                    f"Monthly limit reached: {left / 60:.1f} of your {user.monthly_minutes} minutes left this month, "
-                    f"this video is {seconds / 60:.1f} minutes."))
-            used = used_seconds_today(s, user.id)
-            if used + seconds > user.daily_minutes * 60:
-                left = max(0, user.daily_minutes * 60 - used)
-                raise HTTPException(status_code=402, detail=(
-                    f"Daily limit reached: {left / 60:.1f} of your {user.daily_minutes} minutes left today, "
-                    f"this video is {seconds / 60:.1f} minutes."))
+            month_used, used = used_seconds_month(s, user.id), used_seconds_today(s, user.id)
+            free = max(0.0, min(user.daily_minutes * 60 - used, user.monthly_minutes * 60 - month_used))   # allowance left right now
+            credit_part = max(0.0, seconds - free)   # what the allowance cannot cover is paid with bought minutes
+            if credit_part > 0:
+                have = max(0.0, s.get(User, user.id).credit_seconds or 0.0)
+                if have + 1e-6 < credit_part:
+                    raise HTTPException(status_code=402, detail=(
+                        f"Limit reached: {free / 60:.1f} minutes of your allowance are left right now (daily or monthly limit), this video is "
+                        f"{seconds / 60:.1f} minutes, and you have {have / 60:.1f} bought minutes. Top up minutes to make this video."))
             cap = runtime_settings.global_daily_minutes()
-            if cap and used_seconds_today(s) + seconds > cap * 60:
+            if cap and used_seconds_today(s, None, True) + seconds > cap * 60:
                 raise HTTPException(status_code=503, detail="We've reached today's capacity. Please try again tomorrow.")
             with capacity.lock:   # decide + create the job as one step, so a burst of uploads cannot all be admitted
-                verdict = capacity.decide(s, seconds, params.get("output"), params.get("mode"))
+                verdict = capacity.decide(s, seconds, params.get("output"), params.get("voice_quality"))
                 if not verdict["ok"]:
-                    capacity.refuse(verdict["reason"])
+                    capacity.refuse(verdict["reason"], params.get("voice_quality"))
                 params = {**params, "reserved_model": verdict["model"], "reserved_requests": verdict["requests"]}
                 input_key = storage.put(video_path, "uploads")
                 logo_key = storage.put(logo_path, "logos") if logo_path else None
+                if credit_part > 0:   # take the bought minutes in the same step (a second upload at the same moment cannot spend them twice)
+                    taken = s.execute(update(User).where(User.id == user.id, User.credit_seconds >= credit_part - 1e-6)
+                                      .values(credit_seconds=User.credit_seconds - credit_part)).rowcount
+                    if not taken:
+                        raise HTTPException(status_code=402, detail="Limit reached: not enough bought minutes. Top up minutes to make this video.")
                 s.add(Job(id=job_id, user_id=user.id, status="queued", params=params, data={},
-                          input_key=input_key, logo_key=logo_key, charged_seconds=seconds))
+                          input_key=input_key, logo_key=logo_key, charged_seconds=seconds - credit_part, credit_seconds=credit_part))
                 s.commit()
     except Exception:
         for p in (video_path, logo_path):
@@ -433,7 +482,7 @@ def _job_view(job: Job) -> dict:
             result["download_url"] = _file_url(result["video_file"], True)
             result["subtitle_url"] = _file_url(result["subtitle_file"], True)
         else:
-            result["expired"] = True  # files are deleted after FILE_TTL_HOURS
+            result["expired"] = True  # files are deleted after the retention window (admin setting)
         view["result"] = result
     return view
 
@@ -447,6 +496,59 @@ def get_job(job_id: str, user: User = Depends(auth.current_user)):
     return _job_view(job)
 
 
+def _history_row(job: Job) -> dict:
+    params, data = job.params or {}, job.data or {}
+    result = data.get("result") or {}
+    project = result.get("project") or {}
+    video_ok = bool(result.get("video_file")) and storage.output_exists(result["video_file"])
+    finished = job.finished_at or job.created_at
+    finished = finished if finished.tzinfo else finished.replace(tzinfo=timezone.utc)
+    kind = "edit" if params.get("edit") else ("subtitles" if params.get("output") == "subtitles" else params.get("mode", "recap"))
+    return {"id": job.id, "status": job.status, "title": params.get("filename") or "", "kind": kind, "aspect": params.get("aspect", "original"),
+            "minutes": round(float(project.get("source_duration") or (job.charged_seconds or 0)) / 60, 1),
+            "created_at": (job.created_at if job.created_at.tzinfo else job.created_at.replace(tzinfo=timezone.utc)).isoformat(), "video_available": video_ok,
+            "can_edit": bool(video_ok and project and storage.source_exists(job.input_key)),
+            "expires_at": (finished + timedelta(days=runtime_settings.keep_result_days())).isoformat() if video_ok else None,
+            "error": job.error if job.status == "error" else None}
+
+
+@app.get("/api/jobs")
+def my_videos(page: int = 1, per_page: int = 20, user: User = Depends(auth.current_user)):
+    """The user's own video history: kept as a list for ever (small); the video file itself only for the keeping time."""
+    per_page, page = min(max(per_page, 1), 50), max(page, 1)
+    with Session() as s:
+        jobs = s.execute(select(Job).where(Job.user_id == user.id).order_by(Job.created_at.desc()).limit(1000)).scalars().all()
+    jobs = [j for j in jobs if not (j.data or {}).get("user_deleted") and j.status != "cancelled"]   # a cancelled video has nothing to show
+    return {"total": len(jobs), "page": page, "per_page": per_page,
+            "keep_result_days": runtime_settings.keep_result_days(), "keep_source_days": runtime_settings.keep_source_days(),
+            "items": [_history_row(j) for j in jobs[(page - 1) * per_page: page * per_page]]}
+
+
+@app.delete("/api/jobs/{job_id}")
+def delete_my_video(job_id: str, user: User = Depends(auth.current_user)):
+    """Remove a video from the user's history and delete its files now (saves storage). The minutes it used stay counted."""
+    with Session() as s:
+        job = s.get(Job, job_id)
+        if job is None or job.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Unknown job")
+        if job.status in ("queued", "running"):
+            raise HTTPException(status_code=409, detail="This video is still processing. Cancel it first.")
+        result = (job.data or {}).get("result") or {}
+        for key in (result.get("video_file"), result.get("subtitle_file")):
+            if key:
+                storage.delete_output(key)
+        data = {**(job.data or {}), "user_deleted": True}
+        data.pop("result", None)   # also drops the stored script (private text)
+        job.data = data
+        shared = s.execute(select(Job).where(Job.input_key == job.input_key, Job.id != job.id)).scalars().all()
+        if not any(not (j.data or {}).get("user_deleted") for j in shared):   # edits share the source: delete it with the last one
+            storage.delete_source(job.input_key)
+            if job.logo_key:
+                storage.delete_source(job.logo_key)
+        s.commit()
+    return {"deleted": True}
+
+
 @app.get("/api/files/{filename}")
 def get_file(filename: str, exp: int, sig: str, dl: int = 0):
     name = os.path.basename(filename)
@@ -454,7 +556,7 @@ def get_file(filename: str, exp: int, sig: str, dl: int = 0):
         raise HTTPException(status_code=403, detail="Link expired. Reload the page to get a new one.")
     path = os.path.join(OUTPUT_DIR, name)
     if not os.path.isfile(path):
-        raise HTTPException(status_code=404, detail="File not found (results are kept for %g hours)." % FILE_TTL_HOURS)
+        raise HTTPException(status_code=404, detail="File not found: this video was removed after the keeping time.")
     media_type = "application/x-subrip" if name.endswith(".srt") else "video/mp4"
     return FileResponse(path, media_type=media_type, filename=name if dl else None)
 
@@ -500,7 +602,8 @@ def rerender(job_id: str, body: RerenderBody, user: User = Depends(auth.current_
     if job.status != "done" or not project:
         raise HTTPException(status_code=400, detail="This video can't be edited (finish it first, or it was made before the editor existed).")
     if storage.BACKEND == "local" and not os.path.isfile(job.input_key):
-        raise HTTPException(status_code=410, detail=f"The source video was deleted after {FILE_TTL_HOURS:g} hours. Upload it again.")
+        raise HTTPException(status_code=410, detail="The source video was removed after its keeping time, so it can't be edited any more. Upload it again.")
+    storage.touch(job.input_key)   # editing counts as using it: the keeping time starts again
     voice = body.voice_type or project["voice"]
     if tts_provider() == "gemini" and voice != "su" and voice not in VOICE_NAMES:
         raise HTTPException(status_code=400, detail=f"Unknown voice: {voice}")
@@ -572,7 +675,7 @@ def preview_line(job_id: str, body: PreviewBody, user: User = Depends(auth.curre
     import pipeline
     try:
         path = pipeline.preview_line(body.text.strip(), body.voice, (src or {}).get("style"),
-                                     project.get("voice_model") or {}, project.get("tts_model"), (job.params or {}).get("mode"))
+                                     project.get("voice_model") or {}, project.get("tts_model"), (job.params or {}).get("voice_quality"))
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Voice preview failed: {str(exc)[:160]}")
     return FileResponse(path, media_type="audio/wav")

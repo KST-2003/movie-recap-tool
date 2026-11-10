@@ -5,14 +5,24 @@ import VoiceLibrary from './VoiceLibrary.jsx';
 import PreviewStudio, { ASPECTS } from './PreviewStudio.jsx';
 import Shell from './Shell.jsx';
 import UsageDashboard from './UsageDashboard.jsx';
+import HistoryPage from './HistoryPage.jsx';
+import TopUpPage from './TopUpPage.jsx';
 import { LangSwitch, useI18n } from './i18n.jsx';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
-function AuthScreen({ onAuth }) {
+// A random id this browser keeps, so the owner's "one device per login" rule can tell devices apart.
+const deviceId = () => {
+  try {
+    let id = localStorage.getItem('device_id');
+    if (!id) { id = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`).replace(/[^A-Za-z0-9_-]/g, ''); localStorage.setItem('device_id', id); }
+    return id;
+  } catch { return 'unknown'; }
+};
+
+function AuthScreen({ onAuth, notice }) {
   const { tr, trs } = useI18n();
-  const [mode, setMode] = useState('login');
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -22,7 +32,7 @@ function AuthScreen({ onAuth }) {
     setBusy(true);
     setError('');
     try {
-      const { data } = await axios.post(`${API_BASE}/api/auth/${mode === 'login' ? 'login' : 'register'}`, { email, password });
+      const { data } = await axios.post(`${API_BASE}/api/auth/login`, { email: username.trim(), password, device_id: deviceId() });
       onAuth(data);
     } catch (err) {
       setError(trs(err.response?.data?.detail) || tr('Could not reach the server.'));
@@ -36,15 +46,12 @@ function AuthScreen({ onAuth }) {
     <div className="min-h-screen bg-slate-950 text-white p-6 font-sans flex items-center justify-center">
       <form onSubmit={submit} className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
         <div className="flex items-center justify-between"><h1 className="text-xl font-bold text-purple-400">🎬 Movie Recap Tool</h1><LangSwitch /></div>
-        <input className={input} type="email" placeholder={tr('Email')} value={email} onChange={(e) => setEmail(e.target.value)} required />
-        <input className={input} type="password" placeholder={tr('Password (8+ characters)')} value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} />
+        {notice && !error && <p className="text-sm text-amber-300">{trs(notice)}</p>}
+        <input className={input} type="text" autoComplete="username" autoCapitalize="none" spellCheck={false} placeholder={tr('Username')} value={username} onChange={(e) => setUsername(e.target.value)} required />
+        <input className={input} type="password" autoComplete="current-password" placeholder={tr('Password')} value={password} onChange={(e) => setPassword(e.target.value)} required />
         {error && <p className="text-sm text-red-400">{error}</p>}
-        <button disabled={busy} className="w-full py-2 rounded-xl bg-purple-600 hover:bg-purple-500 font-semibold disabled:opacity-50">
-          {mode === 'login' ? tr('Log in') : tr('Create account')}
-        </button>
-        <button type="button" onClick={() => setMode(mode === 'login' ? 'register' : 'login')} className="text-xs text-slate-400 hover:text-white">
-          {mode === 'login' ? tr('New here? Create an account') : tr('Already have an account? Log in')}
-        </button>
+        <button disabled={busy} className="w-full py-2 rounded-xl bg-purple-600 hover:bg-purple-500 font-semibold disabled:opacity-50">{tr('Log in')}</button>
+        <p className="text-xs text-slate-500">{tr('Your username and password are given to you by the admin.')}</p>
       </form>
     </div>
   );
@@ -100,9 +107,11 @@ function App() {
   const [view, setView] = useState('create');   // sidebar page: create | usage
   const [usageKey, setUsageKey] = useState(0);   // bumped when a job ends so the usage page reloads
   const [account, setAccount] = useState(null); // { email, daily_minutes, remaining_seconds }
+  const [notice, setNotice] = useState('');   // why the user was signed out (paused, device removed, ...)
   if (token) axios.defaults.headers.common.Authorization = `Bearer ${token}`;
 
-  const logout = () => {
+  const logout = (why) => {
+    setNotice(typeof why === 'string' ? why : '');
     localStorage.removeItem('token');
     delete axios.defaults.headers.common.Authorization;
     setToken('');
@@ -111,13 +120,14 @@ function App() {
   const onAuth = (data) => {
     localStorage.setItem('token', data.token);
     axios.defaults.headers.common.Authorization = `Bearer ${data.token}`;
+    setNotice('');
     setToken(data.token);
     setAccount(data);
   };
   const refreshAccount = () => axios.get(`${API_BASE}/api/auth/me`).then((r) => setAccount(r.data)).catch(() => {});
   useEffect(() => {
     const id = axios.interceptors.response.use((r) => r, (err) => {
-      if (err.response?.status === 401 && !String(err.config?.url).includes('/api/auth/')) logout();
+      if (err.response?.status === 401 && !String(err.config?.url).includes('/api/auth/')) logout(err.response?.data?.detail);
       return Promise.reject(err);
     });
     return () => axios.interceptors.response.eject(id);
@@ -133,12 +143,16 @@ function App() {
   const [looks, setLooks] = useState([]);
   const [showLibrary, setShowLibrary] = useState(false);
   const [voiceGender, setVoiceGender] = useState('female');
+  const [voiceQuality, setVoiceQuality] = useState('premium'); // 'premium' = Gemini (30 voices, emotion) | 'standard' = Azure (2 voices, cheaper, more usage)
+  const [standardOk, setStandardOk] = useState(false);
+  const standard = voiceQuality === 'standard' && standardOk;
   const [playing, setPlaying] = useState(null);
   const audioRef = useRef(null);
 
   useEffect(() => {
     axios.get(`${API_BASE}/api/voices`).then((r) => setVoices(r.data)).catch(() => setVoices([]));
     axios.get(`${API_BASE}/api/looks`).then((r) => setLooks(r.data)).catch(() => setLooks([]));
+    axios.get(`${API_BASE}/api/voice-quality`).then((r) => setStandardOk(!!r.data.standard)).catch(() => setStandardOk(false));
     return () => audioRef.current?.pause();
   }, []);
 
@@ -260,6 +274,7 @@ function App() {
     formData.append('video_file', videoFile);
     if (customLogo) formData.append('custom_logo', customLogo);
     formData.append('voice_type', voiceType);
+    formData.append('voice_quality', standard ? 'standard' : 'premium');
     formData.append('target_language', 'my');
     formData.append('blur_subtitles', finish.blur_subtitles);
     formData.append('enable_subtitles', finish.enable_subtitles);
@@ -382,10 +397,33 @@ function App() {
     }
   };
 
-  if (!token) return <AuthScreen onAuth={onAuth} />;
+  // Open a finished video from "My videos": the same preview, download and editor as right after rendering.
+  const openJob = async (id) => {
+    try {
+      const { data: job } = await axios.get(`${API_BASE}/api/jobs/${id}`);
+      const result = job.result;
+      if (!result || result.expired) { setErrorMessage(tr('This result has expired. Please generate it again.')); setView('create'); return; }
+      setErrorMessage('');
+      setResultVideoUrl(absUrl(result.video_url));
+      setResultDownloadUrl(absUrl(result.download_url));
+      setSubtitleUrl(absUrl(result.subtitle_url));
+      setTimeline((result.timeline || []).filter((scene) => scene.text));
+      setProject(result.project || null);
+      setBgKept(!!result.background_kept);
+      setJobId(job.id);
+      setNotes((result.warnings || []).map(trs).join(' '));
+      setView('create');
+      window.scrollTo?.({ top: 0 });
+    } catch (e) {
+      setErrorMessage(trs(e.response?.data?.detail) || e.message);
+      setView('create');
+    }
+  };
+
+  if (!token) return <AuthScreen onAuth={onAuth} notice={notice} />;
 
   return (
-    <Shell view={view} setView={setView} account={account} onLogout={logout}>
+    <Shell view={view} setView={setView} account={account} onLogout={() => logout()}>
       {showLibrary && (
         <VoiceLibrary voices={voices} looks={looks} selected={voiceType} playing={playing} onPlay={playSample}
           onSelect={(v) => { setVoiceType(v.name); setVoiceGender(v.gender); }} onClose={() => setShowLibrary(false)} apiBase={API_BASE} />
@@ -466,6 +504,40 @@ function App() {
             <PreviewStudio src={sourceUrl} logoFile={customLogo} fx={previewFx} onChange={changePreviewFx} />
           )}
 
+          {standardOk && (
+            <div className="rounded-xl border border-slate-800 bg-slate-800/30 p-4 space-y-2">
+              <label className="block text-sm font-medium text-slate-300">{tr('Voice quality')}</label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {[['premium', 'High quality', 'Natural Gemini voices: 30 to choose from, with emotion. Uses more of your allowance.'],
+                  ['standard', 'Standard', 'Two clear Burmese voices (female / male), no emotion. Cheaper and almost always available.']].map(([q, title, text]) => (
+                  <button key={q} type="button" onClick={() => { setVoiceQuality(q); if (q === 'standard') { setVoiceType(voiceGender === 'male' ? 'Charon' : 'Kore'); } }}
+                    className={`text-left rounded-xl border p-3 ${voiceQuality === q ? 'border-purple-500 bg-purple-950/40' : 'border-slate-700 bg-slate-800/50 hover:bg-slate-800'}`}>
+                    <span className="block text-sm font-semibold">{tr(title)}</span>
+                    <span className="block text-xs text-slate-400 mt-0.5">{tr(text)}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {standard ? (
+            <div className="rounded-xl border border-purple-500/30 bg-purple-950/30 p-4">
+              <p className="text-sm text-purple-200 mb-3">{tr('The Standard voice reads everything in one clear Burmese voice. In a full movie, all female characters share the female voice and all male characters the male voice.')}</p>
+              <div className="grid grid-cols-2 gap-2">
+                {[['female', 'Nilar'], ['male', 'Thiha']].map(([g, name]) => (
+                  <div key={g} className={`p-2 rounded-xl border ${voiceGender === g ? 'border-purple-500 bg-purple-950/40' : 'border-slate-800 bg-slate-800/50 hover:bg-slate-800'}`}>
+                    <button type="button" onClick={() => { setVoiceGender(g); setVoiceType(g === 'male' ? 'Charon' : 'Kore'); }} className="w-full text-left">
+                      <span className="font-semibold text-sm block">{name}</span>
+                      <span className="text-xs text-purple-300 capitalize">{tr('{gender} Burmese voice', { gender: tr(g) })}</span>
+                    </button>
+                    <button type="button" onClick={() => playSample({ name: `azure-${g}`, sample_url: `/api/azure-samples/${g}.wav` })} className="mt-2 text-xs text-purple-300 hover:text-white">
+                      {playing === `azure-${g}` ? tr('■ Stop') : tr('▶ Play')}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
           <div className="rounded-xl border border-purple-500/30 bg-purple-950/30 p-4">
             <p className="text-sm text-purple-200 mb-3">
               {tr('Burmese dialogue is translated by Google Gemini, then spoken naturally with Gemini TTS. Audio is not sped up to force-fit the source timing.')}
@@ -516,6 +588,7 @@ function App() {
               {tr('See more voices ({n}) · search & categories →', { n: voices.length + looks.length })}
             </button>
           </div>
+          )}
 
           {/* What kind of video is this? */}
           <div className="rounded-xl border border-slate-800 bg-slate-800/30 p-4 space-y-3">
@@ -557,10 +630,10 @@ function App() {
                         <option value="off">{tr('Remove all original sound')}</option>
                       </select>
                     </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
+                    {!standard && (<label className="flex items-center gap-2 cursor-pointer">
                       <input type="checkbox" checked={emotionOn} onChange={(e) => setEmotionOn(e.target.checked)} className="w-4 h-4 accent-purple-500" />
                       {tr('Add emotion to the voices (angry, sad, scared…; a few key lines)')}
-                    </label>
+                    </label>)}
                   </>
                 )}
               </div>
@@ -700,6 +773,8 @@ function App() {
 
       </div>
       </div>
+      {view === 'history' && <HistoryPage apiBase={API_BASE} refreshKey={usageKey} onOpen={openJob} />}
+      {view === 'topup' && <TopUpPage apiBase={API_BASE} onChanged={refreshAccount} />}
       {view === 'usage' && <UsageDashboard apiBase={API_BASE} refreshKey={usageKey} />}
     </Shell>
   );

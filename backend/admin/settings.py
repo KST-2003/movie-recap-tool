@@ -6,7 +6,7 @@ import threading
 
 from datetime import datetime, timezone
 
-from config import DATA_DIR, GLOBAL_DAILY_MINUTES, MAINTENANCE_MODE
+from config import DATA_DIR, GLOBAL_DAILY_MINUTES, KEEP_RESULT_DAYS, KEEP_SOURCE_DAYS, MAINTENANCE_MODE
 
 _FILE = os.path.join(DATA_DIR, "admin_settings.json")
 _lock = threading.Lock()
@@ -50,9 +50,47 @@ def cost_per_minute_thb() -> float:
     return float(os.getenv("COST_PER_MINUTE_THB", "1.0")) if value is None else float(value)
 
 
+def cost_per_minute_standard_thb() -> float:
+    """Standard (Azure) voice: used until 3 finished videos give a measured value."""
+    value = _load().get("cost_per_minute_standard_thb")
+    return float(os.getenv("COST_PER_MINUTE_STANDARD_THB", "1.0")) if value is None else float(value)
+
+
 def min_free_minutes() -> float:
     value = _load().get("min_free_minutes")
     return float(os.getenv("MIN_FREE_MINUTES", "30")) if value is None else float(value)
+
+
+def keep_result_days() -> float:
+    value = _load().get("keep_result_days")
+    return KEEP_RESULT_DAYS if value is None else float(value)
+
+
+def keep_source_days() -> float:
+    value = _load().get("keep_source_days")
+    return KEEP_SOURCE_DAYS if value is None else float(value)
+
+
+# Pay as you go: the user buys video minutes (packs), pays by QR + slip, the admin approves.
+DEFAULT_PACKS = [30, 60, 100, 200]
+
+
+def price_per_minute_thb() -> float:
+    value = _load().get("price_per_minute_thb")
+    return float(os.getenv("PRICE_PER_MINUTE_THB", "5")) if value is None else float(value)
+
+
+def topup_packs() -> list[int]:
+    value = _load().get("topup_packs")
+    return [int(m) for m in value] if isinstance(value, list) and value else list(DEFAULT_PACKS)
+
+
+def payment_note() -> str:
+    return str(_load().get("payment_note") or "")
+
+
+def payment_qr_file() -> str | None:
+    return _load().get("payment_qr_file") or None
 
 
 def usd_thb() -> float:
@@ -86,5 +124,7 @@ def update(**changes) -> dict:
 
 def view() -> dict:
     return {"maintenance": maintenance(), "global_daily_minutes": global_daily_minutes(), "budget_enabled": budget_enabled(),
-            "budget_thb": _load().get("budget_thb"), "budget_set_at": budget_set_at(), "cost_per_minute_thb": cost_per_minute_thb(),
-            "min_free_minutes": min_free_minutes(), "usd_thb": usd_thb()}
+            "budget_thb": _load().get("budget_thb"), "budget_set_at": budget_set_at(), "cost_per_minute_thb": cost_per_minute_thb(), "cost_per_minute_standard_thb": cost_per_minute_standard_thb(),
+            "min_free_minutes": min_free_minutes(), "usd_thb": usd_thb(),
+            "keep_result_days": keep_result_days(), "keep_source_days": keep_source_days(),
+            "price_per_minute_thb": price_per_minute_thb(), "topup_packs": topup_packs(), "payment_note": payment_note(), "payment_qr_file": payment_qr_file()}

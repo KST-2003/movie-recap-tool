@@ -2,7 +2,7 @@
 import time
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, create_engine, func, inspect, select, text
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, create_engine, func, inspect, select, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from config import DATABASE_URL, DEFAULT_DAILY_MINUTES, DEFAULT_MONTHLY_MINUTES
@@ -25,8 +25,37 @@ class User(Base):
     daily_minutes = Column(Integer, default=DEFAULT_DAILY_MINUTES, nullable=False)
     monthly_minutes = Column(Integer, default=DEFAULT_MONTHLY_MINUTES, nullable=False)
     is_admin = Column(Boolean, default=False, nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)   # always == (status == "active"): kept for older code
+    status = Column(String(16), default="active", nullable=False)   # active | paused | deactivated | banned
+    status_reason = Column(String(300))                              # shown to the owner only
+    credit_seconds = Column(Float, default=0.0, nullable=False)     # BOUGHT video seconds (top-ups): used only after the daily / monthly allowance is used up
+    device_limit = Column(Integer, default=0, nullable=False)       # how many different devices may use the login; 0 = any number
     created_at = Column(DateTime(timezone=True), default=utcnow)
+
+
+STATUSES = ("active", "paused", "deactivated", "banned")
+
+
+def set_status(user: "User", status: str, reason: str | None = None):
+    user.status = status
+    user.is_active = status == "active"
+    user.status_reason = (reason or "").strip()[:300] or None
+
+
+class UserDevice(Base):
+    """A browser/phone that signed in with a login. With device_limit = N, a login can have at most N of these; only the admin frees a slot."""
+    __tablename__ = "user_devices"
+    __table_args__ = (UniqueConstraint("user_id", "device_id", name="uq_user_device"),)
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    device_id = Column(String(64), nullable=False)      # random id the browser keeps in localStorage ("unknown" when a client sends none)
+    name = Column(String(120))                          # e.g. "Chrome on Windows" (from the User-Agent: a website cannot read a real device name)
+    browser = Column(String(40))
+    os = Column(String(40))
+    ip = Column(String(64))                             # last IP
+    first_ip = Column(String(64))
+    first_seen = Column(DateTime(timezone=True), default=utcnow)
+    last_seen = Column(DateTime(timezone=True), default=utcnow)
 
 
 class Job(Base):
@@ -42,6 +71,7 @@ class Job(Base):
     input_key = Column(String(500))            # storage key of the uploaded video
     logo_key = Column(String(500))
     charged_seconds = Column(Float, default=0.0)   # counted against the user's daily allowance; refunded on failure
+    credit_seconds = Column(Float, default=0.0)    # the part of this video paid with the user's bought minutes; refunded on failure
     created_at = Column(DateTime(timezone=True), default=utcnow, index=True)
     finished_at = Column(DateTime(timezone=True))
 
@@ -60,12 +90,46 @@ class AuditLog(Base):
     details = Column(JSON, default=dict)   # {field: {"from": old, "to": new}} or small facts; never passwords
 
 
+class TopupRequest(Base):
+    """A user asks for bought minutes and sends the payment slip; the admin checks the slip and approves (the minutes are added) or rejects."""
+    __tablename__ = "topup_requests"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    minutes = Column(Integer, nullable=False)
+    price_per_minute = Column(Float, nullable=False)   # the price when the request was made (a later price change does not touch it)
+    amount_thb = Column(Float, nullable=False)
+    status = Column(String(12), default="pending", index=True, nullable=False)   # pending | approved | rejected
+    slip_file = Column(String(200))                    # file name inside DATA_DIR/slips
+    note = Column(String(300))                         # from the user
+    admin_note = Column(String(300))                   # rejection reason
+    created_at = Column(DateTime(timezone=True), default=utcnow, index=True)
+    decided_at = Column(DateTime(timezone=True))
+    decided_by = Column(String(255))
+
+
 Base.metadata.create_all(engine)
 
 # Small migration for databases created before the monthly allowance existed (create_all never alters tables).
 if "monthly_minutes" not in {c["name"] for c in inspect(engine).get_columns("users")}:
     with engine.begin() as _conn:
         _conn.execute(text(f"ALTER TABLE users ADD COLUMN monthly_minutes INTEGER NOT NULL DEFAULT {int(DEFAULT_MONTHLY_MINUTES)}"))
+
+_user_cols = {c["name"] for c in inspect(engine).get_columns("users")}
+for _col, _ddl in (("status", "status VARCHAR(16) NOT NULL DEFAULT 'active'"), ("status_reason", "status_reason VARCHAR(300)"),
+                   ("device_limit", "device_limit INTEGER NOT NULL DEFAULT 0")):
+    if _col not in _user_cols:
+        with engine.begin() as _conn:
+            _conn.execute(text(f"ALTER TABLE users ADD COLUMN {_ddl}"))
+            if _col == "status":   # accounts disabled before statuses existed become "deactivated"
+                _conn.execute(text("UPDATE users SET status = 'deactivated' WHERE is_active = 0 OR is_active = false" if not DATABASE_URL.startswith("sqlite")
+                                   else "UPDATE users SET status = 'deactivated' WHERE is_active = 0"))
+
+if "credit_seconds" not in {c["name"] for c in inspect(engine).get_columns("users")}:
+    with engine.begin() as _conn:
+        _conn.execute(text("ALTER TABLE users ADD COLUMN credit_seconds FLOAT NOT NULL DEFAULT 0"))
+if "credit_seconds" not in {c["name"] for c in inspect(engine).get_columns("jobs")}:
+    with engine.begin() as _conn:
+        _conn.execute(text("ALTER TABLE jobs ADD COLUMN credit_seconds FLOAT DEFAULT 0"))
 
 _COLUMNS = {"status", "stage", "progress", "error"}
 
@@ -91,8 +155,18 @@ def update_job(job_id: str, **fields) -> bool:
             job.finished_at = utcnow()
         if fields.get("status") in ("error", "cancelled"):
             job.charged_seconds = 0.0  # failed or cancelled jobs don't use up the allowance
+            refund_credit(s, job)
         s.commit()
         return True
+
+
+def refund_credit(s, job: "Job") -> None:
+    """Give a failed / cancelled video's bought minutes back to the user (once: the job's credit is zeroed)."""
+    if job.credit_seconds:
+        user = s.get(User, job.user_id)
+        if user is not None:
+            user.credit_seconds = (user.credit_seconds or 0.0) + job.credit_seconds
+        job.credit_seconds = 0.0
 
 
 def add_usage(job_id: str, usage: dict) -> None:
@@ -104,9 +178,10 @@ def add_usage(job_id: str, usage: dict) -> None:
             s.commit()
 
 
-def used_seconds_today(s, user_id: int | None = None) -> float:
+def used_seconds_today(s, user_id: int | None = None, with_credit: bool = False) -> float:
+    """Allowance seconds used today. with_credit also counts bought minutes (for the global ceiling, which protects the API bill)."""
     start = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    q = select(func.coalesce(func.sum(Job.charged_seconds), 0.0)).where(Job.created_at >= start)
+    q = select(func.coalesce(func.sum(Job.charged_seconds + (func.coalesce(Job.credit_seconds, 0.0) if with_credit else 0.0)), 0.0)).where(Job.created_at >= start)
     if user_id is not None:
         q = q.where(Job.user_id == user_id)
     return float(s.execute(q).scalar_one())

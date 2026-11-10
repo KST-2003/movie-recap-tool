@@ -200,10 +200,6 @@ VOICE_SWITCH_WARNING = ("The voice service ran out of requests half way through,
                         "For one voice all the way, try again later, or pick the voice again in the editor and re-render.")
 
 
-VOICE_AZURE_WARNING = ("The voice service was busy, so all or part of this video was voiced with a standard Burmese voice (Nilar or Thiha) "
-                       "instead of the voice you picked. For your own voice, try again later.")
-
-
 def set_job(job_id: str, **fields):
     usage.flush(job_id)   # keep the saved token totals fresh (throttled)
     if not update_job(job_id, **fields):
@@ -721,7 +717,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
         chooser = None
         if mode == "full" and dub:
             known = {sid: v["voice"] for sid, v in ((edit or {}).get("speakers") or {}).items()}
-            suggested = {} if (edit or tts_provider() != "gemini" or os.getenv("LLM_CASTING", "1") == "0") \
+            suggested = {} if (edit or tts_provider() != "gemini" or os.getenv("LLM_CASTING", "1") == "0" or p.get("voice_quality") == "standard") \
                 else casting.llm_choice(segments)   # one text request; editor re-renders keep the voices they have
             speakers = casting.assign_voices(segments, p["voice_type"], known, suggested)
             print("  casting: " + ", ".join(f"{sid}={v['voice']} ({v['lines']} lines)" for sid, v in speakers.items()), flush=True)
@@ -765,7 +761,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                 t_voices = [segments[i]["voice"] for i in todo]
                 t_styles = [segments[i].get("style") for i in todo]
                 groups = len(plan_batches(t_texts, t_voices, t_styles))
-                chooser = (tts_pool.Chooser(groups + max(4, groups // 3), (edit or {}).get("tts_model") or p.get("reserved_model") or None, job_id, p.get("mode"))
+                chooser = (tts_pool.Chooser(groups + max(4, groups // 3), (edit or {}).get("tts_model") or p.get("reserved_model") or None, job_id, p.get("voice_quality"))
                            if tts_provider() == "gemini" and todo else None)   # + room for the fit rewrites
                 blocked_idx: list[int] = []
                 durs = voice_many(t_texts, [paths[i] for i in todo], t_voices, voice_model, job_id, _progress, chooser, t_styles,
@@ -880,10 +876,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
 
         voice_model = duration_model.fit([(sg["translated_text"], sg["audio_dur"]) for sg in segments], voice_model)
         by_index = {sc.audio_index: sc for sc in scenes if sc.audio_index is not None}
-        import azure_tts
-        if chooser is not None and any(azure_tts.is_azure(m) for m in chooser.models_used):
-            warn.append(VOICE_AZURE_WARNING)    # a standard Burmese voice (Nilar / Thiha) was used instead of the picked one
-        elif chooser is not None and chooser.switches and VOICE_SWITCH_WARNING not in warn:
+        if chooser is not None and chooser.switches and VOICE_SWITCH_WARNING not in warn:
             warn.append(VOICE_SWITCH_WARNING)   # shown with the result (English + Burmese): the voice changed mid-video
         project = {
             "voice_model": voice_model,
@@ -994,14 +987,14 @@ def run_job_by_id(job_id: str):
                 storage.delete_local(path)
 
 
-def preview_line(text: str, voice: str, style: str | None, model: dict, preferred_model: str | None = None, mode: str | None = None) -> str:
+def preview_line(text: str, voice: str, style: str | None, model: dict, preferred_model: str | None = None, quality: str | None = None) -> str:
     """Voice ONE line right now (editor preview). The clip goes into the same cache the render uses
     (key = voice + text + style), so pressing Apply afterwards does not pay for it again. Returns the clip's local path."""
     import tempfile
     path = os.path.join(tempfile.mkdtemp(), "preview" + audio_ext())
     if storage.fetch_clip(clip_name(text, clip_voice(voice, model=preferred_model), style), path):
         return path
-    chooser = tts_pool.Chooser(1, preferred_model, mode=mode) if tts_provider() == "gemini" else None
+    chooser = tts_pool.Chooser(1, preferred_model, quality=quality) if tts_provider() == "gemini" else None
     styles = [style]
     voice_many([text], [path], [voice], model, "", None, chooser, styles)
     if styles[0] != style:   # the direction was read aloud / bent the pitch and was dropped: also cache the plain clip under the old key

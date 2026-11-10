@@ -2,7 +2,10 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useI18n } from './i18n.jsx';
 import CostsCard from './CostsCard.jsx';
+import PricingCard from './PricingCard.jsx';
 import { errText, Card, btnPrimary, btnGhost, field, Toggle, useApi, ErrorBox, Loading } from './ui.jsx';
+
+const gb = (b) => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.round((b || 0) / 1e6)} MB`);
 
 export default function SettingsPage() {
   const { tr, trs } = useI18n();
@@ -10,13 +13,17 @@ export default function SettingsPage() {
   const [cap, setCap] = useState('');
   const [bal, setBal] = useState('');
   const [cost, setCost] = useState('');
+  const [costStd, setCostStd] = useState('');
   const [floor, setFloor] = useState('');
+  const [keepR, setKeepR] = useState('');
+  const [keepS, setKeepS] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [confirm, setConfirm] = useState(false);
   useEffect(() => {
-    if (data) { setCap(String(data.global_daily_minutes)); setBal(data.budget_thb == null ? '' : String(data.budget_thb)); setCost(String(data.cost_per_minute_thb)); setFloor(String(data.min_free_minutes)); }
+    if (data) { setCap(String(data.global_daily_minutes)); setBal(data.budget_thb == null ? '' : String(data.budget_thb)); setCost(String(data.cost_per_minute_thb)); setCostStd(String(data.cost_per_minute_standard_thb)); setFloor(String(data.min_free_minutes)); }
   }, [data]);
+  useEffect(() => { if (data) { setKeepR(String(data.keep_result_days)); setKeepS(String(data.keep_source_days)); } }, [data]);
   if (!data) return error ? <ErrorBox error={error} onRetry={reload} /> : <Loading />;
 
   const save = async (patch, ok) => {
@@ -56,14 +63,30 @@ export default function SettingsPage() {
           <span>{tr('Budget gate on')}</span>
           <Toggle checked={!!data.budget_enabled} disabled={busy || data.budget_thb == null} onChange={(v) => save({ budget_enabled: v }, v ? tr('Budget gate is on.') : tr('Budget gate is off.'))} />
         </div>
-        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label className="block text-xs text-slate-400">{tr('Balance left (THB)')}<input className={`${field} mt-1`} type="number" min="0" value={bal} onChange={(e) => setBal(e.target.value)} /></label>
           <label className="block text-xs text-slate-400">{tr('Cost per video minute (THB)')}<input className={`${field} mt-1`} type="number" min="0.01" step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} /></label>
+          <label className="block text-xs text-slate-400">{tr('Cost per video minute, Standard voice (THB)')}<input className={`${field} mt-1`} type="number" min="0.01" step="0.01" value={costStd} onChange={(e) => setCostStd(e.target.value)} /></label>
           <label className="block text-xs text-slate-400">{tr('Keep free (video minutes)')}<input className={`${field} mt-1`} type="number" min="0" value={floor} onChange={(e) => setFloor(e.target.value)} /></label>
         </div>
         <div className="mt-3 flex justify-end">
           <button className={btnPrimary} disabled={busy || bal === '' || cost === '' || floor === ''}
-            onClick={() => save({ budget_thb: Number(bal), budget_enabled: true, cost_per_minute_thb: Number(cost), min_free_minutes: Number(floor) }, tr('Budget saved and turned on.'))}>{tr('Save budget')}</button>
+            onClick={() => save({ budget_thb: Number(bal), budget_enabled: true, cost_per_minute_thb: Number(cost), cost_per_minute_standard_thb: Number(costStd || cost), min_free_minutes: Number(floor) }, tr('Budget saved and turned on.'))}>{tr('Save budget')}</button>
+        </div>
+      </Card>
+      <PricingCard settings={data} onSaved={reload} />
+      <Card title={tr('Keeping videos')}>
+        <p className="mb-3 text-sm text-slate-400">{tr('Users see their list of videos for ever (it is tiny). The video files are what costs storage, so they are deleted after these days. The source video and voice clips are needed for editing, so a video can only be edited while its source is kept.')}</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block text-xs text-slate-400">{tr('Keep finished videos (days)')}<input className={`${field} mt-1`} type="number" min="1" value={keepR} onChange={(e) => setKeepR(e.target.value)} /></label>
+          <label className="block text-xs text-slate-400">{tr('Keep source videos + voice clips (days)')}<input className={`${field} mt-1`} type="number" min="1" value={keepS} onChange={(e) => setKeepS(e.target.value)} /></label>
+        </div>
+        {data.storage && (
+          <p className="mt-3 text-xs text-slate-400">{tr('On this server now')}: {gb(data.storage.total)} · {tr('videos')} {gb(data.storage.results)} · {tr('sources')} {gb(data.storage.sources)} · {tr('voice clips')} {gb(data.storage.clips)} · {tr('other')} {gb(data.storage.other)}</p>
+        )}
+        <div className="mt-3 flex justify-end">
+          <button className={btnPrimary} disabled={busy || keepR === '' || keepS === '' || Number(keepR) < 1 || Number(keepS) < 1}
+            onClick={() => save({ keep_result_days: Number(keepR), keep_source_days: Number(keepS) }, tr('Keeping time saved. Old files are removed within the hour.'))}>{tr('Save')}</button>
         </div>
       </Card>
       <CostsCard onSaved={reload} />
