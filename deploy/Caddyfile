@@ -1,0 +1,72 @@
+# Reverse proxy for Movie Recap Tool (Caddy 2: automatic HTTPS). Read deploy/README.md first.
+#
+# Three host names (any DNS names you own), all pointing at this server:
+#   APP_DOMAIN    the user app      (static files from frontend/dist)
+#   ADMIN_DOMAIN  the owner dashboard (static files from admin/dist)
+#   API_DOMAIN    the FastAPI backend (reverse proxy to api:8000)
+# Variables come from the environment (docker-compose.proxy.yml passes them): APP_DOMAIN, ADMIN_DOMAIN, API_DOMAIN, ACME_EMAIL, MAX_UPLOAD_BODY_MB.
+{
+	email {$ACME_EMAIL}
+}
+
+# Headers every answer gets. HSTS tells browsers to use HTTPS only for a year: add includeSubDomains / preload yourself only when
+# EVERY sub-domain of your domain is HTTPS.
+(headers_common) {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		X-Frame-Options "DENY"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		-Server
+	}
+}
+
+# The two single-page apps. The Content-Security-Policy lets a page load ONLY its own script and stylesheet, talk ONLY to the API host,
+# and show images / video from itself, blob: (the preview of the file you picked) and the API host (results). Nothing else: an injected
+# <script src=...> or an inline script is refused by the browser, which is what limits the damage of an XSS bug (a stolen login token).
+# style-src-attr 'unsafe-inline' is needed because React sets style="..." attributes (positions of the logo / blur boxes); inline
+# <style> blocks and style files from other hosts are still refused.
+(static_site) {
+	import headers_common
+	encode zstd gzip
+	header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob: https://{$API_DOMAIN}; media-src 'self' blob: https://{$API_DOMAIN}; connect-src https://{$API_DOMAIN}; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'"
+	@hashed path /assets/*
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+	@shell not path /assets/*
+	header @shell Cache-Control "no-cache"
+	try_files {path} /index.html
+	file_server
+}
+
+{$APP_DOMAIN} {
+	root * /srv/app
+	import static_site
+}
+
+{$ADMIN_DOMAIN} {
+	root * /srv/admin
+	import static_site
+	header X-Robots-Tag "noindex, nofollow"
+	# Only your office / VPN? Uncomment and list the addresses (also set ADMIN_ALLOWED_IPS + TRUSTED_PROXIES in backend/.env):
+	# @outside not remote_ip 203.0.113.7 10.8.0.0/24
+	# respond @outside 404
+}
+
+{$API_DOMAIN} {
+	import headers_common
+
+	# Size limits at the edge, so an oversized body never reaches Python. The API enforces finer limits itself (guard.py: login 64 KB,
+	# JSON 4 MB, uploads MAX_UPLOAD_MB + 25 MB); keep MAX_UPLOAD_BODY_MB equal to that last number (default 1024 + 25 = 1049).
+	@auth path /api/auth/*
+	request_body @auth {
+		max_size 64KB
+	}
+	request_body {
+		max_size {$MAX_UPLOAD_BODY_MB}MB
+	}
+
+	# Caddy REPLACES any X-Forwarded-For the client sent with the real address, so backend/.env TRUSTED_PROXIES = this proxy's network
+	# (in Docker: 172.16.0.0/12) gives the backend the true client address for rate limits and ADMIN_ALLOWED_IPS.
+	reverse_proxy api:8000
+}

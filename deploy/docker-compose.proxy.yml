@@ -1,0 +1,34 @@
+# Adds the HTTPS reverse proxy to docker-compose.yml and closes the API's direct port:
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.proxy.yml up -d
+# Needs (shell or a .env file next to docker-compose.yml): POSTGRES_PASSWORD, APP_DOMAIN, ADMIN_DOMAIN, API_DOMAIN, ACME_EMAIL.
+# Build the two front ends first, pointing them at the API host (the address is baked in at build time):
+#   (cd frontend && VITE_API_BASE=https://$API_DOMAIN npm run build)
+#   (cd admin && VITE_API_BASE=https://$API_DOMAIN VITE_APP_URL=https://$APP_DOMAIN npm run build)
+# UNTESTED against a real domain (needs public DNS for the certificates); syntax checked with `docker compose config` and `caddy validate`.
+services:
+  api:
+    ports: !reset []                  # nobody reaches the API except through the proxy (needs Docker Compose >= 2.24)
+    expose: ["8000"]
+    environment:
+      TRUSTED_PROXIES: "172.16.0.0/12"   # the compose network: the proxy's address, so X-Forwarded-For is believed
+      CORS_ORIGINS: "https://${APP_DOMAIN:?set APP_DOMAIN},https://${ADMIN_DOMAIN:?set ADMIN_DOMAIN}"
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN}
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN:?set ADMIN_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
+      MAX_UPLOAD_BODY_MB: ${MAX_UPLOAD_BODY_MB:-1049}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./frontend/dist:/srv/app:ro
+      - ./admin/dist:/srv/admin:ro
+      - caddy-data:/data                # the certificates: keep this volume or you hit Let's Encrypt rate limits
+      - caddy-config:/config
+    depends_on: [api]
+volumes:
+  caddy-data:
+  caddy-config:
