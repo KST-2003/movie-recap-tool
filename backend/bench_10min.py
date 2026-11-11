@@ -21,10 +21,15 @@ from main import app  # noqa: E402
 video = f"{tmp}/in.mp4"
 secs = int(MIN * 60)
 t0 = time.time()
-subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"testsrc2=s=720x1280:r=30:d={secs}",
-                "-f", "lavfi", "-i", f"sine=frequency=300:duration={secs}", "-c:v", "libx264", "-preset", "ultrafast",
-                "-b:v", "3M", "-pix_fmt", "yuv420p", "-c:a", "aac", video], check=True)
-print(f"made {secs}s test video in {time.time() - t0:.0f}s ({os.path.getsize(video) / 1e6:.0f} MB)", flush=True)
+if os.environ.get("BENCH_VIDEO"):   # use a real clip instead of the generated test pattern
+    video = os.environ["BENCH_VIDEO"]
+    secs = int(float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", video], capture_output=True, text=True).stdout))
+    print(f"using {video} ({secs}s)", flush=True)
+else:
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", f"testsrc2=s=720x1280:r=30:d={secs}",
+                    "-f", "lavfi", "-i", f"sine=frequency=300:duration={secs}", "-c:v", "libx264", "-preset", "ultrafast",
+                    "-b:v", "3M", "-pix_fmt", "yuv420p", "-c:a", "aac", video], check=True)
+    print(f"made {secs}s test video in {time.time() - t0:.0f}s ({os.path.getsize(video) / 1e6:.0f} MB)", flush=True)
 
 TEXT = "မင်္ဂလာပါ။ ဒီနေ့ အဆင်ပြေလား။ ဒီဇာတ်လမ်းက စိတ်ဝင်စားစရာကောင်းပါတယ်။"
 n = int(secs / 4.0)  # one line per ~4 s, like a recap
@@ -51,3 +56,7 @@ while True:
     time.sleep(2)
 print(f"\nstatus {j['status']} {j.get('error') or ''} | total {time.time() - start:.0f}s for a {secs}s video "
       f"({(time.time() - start) / secs:.2f}x real time)", flush=True)
+import glob
+for out in glob.glob(f"{tmp}/out/recap_output_*.mp4"):
+    size = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", out], capture_output=True, text=True).stdout.strip()
+    print(f"result video {size} ({os.path.getsize(out) / 1e6:.1f} MB)", flush=True)

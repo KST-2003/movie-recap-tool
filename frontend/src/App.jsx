@@ -201,6 +201,7 @@ function App() {
   const [logoSize, setLogoSize] = useState(0.15);
   const [logoXY, setLogoXY] = useState(null); // dragged position in the preview (fractions of the frame); null = use logoPosition
   const [blurBoxes, setBlurBoxes] = useState([]); // user blur boxes, DISPLAYED coordinates (fractions)
+  const [resolution, setResolution] = useState('720'); // output size: 720 renders faster (recommended)
   const [aspect, setAspect] = useState('original'); // output format, chosen BEFORE uploading (like CapCut)
   const [fitMode, setFitMode] = useState('blur');     // 'blur' = whole picture over a blurred copy | 'crop' = fill the frame
   const [pan, setPan] = useState({ x: 0.5, y: 0.5 });  // crop mode: which part of the picture stays
@@ -294,6 +295,7 @@ function App() {
     }
     // Boxes are in the output frame as shown (the render applies them after reframe and flip).
     formData.append('manual_blurs', JSON.stringify(blurBoxes.map((b) => [b.x, b.y, b.w, b.h])));
+    formData.append('resolution', resolution);
     formData.append('aspect', aspect);
     formData.append('fit_mode', fitMode);
     formData.append('pan_x', pan.x);
@@ -471,6 +473,14 @@ function App() {
                 </div>
               </div>
             )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">{tr('Video quality (size)')}</label>
+            <select value={resolution} onChange={(e) => setResolution(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200">
+              <option value="720">{tr('720p - faster (recommended)')}</option>
+              <option value="1080">{tr('1080p - sharper, slower')}</option>
+            </select>
           </div>
 
           {/* File Upload Section */}

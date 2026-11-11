@@ -542,12 +542,18 @@ def fit_segments_to_slots(segments, video_duration, job_id, voice, target_langua
 _ASPECTS = {"9:16": (9, 16), "1:1": (1, 1), "4:5": (4, 5), "16:9": (16, 9)}
 
 
-def _out_size(aspect: str, info: dict):
-    """Final frame (w, h) for the chosen format, short side = min(1080, source short side) (no upscaling); None = keep the source."""
+def _out_size(aspect: str, info: dict, resolution: int = 1080):
+    """Final frame (w, h): short side = min(resolution, source short side) (no upscaling; resolution 720 = faster render, 1080 = sharper).
+    None = keep the source as it is. "Original" keeps the shape; a 4K phone clip would otherwise need ~1 GB of RAM and minutes per second of video."""
+    resolution = 720 if int(resolution or 1080) == 720 else 1080
     if aspect not in _ASPECTS:
-        return None
+        short_side = min(info["width"], info["height"])
+        if short_side <= resolution:
+            return None
+        k = resolution / short_side
+        return (max(2, round(info["width"] * k) // 2 * 2), max(2, round(info["height"] * k) // 2 * 2))
     a, b = _ASPECTS[aspect]
-    short = max(360, min(1080, min(info["width"], info["height"]))) // 2 * 2
+    short = max(360, min(resolution, min(info["width"], info["height"]))) // 2 * 2
     if a <= b:
         w, h = short, round(short * b / a)
     else:
@@ -835,7 +841,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                     warn.append("The original speech could not be removed from the film's sound in time, so the original "
                                 "audio is kept quietly under the Burmese voice instead.")
 
-        out_size = _out_size(p.get("aspect", "original"), info)
+        out_size = _out_size(p.get("aspect", "original"), info, p.get("resolution", 1080))
         effects = EffectOptions(
             blur_subtitles=p["blur_subtitles"],
             blur_watermark=p["remove_watermark"],

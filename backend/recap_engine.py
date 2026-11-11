@@ -376,13 +376,15 @@ def plan_source_timing(segments: list[dict], video_duration: float) -> list[Scen
 
 
 def probe_video(path: str) -> dict:
+    from common import display_size
     out = subprocess.run(
         ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-         "stream=width,height,r_frame_rate:format=duration", "-of", "json", path],
+         "stream=r_frame_rate:format=duration", "-of", "json", path],
         capture_output=True, text=True, check=True, timeout=30).stdout
     info = json.loads(out)
     num, den = info["streams"][0]["r_frame_rate"].split("/")
-    return {"width": int(info["streams"][0]["width"]), "height": int(info["streams"][0]["height"]),
+    width, height = display_size(path)   # as shown (a rotated phone clip is portrait), the size the filters see
+    return {"width": width, "height": height,
             "fps": float(num) / float(den or 1), "duration": float(info["format"]["duration"])}
 
 
@@ -543,7 +545,9 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
                  f"[w_main][w_blur]overlay=W-w:H-h[wm1]")
         cur = "wm1"
     if reframed:
-        if fx.fit_mode == "crop":
+        if abs(W * SH - H * SW) <= 2 * max(SW, SH):   # same shape, only smaller (a 4K upload in "Original" format): plain scale, no bars, no blurred copy
+            chain(f"scale={W}:{H}:flags=bicubic,setsar=1", "rf")
+        elif fx.fit_mode == "crop":
             px, py = min(max(fx.pan_x, 0.0), 1.0), min(max(fx.pan_y, 0.0), 1.0)
             chain(f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}:x='(iw-{W})*{px:.4f}':y='(ih-{H})*{py:.4f}',setsar=1", "rf")
         else:

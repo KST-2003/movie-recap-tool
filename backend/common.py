@@ -1,4 +1,5 @@
 """Small helpers shared by the API and the workers (kept free of heavy imports)."""
+import json
 import os
 import subprocess
 
@@ -15,6 +16,22 @@ def media_duration(path: str) -> float:
         check=True,
     )
     return float(result.stdout.strip())
+
+
+def display_size(path: str) -> tuple[int, int]:
+    """(width, height) of the video AS SHOWN: a phone clip is stored 3840x2160 with a "rotate 90" flag and plays 2160x3840.
+    ffmpeg's filters and OpenCV both work on the rotated picture, so every pixel calculation must use this size."""
+    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height:stream_side_data=rotation:stream_tags=rotate",
+                          "-of", "json", path], capture_output=True, text=True, timeout=30, check=True).stdout
+    st = json.loads(out)["streams"][0]
+    w, h = int(st["width"]), int(st["height"])
+    rot = 0.0
+    for sd in st.get("side_data_list") or []:
+        if "rotation" in sd:
+            rot = float(sd["rotation"])
+    if not rot and (st.get("tags") or {}).get("rotate"):
+        rot = float(st["tags"]["rotate"])
+    return (h, w) if int(round(abs(rot))) % 180 == 90 else (w, h)
 
 
 def tts_provider() -> str:

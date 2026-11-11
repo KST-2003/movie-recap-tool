@@ -344,6 +344,7 @@ def create_job(
     logo_size: float = Form(0.15),
     logo_x: float = Form(-1.0),           # dragged logo position: left edge as a fraction of video width (-1 = use logo_position)
     logo_y: float = Form(-1.0),           # top edge as a fraction of video height
+    resolution: int = Form(720),          # output size: 720 (faster render, recommended) | 1080 = short side in pixels
     aspect: str = Form("original"),       # final frame: original | 9:16 | 1:1 | 4:5 | 16:9
     fit_mode: str = Form("blur"),         # blur: whole picture over a blurred copy | crop: fill the frame
     pan_x: float = Form(0.5),             # crop mode: which part is kept (0..1)
@@ -365,6 +366,8 @@ def create_job(
         emotion = False   # Azure has no emotion directions
     if aspect not in ("original", "9:16", "1:1", "4:5", "16:9") or fit_mode not in ("blur", "crop"):
         raise HTTPException(status_code=400, detail="Unknown video format.")
+    if resolution not in (720, 1080):
+        raise HTTPException(status_code=400, detail="Unknown video size.")
     if output == "dub":
         _refuse_if_voice_limit()
     if tts_provider() == "gemini" and voice_type != "su" and voice_type not in VOICE_NAMES:
@@ -381,7 +384,7 @@ def create_job(
               "brightness": brightness, "contrast": contrast, "saturation": saturation,
               "logo_position": logo_position, "logo_size": logo_size,
               "logo_x": logo_x, "logo_y": logo_y, "manual_blurs": _clean_blurs(manual_blurs),
-              "aspect": aspect, "fit_mode": fit_mode, "pan_x": pan_x, "pan_y": pan_y,
+              "resolution": resolution, "aspect": aspect, "fit_mode": fit_mode, "pan_x": pan_x, "pan_y": pan_y,
               "filename": os.path.basename(video_file.filename or "")[:120]}   # shown in "My videos"
 
     with Session() as s:

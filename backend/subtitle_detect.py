@@ -4,9 +4,12 @@ Text *detection* is language-agnostic, so this works for Chinese, Thai, Burmese 
 Subtitles are text that sits at one vertical position but changes between frames; watermarks are
 text that stays put and does not change.
 """
+import time
+
 import cv2
 
 _ocr = None
+EARLY_STOP = 6   # frames to read before giving up when none of them contains any text
 
 
 def _engine():
@@ -30,30 +33,109 @@ def _sample_frames(path: str, count: int):
     return frames
 
 
+class _Frames:
+    """`count` frames spread over the video, read ONE AT A TIME when asked (a video without any text only ever needs 6 of them).
+    Fast way: ffmpeg decodes just the KEYFRAME at that time (`-skip_frame nokey`) and scales it to `width` (a 4K keyframe ~0.3 s;
+    decoding a whole group of pictures was ~3 s per frame on a small server). If the keyframes are too far apart (the first
+    pictures come out identical), it switches to the exact but slower OpenCV reader."""
+
+    def __init__(self, path: str, duration: float, count: int, width: int = 960):
+        self.path, self.duration, self.count, self.width = path, duration, count, width
+        self.fast, self.seen, self.cap, self.cache = True, set(), None, {}
+
+    def _fast(self, i: int):
+        import hashlib
+        import subprocess
+        import numpy as np
+        t = (i + 0.5) * self.duration / self.count
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-skip_frame", "nokey", "-ss", f"{t:.3f}", "-i", self.path, "-frames:v", "1", "-an",
+                              "-vf", f"scale='if(gt(iw,ih),{self.width},-2)':'if(gt(iw,ih),-2,{self.width})'", "-f", "image2pipe", "-c:v", "mjpeg", "-q:v", "3", "-"],
+                             capture_output=True, timeout=60).stdout
+        if not raw:
+            return None
+        self.seen.add(hashlib.md5(raw).hexdigest())
+        return cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
+
+    def _exact(self, i: int):
+        if self.cap is None:
+            self.cap = cv2.VideoCapture(self.path)
+        total = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, int((i + 0.5) * total / self.count))
+        ok, frame = self.cap.read()
+        return frame if ok else None
+
+    def prepare(self, order: list):
+        """Read the first 3 spread-out frames; if they are all the same picture the keyframes are too far apart: use the exact reader instead."""
+        for i in order[:3]:
+            self.get(i)
+        if self.fast and len(self.seen) <= 1:   # none or all the same picture
+            self.fast, self.cache = False, {}
+
+    def get(self, i: int):
+        if i in self.cache:
+            return self.cache[i]
+        frame = None
+        if self.fast:
+            try:
+                frame = self._fast(i)
+            except Exception:
+                self.fast = False
+        if frame is None:   # no keyframe found at that time (or the exact reader is on)
+            frame = self._exact(i)
+        self.cache[i] = frame
+        return frame
+
+    def close(self):
+        if self.cap is not None:
+            self.cap.release()
+
+
 def _norm(text: str) -> str:
     return "".join(ch for ch in text if not ch.isspace())
+
+
+def _recurring(boxes) -> bool:
+    """True when text showed up in >= 2 different frames at about the same height (a subtitle line or a watermark does; a street sign or a
+    random bit of text in one scene does not)."""
+    bins: dict = {}
+    for b in boxes:
+        bins.setdefault(int(((b[2] + b[4]) / 2) / 0.05), set()).add(b[0])
+    return any(len(frames) >= 2 for frames in bins.values())
 
 
 def detect_text_regions(video_path: str, duration: float, min_conf: float = 0.45) -> dict:
     """Returns {"subtitle": rect|None, "watermarks": [rect], "texts": [str]} with rects as
     (x0, y0, x1, y1) fractions of the frame."""
     count = min(16, max(6, int(duration * 2)))
-    frames = _sample_frames(video_path, count)
-    if not frames:
-        return {"subtitle": None, "watermarks": [], "texts": []}
-    h, w = frames[0].shape[:2]
-    scale = min(1.0, 960 / w)
+    src = _Frames(video_path, duration, count)
+    t_scan = time.time()
 
     boxes = []  # (frame_idx, x0, y0, x1, y1, text) normalised
-    for n, frame in enumerate(frames):
-        small = cv2.resize(frame, None, fx=scale, fy=scale) if scale < 1 else frame
-        result, _ = _engine()(small)
-        sh, sw = small.shape[:2]
-        for pts, text, conf in result or []:
-            if float(conf) < min_conf or not _norm(text):
+    order = list(range(0, count, 2)) + list(range(1, count, 2))   # evenly spread first, so a video WITHOUT any text can stop early
+    done = 0
+    try:
+        src.prepare(order)
+        for n in order:
+            if done >= EARLY_STOP and not _recurring(boxes):   # 6 spread-out frames and no text that comes back at the same height: no subtitle or watermark
+                break
+            frame = src.get(n)
+            if frame is None:
                 continue
-            xs, ys = [p[0] for p in pts], [p[1] for p in pts]
-            boxes.append((n, min(xs) / sw, min(ys) / sh, max(xs) / sw, max(ys) / sh, text, float(conf)))
+            done += 1
+            scale = min(1.0, 960 / max(frame.shape[:2]))   # long side 960 px: a portrait 4K frame is ~3x fewer pixels for the OCR than 960 wide
+            small = cv2.resize(frame, None, fx=scale, fy=scale) if scale < 1 else frame
+            result, _ = _engine()(small)
+            sh, sw = small.shape[:2]
+            for pts, text, conf in result or []:
+                if float(conf) < min_conf or not _norm(text):
+                    continue
+                xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+                boxes.append((n, min(xs) / sw, min(ys) / sh, max(xs) / sw, max(ys) / sh, text, float(conf)))
+    finally:
+        src.close()
+    print(f"  text scan: {done} frames read ({'keyframes' if src.fast else 'exact'}), {len(boxes)} text boxes, {time.time() - t_scan:.1f}s", flush=True)
+    if not done:
+        return {"subtitle": None, "watermarks": [], "texts": []}
 
     # Cluster boxes by vertical centre.
     clusters: list[list] = []
@@ -67,7 +149,7 @@ def detect_text_regions(video_path: str, duration: float, min_conf: float = 0.45
         else:
             clusters.append({"cy": cy, "boxes": [b]})
 
-    n_frames = len(frames)
+    n_frames = done
     bands, watermarks, texts = [], [], []
     for c in clusters:
         bs = c["boxes"]
@@ -129,9 +211,8 @@ def subtitle_windows(video_path: str, duration: float, rect, step: float | None 
     import subprocess
     import numpy as np
     try:
-        info = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
-                               "-of", "csv=p=0", video_path], capture_output=True, text=True, timeout=30).stdout.strip().split(",")
-        W, H = int(info[0]), int(info[1])
+        from common import display_size
+        W, H = display_size(video_path)   # as shown (rotation applied): the crop below works on the rotated picture
         step = step or max(0.5, duration / 700.0)          # <= ~700 samples however long the video is
         pad = step * 0.75 if pad is None else pad
         x0, y0, x1, y1 = rect

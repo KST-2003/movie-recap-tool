@@ -70,6 +70,9 @@ const MY = {
   '▶ Play': '▶ ဖွင့်မည်',
   '⬇ Download': '⬇ ဒေါင်းလုဒ်',
   // toggles
+  'Video quality (size)': 'ဗီဒီယို အရည်အသွေး (အရွယ်အစား)',
+  '720p - faster (recommended)': '720p - ပိုမြန်သည် (အကြံပြု)',
+  '1080p - sharper, slower': '1080p - ပိုကြည်သည်၊ ပိုနှေးသည်',
   'Blur subtitles': 'မူလစာတန်းကို ဝါးမည်',
   'Burmese subtitles': 'မြန်မာစာတန်းထိုး',
   'Blur lower-right watermark': 'ညာဘက်အောက်ထောင့် ရေစာကို ဝါးမည်',
