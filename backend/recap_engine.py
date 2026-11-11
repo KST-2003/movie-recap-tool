@@ -439,9 +439,47 @@ _LOGO_POS = {
 }
 
 
+def build_voice_track(segments: list[dict], scenes: list[Scene], work_dir: str, tag: str) -> tuple[str, dict[int, tuple[float, float]]] | None:
+    """Put every voice clip the scenes use into ONE wav (44.1 kHz mono, clips back to back) and return (path, {segment index: (start, length)}).
+    Why: giving ffmpeg one `-i` per clip means ~1 demuxer + decoder per clip (186 inputs on a 10-minute film = hundreds of threads: it hit the
+    service's task limit and the render died with "pthread_create() failed"). With one file the filter graph just trims it.
+    Each clip is decoded to raw PCM by ffmpeg, so the length (and so the offset) is exact by construction. None = nothing to put in."""
+    import wave
+    used = []
+    for sc in scenes:
+        if sc.audio_index is not None and sc.audio_index not in used and segments[sc.audio_index].get("audio_path"):
+            used.append(sc.audio_index)
+    if not used:
+        return None
+    rate = 44100
+
+    def decode(i: int) -> bytes:
+        res = subprocess.run(["ffmpeg", "-v", "error", "-threads", "1", "-i", segments[i]["audio_path"], "-f", "s16le", "-ar", str(rate), "-ac", "1", "-"],
+                             capture_output=True, timeout=120)
+        if res.returncode != 0:
+            raise RuntimeError(ffmpeg_error(res.stderr))
+        return res.stdout
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        pcm = list(pool.map(decode, used))
+    path = os.path.join(os.path.abspath(work_dir), f"{tag}_voice.wav")
+    offsets, pos = {}, 0
+    with wave.open(path, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        for i, data in zip(used, pcm):
+            n = len(data) // 2
+            offsets[i] = (pos / rate, n / rate)
+            w.writeframes(data[: n * 2])
+            pos += n
+    return path, offsets
+
+
 def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], fx: EffectOptions,
                    output_path: str, work_dir: str, tag: str, timeout: int = 1800,
-                   src_offset: float = 0.0, threads: int | None = None, audio_only: bool = False) -> dict:
+                   src_offset: float = 0.0, threads: int | None = None, audio_only: bool = False,
+                   voice_track: tuple | None = None) -> dict:
     """audio_only: build ONLY the final audio track (voice-over + background, retimed like the video) as AAC in `output_path` (.m4a).
     Used by the on-device render: the phone draws the picture, the server makes the sound with the same filter graph."""
     work_dir = os.path.abspath(work_dir)
@@ -453,12 +491,17 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
     total_len = sum(s.out_len for s in scenes) / speed
 
     cmd = ["ffmpeg", "-y"] + (["-ss", f"{src_offset:.3f}"] if src_offset else []) + ["-i", video_path]
-    audio_inputs: dict[int, int] = {}
+    audio_inputs: dict[int, tuple[int, float, float]] = {}   # segment index -> (input number, start, length) inside the voice track
     nxt = 1
-    for sc in scenes:
-        if sc.audio_index is not None and not fx.source_audio and segments[sc.audio_index].get("audio_path"):
-            cmd += ["-i", segments[sc.audio_index]["audio_path"]]
-            audio_inputs[sc.audio_index] = nxt
+    own_track = None
+    if not fx.source_audio:
+        track = voice_track if voice_track is not None else build_voice_track(segments, scenes, work_dir, tag)
+        if voice_track is None and track:
+            own_track = track[0]
+        if track:
+            cmd += ["-i", track[0]]
+            for i, (start, length) in track[1].items():
+                audio_inputs[i] = (nxt, start, length)
             nxt += 1
     logo_idx = None
     if fx.logo_path and os.path.exists(fx.logo_path) and not audio_only:
@@ -507,7 +550,8 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
         elif sc.audio_index is None or sc.audio_index not in audio_inputs:
             a = f"anullsrc=r=44100:cl=mono,atrim=end={sc.out_len:.3f}"
         else:
-            a = f"[{audio_inputs[sc.audio_index]}:a]aresample=44100"
+            vi, vstart, vlen = audio_inputs[sc.audio_index]
+            a = f"[{vi}:a]atrim=start={vstart:.6f}:end={vstart + vlen:.6f},asetpts=PTS-STARTPTS,aresample=44100"
             if abs(sc.tempo - 1.0) > 0.001:
                 a += f",atempo={sc.tempo:.4f}"
             a += f",{afmt},apad=whole_dur={sc.out_len:.3f},atrim=end={sc.out_len:.3f}"
@@ -628,7 +672,7 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
     try:
         res = subprocess.run(cmd, capture_output=True, timeout=timeout)
     finally:
-        for p in cap_files + [script, os.path.join(work_dir, f"{tag}_captions.txt")]:
+        for p in cap_files + [script, os.path.join(work_dir, f"{tag}_captions.txt")] + ([own_track] if own_track else []):
             if os.path.exists(p):
                 os.remove(p)
     if res.returncode != 0:
@@ -714,6 +758,7 @@ def render(video_path: str, segments: list[dict], scenes: list[Scene], fx: Effec
     groups = _split_scenes(scenes, parts)
     threads = max(2, cores // len(groups))
     chunk_paths = [os.path.join(work_dir, f"{tag}_c{k}.mp4") for k in range(len(groups))]
+    track = None if fx.source_audio else build_voice_track(segments, scenes, work_dir, tag)   # ONE voice file shared by all chunks
 
     def job(k: int):
         group = groups[k]
@@ -721,7 +766,7 @@ def render(video_path: str, segments: list[dict], scenes: list[Scene], fx: Effec
         local = [replace(sc, src_start=sc.src_start - offset, src_end=sc.src_end - offset,
                          out_start=sc.out_start - out0) for sc in group]
         return _render_single(video_path, segments, local, fx, chunk_paths[k], work_dir, f"{tag}_c{k}",
-                              timeout, src_offset=offset, threads=threads)
+                              timeout, src_offset=offset, threads=threads, voice_track=track or ())
 
     playlist = os.path.join(work_dir, f"{tag}_chunks.txt")
     try:
@@ -736,7 +781,7 @@ def render(video_path: str, segments: list[dict], scenes: list[Scene], fx: Effec
         if res.returncode != 0:
             raise RuntimeError(ffmpeg_error(res.stderr))
     finally:
-        for p in chunk_paths + [playlist]:
+        for p in chunk_paths + [playlist] + ([track[0]] if track else []):
             if os.path.exists(p):
                 os.remove(p)
     return {"duration": total_len, "cues": caption_cues(scenes, speed)}
