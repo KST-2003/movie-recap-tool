@@ -652,7 +652,7 @@ function App() {
             <div className="rounded-xl border border-slate-800 bg-slate-800/30 p-4 space-y-2">
               <label className="block text-sm font-medium text-slate-300">{tr('Voice quality')}</label>
               <div className="grid gap-2 sm:grid-cols-2">
-                {[['premium', 'High quality', 'Natural Gemini voices: 30 to choose from, with emotion. Uses more of your allowance.'],
+                {[['premium', 'High quality', '30 voices to choose from.'],
                   ['standard', 'Standard', 'Two clear Burmese voices (female / male), no emotion. Cheaper and almost always available.']].map(([q, title, text]) => (
                   <button key={q} type="button" onClick={() => { setVoiceQuality(q); if (q === 'standard') { setVoiceType(voiceGender === 'male' ? 'Charon' : 'Kore'); } }}
                     className={`text-left rounded-xl border p-3 ${voiceQuality === q ? 'border-purple-500 bg-purple-950/40' : 'border-slate-700 bg-slate-800/50 hover:bg-slate-800'}`}>
@@ -683,9 +683,6 @@ function App() {
             </div>
           ) : (
           <div className="rounded-xl border border-purple-500/30 bg-purple-950/30 p-4">
-            <p className="text-sm text-purple-200 mb-3">
-              {tr('Burmese dialogue is translated by Google Gemini, then spoken naturally with Gemini TTS. Audio is not sped up to force-fit the source timing.')}
-            </p>
             <div className="flex gap-2 mb-3">
               {['female', 'male'].map((g) => (
                 <button
@@ -776,9 +773,6 @@ function App() {
             </div>
             {filmMode === 'full' && (
               <div className="space-y-3 text-sm text-slate-300">
-                <p className="text-xs text-slate-400">
-                  {tr('Each character is detected and gets one fixed voice for the whole film (the main character uses the voice you pick below). The translation is rewritten as natural, neutral spoken Burmese, not word for word.')}
-                </p>
                 {outputKind === 'dub' && (
                   <>
                     <label className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
@@ -812,7 +806,7 @@ function App() {
                 className="w-4 h-4 accent-purple-500"
               />
               <span className="text-sm text-slate-300">
-                {tr('Tighten long translations to fit each scene (uses Gemini; only the lines that overrun are rewritten)')}
+                {tr('Tighten long translations to fit each scene')}
               </span>
             </label>
             {filmMode === 'recap' && outputKind === 'dub' && <label className="flex items-center space-x-3 cursor-pointer">

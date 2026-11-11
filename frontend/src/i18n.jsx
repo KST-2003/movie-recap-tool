@@ -154,6 +154,8 @@ const MY = {
   'Colours are approximate': 'အရောင်များမှာ ခန့်မှန်းမှုသာ',
   '▶ Play 5 s (loop)': '▶ ၅ စက္ကန့် ဖွင့်မည် (ထပ်ခါထပ်ခါ)',
   '+ Blur box': '+ မှုန်ဝါးအကွက်',
+  '30 voices to choose from.': 'ရွေးချယ်ရန် အသံ ၃၀။',
+  'Tighten long translations to fit each scene': 'ဇာတ်ခန်းတစ်ခုချင်းနှင့် ကိုက်ညီအောင် ရှည်လွန်းသော ဘာသာပြန်ကို တိုစေမည်',
   'Remove logo': 'လိုဂိုကို ဖယ်ရှားမည်',
   'Render on my device (faster, beta)': 'ကျွန်ုပ်၏ စက်ပေါ်တွင် ပြုလုပ်မည် (ပိုမြန်သည်၊ စမ်းသပ်ဆဲ)',
   'Your phone makes the picture, so no waiting for the server. Keep the screen open. If it fails, the server does it.': 'ဖုန်းက ဗီဒီယိုပုံကို ကိုယ်တိုင်ပြုလုပ်သဖြင့် ဆာဗာကို စောင့်စရာမလို။ ပြီးသည်အထိ မျက်နှာပြင်ကို ဖွင့်ထားပါ။ မအောင်မြင်ပါက ဆာဗာက ပြုလုပ်ပေးမည်။',
