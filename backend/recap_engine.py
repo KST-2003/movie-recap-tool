@@ -725,20 +725,24 @@ def device_plan(info: dict, scenes: list[Scene], fx: EffectOptions, cues: list, 
 
 # ---------- parallel render ----------
 
-PARALLEL_MIN_SECONDS = float(os.getenv("PARALLEL_RENDER_MIN_SECONDS", "60"))
-CHUNK_TARGET_SECONDS = float(os.getenv("PARALLEL_RENDER_CHUNK_SECONDS", "40"))
+# A long film is rendered as several SHORT SEGMENTS (a few dozen scenes each), one after another, then joined.
+# Why: one ffmpeg for the whole film keeps growing in memory (~200 MB per minute on the 1-CPU server, 1.3 GB+ at 5 of 10 minutes, then it
+# stalled at the service's memory limit). A segment only holds its own scenes, so peak memory no longer depends on the film's length.
+SEGMENT_MIN_SECONDS = float(os.getenv("RENDER_SEGMENT_MIN_SECONDS", "60"))   # shorter results are rendered in one piece
+SEGMENT_SECONDS = float(os.getenv("RENDER_SEGMENT_SECONDS", "60"))           # target output length of one segment
+SEGMENT_MAX_SCENES = int(os.getenv("RENDER_SEGMENT_MAX_SCENES", "40"))       # ...and at most this many scenes
+RENDER_WORKERS = int(os.getenv("RENDER_WORKERS", "1"))                       # segments rendered at the same time (raise only on a big server)
 
 
-def _split_scenes(scenes: list[Scene], parts: int) -> list[list[Scene]]:
-    """Consecutive groups of scenes with roughly equal output length."""
-    total = sum(sc.out_len for sc in scenes)
+def _split_scenes(scenes: list[Scene], max_seconds: float, max_scenes: int) -> list[list[Scene]]:
+    """Consecutive groups of scenes: each at most `max_scenes` scenes and about `max_seconds` of output."""
     groups, cur, acc = [], [], 0.0
     for sc in scenes:
+        if cur and (len(cur) >= max_scenes or acc + sc.out_len > max_seconds):
+            groups.append(cur)
+            cur, acc = [], 0.0
         cur.append(sc)
         acc += sc.out_len
-        if acc >= total / parts * (len(groups) + 1) and len(groups) < parts - 1:
-            groups.append(cur)
-            cur = []
     if cur:
         groups.append(cur)
     return groups
@@ -746,19 +750,18 @@ def _split_scenes(scenes: list[Scene], parts: int) -> list[list[Scene]]:
 
 def render(video_path: str, segments: list[dict], scenes: list[Scene], fx: EffectOptions,
            output_path: str, work_dir: str, tag: str, timeout: int = 1800) -> dict:
-    """Render the dub. Long videos are cut into scene groups rendered on separate CPU cores, then joined."""
+    """Render the dub. A long result is cut into short scene groups (segments), each rendered by its own ffmpeg, then joined."""
     speed = min(max(fx.speed, 0.5), 2.0)
     total_len = sum(s.out_len for s in scenes) / speed
-    cores = os.cpu_count() or 2
-    parts = min(cores, int(total_len // CHUNK_TARGET_SECONDS), len(scenes))
-    if total_len < PARALLEL_MIN_SECONDS or parts < 2:
+    groups = _split_scenes(scenes, SEGMENT_SECONDS * speed, SEGMENT_MAX_SCENES)
+    if total_len < SEGMENT_MIN_SECONDS or len(groups) < 2:
         return _render_single(video_path, segments, scenes, fx, output_path, work_dir, tag, timeout)
 
     work_dir = os.path.abspath(work_dir)
-    groups = _split_scenes(scenes, parts)
-    threads = max(2, cores // len(groups))
+    workers = max(1, min(RENDER_WORKERS, len(groups)))
+    threads = max(2, (os.cpu_count() or 2) // workers)
     chunk_paths = [os.path.join(work_dir, f"{tag}_c{k}.mp4") for k in range(len(groups))]
-    track = None if fx.source_audio else build_voice_track(segments, scenes, work_dir, tag)   # ONE voice file shared by all chunks
+    track = None if fx.source_audio else build_voice_track(segments, scenes, work_dir, tag)   # ONE voice file shared by all segments
 
     def job(k: int):
         group = groups[k]
@@ -770,7 +773,7 @@ def render(video_path: str, segments: list[dict], scenes: list[Scene], fx: Effec
 
     playlist = os.path.join(work_dir, f"{tag}_chunks.txt")
     try:
-        with ThreadPoolExecutor(max_workers=len(groups)) as pool:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
             list(pool.map(job, range(len(groups))))
         with open(playlist, "w") as fh:
             fh.write("\n".join(f"file '{p}'" for p in chunk_paths))
