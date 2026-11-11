@@ -599,7 +599,7 @@ function App() {
                 </span>
                 <span className={`text-sm transition-colors duration-300 ${useDevice ? 'text-emerald-100' : 'text-slate-200'}`}>
                   <span className="font-semibold">{tr('Render on my device (faster, beta)')}</span>
-                  <span className={`block text-xs mt-0.5 transition-colors duration-300 ${useDevice ? 'text-emerald-200/80' : 'text-slate-400'}`}>{tr('Your phone makes the picture. Keep the screen open.')}</span>
+                  <span className={`block text-xs mt-0.5 transition-colors duration-300 ${useDevice ? 'text-emerald-200/80' : 'text-slate-400'}`}>{tr('Rendered with your phone\'s own processor. Keep the screen open.')}</span>
                 </span>
               </label>
               {queue?.busy && !useDevice && (

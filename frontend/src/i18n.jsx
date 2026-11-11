@@ -158,7 +158,7 @@ const MY = {
   'Tighten long translations to fit each scene': 'ဇာတ်ခန်းတစ်ခုချင်းနှင့် ကိုက်ညီအောင် ရှည်လွန်းသော ဘာသာပြန်ကို တိုစေမည်',
   'Remove logo': 'လိုဂိုကို ဖယ်ရှားမည်',
   'Render on my device (faster, beta)': 'ကျွန်ုပ်၏ စက်ပေါ်တွင် ပြုလုပ်မည် (ပိုမြန်သည်၊ စမ်းသပ်ဆဲ)',
-  'Your phone makes the picture. Keep the screen open.': 'ဖုန်းက ဗီဒီယိုပုံကို ကိုယ်တိုင်ပြုလုပ်သည်။ မျက်နှာပြင်ဖွင့်ထားပါ။',
+  "Rendered with your phone's own processor. Keep the screen open.": 'သင့်ဖုန်း၏ ကိုယ်ပိုင် ပရိုဆက်ဆာဖြင့် ပြုလုပ်သည်။ မျက်နှာပြင်ဖွင့်ထားပါ။',
   'The server is busy: about {m} min wait.': 'ဆာဗာ အလုပ်များနေသည် - စောင့်ရန် ခန့်မှန်း {m} မိနစ်။',
   'Use my phone instead (faster)': 'ဖုန်းဖြင့် ပြုလုပ်မည် (ပိုမြန်)',
   'Making the picture on your device: keep this screen open': 'ကိုယ့်စက်ပေါ်တွင် ဗီဒီယိုပုံ ပြုလုပ်နေသည် - မျက်နှာပြင်ကို ဖွင့်ထားပါ',
