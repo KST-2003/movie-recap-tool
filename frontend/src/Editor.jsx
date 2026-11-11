@@ -1,3 +1,4 @@
+import Select from './Select.jsx';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useI18n } from './i18n.jsx';
 
@@ -270,20 +271,14 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
               <label key={sid} className={`flex flex-wrap items-center gap-2 text-xs text-slate-300 ${liveCount(sid) === 0 ? 'opacity-50' : ''}`}>
                 <span className="px-1.5 py-0.5 rounded text-white font-semibold" style={{ backgroundColor: colorOf(sid) }}>{sid}</span>
                 <span className="text-slate-500">{project.speakers[sid].gender !== 'unknown' ? tr(project.speakers[sid].gender) : ''} · {tr('{n} lines', { n: liveCount(sid) })}</span>
-                <select
-                  value={speakerVoices[sid]} onChange={(ev) => setSpeakerVoices({ ...speakerVoices, [sid]: ev.target.value })}
-                  className="rounded-lg bg-slate-900 border border-slate-700 px-2 py-1 text-xs"
-                >
-                  {voices.length === 0 && <option value={speakerVoices[sid]}>{speakerVoices[sid]}</option>}
-                  <optgroup label={tr('Voices')}>
-                    {voices.map((v) => <option key={v.name} value={v.name}>{v.name} ({tr(v.gender)})</option>)}
-                  </optgroup>
-                  {looks.length > 0 && (
-                    <optgroup label={tr('Character looks')}>
-                      {looks.map((l) => <option key={l.id} value={`look:${l.id}`}>{tr(l.label)} · {l.voice}</option>)}
-                    </optgroup>
-                  )}
-                </select>
+                <Select
+                  size="sm" className="w-44" value={speakerVoices[sid]} onChange={(v) => setSpeakerVoices({ ...speakerVoices, [sid]: v })}
+                  options={[
+                    ...(voices.length === 0 ? [{ value: speakerVoices[sid], label: speakerVoices[sid] }] : []),
+                    ...voices.map((v) => ({ value: v.name, label: `${v.name} (${tr(v.gender)})`, group: tr('Voices') })),
+                    ...looks.map((l) => ({ value: `look:${l.id}`, label: `${tr(l.label)} · ${l.voice}`, group: tr('Character looks') })),
+                  ]}
+                />
                 {(() => {
                   const lk = looks.find((x) => `look:${x.id}` === speakerVoices[sid]);
                   const vv = lk ? { name: `look:${lk.id}`, sample_url: lk.sample_url } : voices.find((x) => x.name === speakerVoices[sid]);
@@ -295,19 +290,16 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
                   ) : null;
                 })()}
                 {speakerIds.length > 1 && (
-                  <select
-                    value={liveCount(sid) === 0 ? (movedTo[sid] || '') : ''} title={tr('Same person as another character? Give all these lines to that character.')}
-                    onChange={(ev) => {
-                      const to = ev.target.value;
+                  <Select
+                    size="sm" className="w-44" title={tr('Same person as another character? Give all these lines to that character.')}
+                    value={liveCount(sid) === 0 ? (movedTo[sid] || '') : ''} placeholder={tr('move all lines to…')}
+                    onChange={(to) => {
                       if (!to) return;
                       setLines(lines.map((l) => (l.speaker === sid ? { ...l, speaker: to } : l)));
                       setMovedTo({ ...movedTo, [sid]: to });
                     }}
-                    className="rounded-lg bg-slate-900 border border-slate-700 px-2 py-1 text-xs text-slate-400"
-                  >
-                    <option value="">{tr('move all lines to…')}</option>
-                    {speakerIds.filter((o) => o !== sid && (lines.some((l) => l.speaker === o) || movedTo[sid] === o)).map((o) => <option key={o} value={o}>{o}</option>)}
-                  </select>
+                    options={speakerIds.filter((o) => o !== sid && (lines.some((l) => l.speaker === o) || movedTo[sid] === o)).map((o) => ({ value: o, label: o }))}
+                  />
                 )}
               </label>
             ))}

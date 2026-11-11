@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import Editor from './Editor.jsx';
 import VoiceLibrary from './VoiceLibrary.jsx';
+import Select from './Select.jsx';
 import PreviewStudio, { ASPECTS } from './PreviewStudio.jsx';
 import Shell from './Shell.jsx';
 import UsageDashboard from './UsageDashboard.jsx';
@@ -578,10 +579,9 @@ function App() {
 
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-2">{tr('Video quality (size)')}</label>
-            <select value={resolution} onChange={(e) => setResolution(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200">
-              <option value="720">{tr('720p - faster (recommended)')}</option>
-              <option value="1080">{tr('1080p - sharper, slower')}</option>
-            </select>
+            <Select value={resolution} onChange={setResolution} options={[
+              { value: '720', label: tr('720p - faster (recommended)') },
+              { value: '1080', label: tr('1080p - sharper, slower') }]} />
           </div>
 
           {deviceCap?.ok && (
@@ -783,11 +783,10 @@ function App() {
                   <>
                     <label className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                       <span>{tr('Original music & sounds')}</span>
-                      <select value={bgMode} onChange={(e) => setBgMode(e.target.value)} className="w-full sm:w-auto min-w-0 sm:max-w-md rounded-lg bg-slate-900 border border-slate-700 px-2 py-1 text-sm">
-                        <option value="separate">{tr('Keep music & sound effects, remove the original speech (recommended)')}</option>
-                        <option value="original">{tr('Keep everything, lowered (original speech stays faintly audible)')}</option>
-                        <option value="off">{tr('Remove all original sound')}</option>
-                      </select>
+                      <Select size="sm" className="w-full sm:w-auto min-w-0 sm:max-w-md" value={bgMode} onChange={setBgMode} options={[
+                        { value: 'separate', label: tr('Keep music & sound effects, remove the original speech (recommended)') },
+                        { value: 'original', label: tr('Keep everything, lowered (original speech stays faintly audible)') },
+                        { value: 'off', label: tr('Remove all original sound') }]} />
                     </label>
                     {!standard && (<label className="flex items-center gap-2 cursor-pointer">
                       <input type="checkbox" checked={emotionOn} onChange={(e) => setEmotionOn(e.target.checked)} className="w-4 h-4 accent-purple-500" />

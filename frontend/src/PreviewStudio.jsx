@@ -1,3 +1,4 @@
+import Select from './Select.jsx';
 import React, { useEffect, useRef, useState } from 'react';
 import { useI18n } from './i18n.jsx';
 
@@ -308,15 +309,8 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
         ))}
         <label className="text-xs text-slate-400">
           {tr('Logo position')}
-          <select
-            value={fx.logoPosition}
-            onChange={(e) => onChange({ logoPosition: e.target.value, logoXY: null })}
-            className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-lg p-1.5 text-slate-200"
-          >
-            {['top-right', 'top-left', 'bottom-right', 'bottom-left', 'center'].map((p) => (
-              <option key={p} value={p}>{tr(p)}</option>
-            ))}
-          </select>
+          <Select size="sm" className="mt-1 w-full" value={fx.logoPosition} onChange={(v) => onChange({ logoPosition: v, logoXY: null })}
+            options={['top-right', 'top-left', 'bottom-right', 'bottom-left', 'center'].map((p) => ({ value: p, label: tr(p) }))} />
         </label>
       </div>
     </div>
