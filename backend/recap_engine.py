@@ -441,7 +441,9 @@ _LOGO_POS = {
 
 def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], fx: EffectOptions,
                    output_path: str, work_dir: str, tag: str, timeout: int = 1800,
-                   src_offset: float = 0.0, threads: int | None = None) -> dict:
+                   src_offset: float = 0.0, threads: int | None = None, audio_only: bool = False) -> dict:
+    """audio_only: build ONLY the final audio track (voice-over + background, retimed like the video) as AAC in `output_path` (.m4a).
+    Used by the on-device render: the phone draws the picture, the server makes the sound with the same filter graph."""
     work_dir = os.path.abspath(work_dir)
     info = probe_video(video_path)
     SW, SH, fps = info["width"], info["height"], min(max(info["fps"], 1), 60)
@@ -459,7 +461,7 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
             audio_inputs[sc.audio_index] = nxt
             nxt += 1
     logo_idx = None
-    if fx.logo_path and os.path.exists(fx.logo_path):
+    if fx.logo_path and os.path.exists(fx.logo_path) and not audio_only:
         cmd += ["-i", fx.logo_path]
         logo_idx = nxt
         nxt += 1
@@ -472,7 +474,7 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
 
     cue_list = caption_cues(scenes, speed)
     cap_idx, cap_files = None, []
-    if fx.captions and cue_list:
+    if fx.captions and cue_list and not audio_only:
         cap_h = int(H * 0.22)
         cap_px = fx.caption_px
         if cap_px and reframed:   # the picture is scaled by this factor, so the caption keeps its size relative to it
@@ -487,7 +489,7 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
     afmt = "aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=" + ("stereo" if fx.source_audio else "mono")
     labels = []
     # Source subtitle blurred only while it is on screen: blur the SOURCE stream (source time) before it is cut into scenes.
-    pre_blur = bool(fx.blur_subtitles and fx.subtitle_rect and fx.subtitle_windows is not None)
+    pre_blur = bool(fx.blur_subtitles and fx.subtitle_rect and fx.subtitle_windows is not None) and not audio_only
     if pre_blur:
         local = [(max(a - src_offset, 0.0), b - src_offset) for a, b in fx.subtitle_windows if b - src_offset > 0]
         f.append(_blur_region(fx.subtitle_rect, "0:v", "bs", local))
@@ -497,7 +499,8 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
         v = f"[{'sv' + str(n) if pre_blur else '0:v'}]trim=start={sc.src_start:.3f}:end={sc.src_end:.3f},setpts=(PTS-STARTPTS)/{sc.video_speed:.5f},fps={fps:.3f}"
         if sc.freeze > 0.001:
             v += f",tpad=stop_mode=clone:stop_duration={sc.freeze:.3f}"
-        f.append(f"{v}[v{n}]")
+        if not audio_only:
+            f.append(f"{v}[v{n}]")
         if fx.source_audio:   # subtitles only: the picture and its own sound stay in sync, untouched
             a = (f"[0:a]atrim=start={sc.src_start:.3f}:end={sc.src_end:.3f},asetpts=PTS-STARTPTS,aresample=44100,"
                  f"{afmt},apad=whole_dur={sc.out_len:.3f},atrim=end={sc.out_len:.3f}")
@@ -509,7 +512,7 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
                 a += f",atempo={sc.tempo:.4f}"
             a += f",{afmt},apad=whole_dur={sc.out_len:.3f},atrim=end={sc.out_len:.3f}"
         f.append(f"{a},{afmt},asetpts=PTS-STARTPTS[a{n}]")
-        labels.append(f"[v{n}][a{n}]")
+        labels.append(f"[a{n}]" if audio_only else f"[v{n}][a{n}]")
         if bg_idx is not None:
             b = (f"[{bg_idx}:a]atrim=start={sc.src_start:.3f}:end={sc.src_end:.3f},asetpts=PTS-STARTPTS")
             if sc.video_speed < 0.999:
@@ -517,7 +520,10 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
             b += (f",aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,"
                   f"apad=whole_dur={sc.out_len:.3f},atrim=end={sc.out_len:.3f},asetpts=PTS-STARTPTS[b{n}]")
             f.append(b)
-    f.append(f"{''.join(labels)}concat=n={len(scenes)}:v=1:a=1[vcat][acat]")
+    if audio_only:
+        f.append(f"{''.join(labels)}concat=n={len(scenes)}:v=0:a=1[acat]")
+    else:
+        f.append(f"{''.join(labels)}concat=n={len(scenes)}:v=1:a=1[vcat][acat]")
     acat = "acat"
     if bg_idx is not None:
         f.append(f"{''.join(f'[b{n}]' for n in range(len(scenes)))}concat=n={len(scenes)}:v=0:a=1[bgcat]")
@@ -538,6 +544,23 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
         cur = name
 
     # 2. Effects, then captions last so they are never flipped, graded or sped up.
+    if audio_only:   # no picture: write the sound only, same graph as the full render
+        acur = acat
+        if speed != 1.0:
+            f.append(f"[{acat}]atempo={speed:.4f}[asp]")
+            acur = "asp"
+        script = os.path.join(work_dir, f"{tag}_filter.txt")
+        with open(script, "w") as fh:
+            fh.write(";\n".join(f))
+        try:
+            res = subprocess.run(cmd + [*filter_script_args(script), "-map", f"[{acur}]", "-vn", "-c:a", "aac", "-b:a", "128k",
+                                        "-t", f"{total_len:.3f}", output_path], capture_output=True, timeout=timeout)
+        finally:
+            if os.path.exists(script):
+                os.remove(script)
+        if res.returncode != 0:
+            raise RuntimeError(ffmpeg_error(res.stderr))
+        return {"duration": total_len, "cues": cue_list}
     if fx.blur_subtitles and fx.subtitle_rect and not pre_blur:
         f.append(_blur_region(fx.subtitle_rect, cur, "bs"))
         cur = "bs_o"
@@ -611,6 +634,49 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
     if res.returncode != 0:
         raise RuntimeError(ffmpeg_error(res.stderr))
     return {"duration": total_len, "cues": cue_list}
+
+
+# ---------- on-device render plan ----------
+
+def device_plan(info: dict, scenes: list[Scene], fx: EffectOptions, cues: list, total_len: float) -> dict:
+    """Everything a PHONE needs to draw the picture itself (the server only makes the sound): timeline, effects, caption look.
+    Positions of source things are fractions of the DISPLAYED source picture; manual blur boxes are pixels of the output frame."""
+    SW, SH = info["width"], info["height"]
+    W, H = fx.out_size or (SW, SH)
+    reframed = (W, H) != (SW, SH)
+    speed = min(max(fx.speed, 0.5), 2.0)
+    norm = lambda r: [r[0] / SW, r[1] / SH, r[2] / SW, r[3] / SH]
+    blur_rects = []
+    if fx.blur_watermark:
+        blur_rects = [norm(r) for r in fx.watermark_rects] + [[0.75, 0.88, 0.25, 0.12]]
+    cap_h = int(H * 0.22)
+    cap_px = fx.caption_px
+    if cap_px and reframed:
+        cap_px = max(12, int(cap_px * (max if fx.fit_mode == "crop" else min)(W / SW, H / SH)))
+    size = max(int(W * 0.05), 18)
+    if cap_px:
+        size = int(min(max(cap_px, W * 0.035), W * 0.075))
+    if fx.subtitle_rect and not reframed:
+        cy = min(fx.subtitle_rect[1] + fx.subtitle_rect[3] + int(H * 0.01), H)
+        cap_y = max(0, min(cy - cap_h, H - cap_h))
+    else:
+        cap_y = H - cap_h - int(H * 0.04)
+    return {
+        "version": 1, "duration": total_len, "fps": min(max(info["fps"], 1), 30),
+        "out": [W, H], "source": [SW, SH], "fit_mode": fx.fit_mode, "pan": [fx.pan_x, fx.pan_y],
+        "flip_h": bool(fx.flip_h), "speed": speed,
+        "grade": {"brightness": fx.brightness, "contrast": fx.contrast, "saturation": fx.saturation},
+        "scenes": [[sc.src_start, sc.src_end, sc.video_speed, sc.out_start, sc.out_len] for sc in scenes],
+        "blur_rects": blur_rects,
+        "subtitle": ({"rect": norm(fx.subtitle_rect),
+                      "windows": [list(w) for w in fx.subtitle_windows] if fx.subtitle_windows is not None else None}
+                     if fx.blur_subtitles and fx.subtitle_rect else None),
+        "manual_blurs": [list(r) for r in fx.extra_blur_rects],
+        "caption": {"size": size, "bottom": cap_y + cap_h - 8, "max_w": int(W * 0.88)},
+        "cues": [[round(a, 3), round(b, 3), t] for a, b, t in cues],
+        "logo": ({"pos": fx.logo_position, "xy": list(fx.logo_xy) if fx.logo_xy else None, "width": fx.logo_width_frac}
+                 if fx.logo_path else None),
+    }
 
 
 # ---------- parallel render ----------

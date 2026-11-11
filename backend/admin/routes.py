@@ -331,6 +331,7 @@ def job_detail(job_id: str):
         project = result.pop("project", None)
         result.pop("transcript", None)
         result.pop("timeline", None)
+        result.pop("device_plan", None)
         for k in ("video_file", "subtitle_file"):
             result.pop(k, None)
         table, rate = usage_log.prices(), runtime_settings.usd_thb()

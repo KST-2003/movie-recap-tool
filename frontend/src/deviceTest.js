@@ -1,4 +1,5 @@
 import { capabilityTest, renderOnDevice, speedLab } from './deviceRender.js';
+import { renderFromPlan } from './deviceRenderPlan.js';
 const $ = (id) => document.getElementById(id), out = $('out');
 const retry = async (fn) => { try { return await fn(); } catch (e) { out.textContent = 'First try failed (' + (e && e.message || e) + '), trying again…'; return await fn(); } };   // the first run after picking a file sometimes fails on iPhone
 const show = (o) => { out.textContent = typeof o === 'string' ? o : JSON.stringify(o, null, 2); if (new URLSearchParams(location.search).get('src')) document.title = typeof o === 'string' ? o : JSON.stringify(o); };
@@ -39,4 +40,20 @@ if (srcParam) {
 if (new URLSearchParams(location.search).get('lab')) {   // test helper: /device-test.html?lab=/clip.mp4 runs the speed lab at once
   (async () => { try { const blob = await (await fetch(new URLSearchParams(location.search).get('lab'))).blob();
     const res = await speedLab(new File([blob], 'clip.mp4', { type: blob.type }), 15); document.title = JSON.stringify(res); show(res); } catch (e) { document.title = 'error ' + e; } })();
+}
+
+// test helper: /device-test.html?plan=/plan.json&audio=/voice.m4a&video=/clip.mp4[&upload=URL] renders from a server plan
+{
+  const q = new URLSearchParams(location.search);
+  if (q.get('plan')) {
+    (async () => {
+      try {
+        const plan = await (await fetch(q.get('plan'))).json();
+        const audio = await (await fetch(q.get('audio'))).blob(), vb = await (await fetch(q.get('video'))).blob();
+        const { blob, stats } = await renderFromPlan(new File([vb], 'clip.mp4', { type: vb.type }), plan, audio, null, {});
+        if (q.get('upload')) await fetch(q.get('upload'), { method: 'POST', body: blob });
+        document.title = JSON.stringify(stats); show(stats);
+      } catch (e) { document.title = 'error ' + (e && e.message || e); show(document.title); }
+    })();
+  }
 }

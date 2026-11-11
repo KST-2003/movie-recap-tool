@@ -344,6 +344,7 @@ def create_job(
     logo_size: float = Form(0.15),
     logo_x: float = Form(-1.0),           # dragged logo position: left edge as a fraction of video width (-1 = use logo_position)
     logo_y: float = Form(-1.0),           # top edge as a fraction of video height
+    device_render: bool = Form(False),    # the phone draws the picture (WebCodecs); the server only returns a plan + the sound
     resolution: int = Form(720),          # output size: 720 (faster render, recommended) | 1080 = short side in pixels
     aspect: str = Form("original"),       # final frame: original | 9:16 | 1:1 | 4:5 | 16:9
     fit_mode: str = Form("blur"),         # blur: whole picture over a blurred copy | crop: fill the frame
@@ -384,7 +385,7 @@ def create_job(
               "brightness": brightness, "contrast": contrast, "saturation": saturation,
               "logo_position": logo_position, "logo_size": logo_size,
               "logo_x": logo_x, "logo_y": logo_y, "manual_blurs": _clean_blurs(manual_blurs),
-              "resolution": resolution, "aspect": aspect, "fit_mode": fit_mode, "pan_x": pan_x, "pan_y": pan_y,
+              "device_render": device_render, "resolution": resolution, "aspect": aspect, "fit_mode": fit_mode, "pan_x": pan_x, "pan_y": pan_y,
               "filename": os.path.basename(video_file.filename or "")[:120]}   # shown in "My videos"
 
     with Session() as s:
@@ -480,7 +481,13 @@ def _job_view(job: Job) -> dict:
     result = (job.data or {}).get("result")
     if result:
         result = dict(result)
-        if result.get("video_file") and storage.output_exists(result["video_file"]):
+        if result.get("device_plan"):   # made on the user's phone: the picture does not exist on the server, only the sound + plan
+            if result.get("audio_file") and storage.output_exists(result["audio_file"]):
+                result["audio_url"] = _file_url(result["audio_file"], False)
+                result["subtitle_url"] = _file_url(result["subtitle_file"], True)
+            else:
+                result["expired"] = True
+        elif result.get("video_file") and storage.output_exists(result["video_file"]):
             result["video_url"] = _file_url(result["video_file"], False)
             result["download_url"] = _file_url(result["video_file"], True)
             result["subtitle_url"] = _file_url(result["subtitle_file"], True)
@@ -537,7 +544,7 @@ def delete_my_video(job_id: str, user: User = Depends(auth.current_user)):
         if job.status in ("queued", "running"):
             raise HTTPException(status_code=409, detail="This video is still processing. Cancel it first.")
         result = (job.data or {}).get("result") or {}
-        for key in (result.get("video_file"), result.get("subtitle_file")):
+        for key in (result.get("video_file"), result.get("audio_file"), result.get("subtitle_file")):
             if key:
                 storage.delete_output(key)
         data = {**(job.data or {}), "user_deleted": True}
@@ -560,8 +567,47 @@ def get_file(filename: str, exp: int, sig: str, dl: int = 0):
     path = os.path.join(OUTPUT_DIR, name)
     if not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="File not found: this video was removed after the keeping time.")
-    media_type = "application/x-subrip" if name.endswith(".srt") else "video/mp4"
+    media_type = "application/x-subrip" if name.endswith(".srt") else ("audio/mp4" if name.endswith(".m4a") else "video/mp4")
     return FileResponse(path, media_type=media_type, filename=name if dl else None)
+
+
+@app.get("/api/queue")
+def queue_status(user: User = Depends(auth.current_user)):
+    """Would a video started now have to wait? The app then offers to render the picture on the user's phone instead."""
+    with Session() as s:
+        running = s.execute(select(func.count()).select_from(Job).where(Job.status == "running")).scalar_one()
+        queued = s.execute(select(func.count()).select_from(Job).where(Job.status == "queued")).scalar_one()
+        recent = s.execute(select(Job.data).where(Job.status == "done").order_by(Job.finished_at.desc()).limit(20)).scalars().all()
+    runs = [d["run_seconds"] for d in recent if d and d.get("run_seconds")]
+    avg = sum(runs) / len(runs) if runs else DEFAULT_JOB_SECONDS
+    waiting = max(queued + running - WORKERS + 1, 0)
+    wait = int(waiting * avg / WORKERS)
+    return {"busy": wait >= 60, "wait_seconds": wait, "queued": queued, "running": running}
+
+
+class DeviceLog(BaseModel):
+    ok: bool
+    seconds: float | None = None
+    speed: float | None = None
+    error: str | None = Field(None, max_length=400)
+    fell_back: bool = False
+    info: dict | None = None             # small device facts: cores, memory hint, test fps, user agent
+
+
+@app.post("/api/jobs/{job_id}/device-log")
+def device_log(job_id: str, body: DeviceLog, user: User = Depends(auth.current_user)):
+    """How the on-device render went (to measure the success rate per device before making it the default)."""
+    with Session() as s:
+        job = s.get(Job, job_id)
+        if job is None or job.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Unknown job")
+        data = dict(job.data or {})
+        info = {k: (str(v)[:200] if not isinstance(v, (int, float, bool)) else v) for k, v in (body.info or {}).items()}
+        data["device_render"] = {**body.model_dump(exclude={"info"}), "info": info, "at": time.time()}
+        job.data = data
+        s.commit()
+    print(f"[job {job_id}] device render {'OK' if body.ok else 'FAILED'}: {body.seconds}s speed {body.speed} {body.error or ''} {info}", flush=True)
+    return {"ok": True}
 
 
 # ---------- editor: re-render a finished job with edited lines ----------
@@ -584,6 +630,7 @@ class RerenderBody(BaseModel):
     enable_subtitles: bool | None = None
     remove_watermark: bool | None = None
     enable_flip: bool | None = None
+    device_render: bool | None = None                # True: the phone draws the picture again; False: the server renders (fallback)
     bg_volume: float | None = Field(default=None, ge=0.0, le=1.5)   # level of the film's own music/effects under the voice
 
 
@@ -616,7 +663,7 @@ def rerender(job_id: str, body: RerenderBody, user: User = Depends(auth.current_
         raise HTTPException(status_code=400, detail="Line times must be inside the video.")
     params = dict(job.params or {})
     params["voice_type"] = voice
-    for key in ("blur_subtitles", "enable_subtitles", "remove_watermark", "enable_flip", "bg_volume"):
+    for key in ("blur_subtitles", "enable_subtitles", "remove_watermark", "enable_flip", "bg_volume", "device_render"):
         if getattr(body, key) is not None:
             params[key] = getattr(body, key)
     params.pop("reserved_model", None); params.pop("reserved_requests", None)   # the first run's voice reservation is not this job's

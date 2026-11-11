@@ -35,7 +35,7 @@ from db import Job, Session, update_job
 import fit_text
 from fit_text import available as fit_available
 from scene_cuts import detect_cuts
-from recap_engine import (BREATH, burmese_font_available, EffectOptions, SyncOptions, has_audio, plan_source_timing, plan_timeline, probe_video,
+from recap_engine import (BREATH, burmese_font_available, _render_single, device_plan, caption_cues, EffectOptions, SyncOptions, has_audio, plan_source_timing, plan_timeline, probe_video,
                           render, write_srt)
 from subtitle_detect import detect_text_regions, subtitle_windows, to_pixels
 
@@ -876,9 +876,16 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
         if p.get("enable_subtitles", True) and not burmese_font_available():   # without it every Burmese letter is drawn as an empty box
             print("  WARNING: no Burmese font found on this server: the subtitles will be drawn as boxes (set BURMESE_FONT_PATH or add backend/fonts)", flush=True)
             warn.append("The Burmese subtitle font is missing on the server, so the subtitles may show as boxes. The owner has been informed.")
-        with pipeline_stage("FFmpeg Render"):
-            result = render(video_path, segments, scenes, effects, output_path, OUTPUT_DIR, job_id)
-            if p.get("soft_music"):   # optional quiet pad under everything
+        device = bool(p.get("device_render"))
+        with pipeline_stage("Voice track (device render)" if device else "FFmpeg Render"):
+            if device:   # the phone draws the picture: the server only mixes the sound, in the same filter graph as a full render
+                audio_path = os.path.join(OUTPUT_DIR, f"{job_id}_voice.m4a")
+                result = _render_single(video_path, segments, scenes, effects, audio_path, OUTPUT_DIR, job_id, audio_only=True)
+                device_plan_data = device_plan(info, scenes, effects, result["cues"], result["duration"])
+                audio_key = storage.put_output(audio_path)
+            else:
+                result = render(video_path, segments, scenes, effects, output_path, OUTPUT_DIR, job_id)
+            if p.get("soft_music") and not device:   # optional quiet pad under everything
                 try:
                     tone = os.path.join(OUTPUT_DIR, f"{job_id}_tone.wav")
                     temp_paths.append(tone)
@@ -888,7 +895,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                     print(f"  soft music failed ({exc}); continuing without", flush=True)
         srt_path = os.path.join(OUTPUT_DIR, srt_filename)
         write_srt(result["cues"], srt_path)
-        video_key = storage.put_output(output_path)  # s3: uploads and removes the local copy
+        video_key = None if device else storage.put_output(output_path)  # s3: uploads and removes the local copy
         srt_key = storage.put_output(srt_path)
 
         voice_model = duration_model.fit([(sg["translated_text"], sg["audio_dur"]) for sg in segments], voice_model)
@@ -947,6 +954,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                 ],
                 "project": project,         # what the editor loads
                 "video_file": video_key,   # the API turns these into signed URLs when the client asks
+                **({"device_plan": device_plan_data, "audio_file": audio_key} if device else {}),
                 "subtitle_file": srt_key,
             },
         )

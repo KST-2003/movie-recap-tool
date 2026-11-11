@@ -8,6 +8,7 @@ import UsageDashboard from './UsageDashboard.jsx';
 import HistoryPage from './HistoryPage.jsx';
 import TopUpPage from './TopUpPage.jsx';
 import { LangSwitch, useI18n } from './i18n.jsx';
+import { deviceCapability, renderFromPlan } from './deviceRenderPlan.js';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
@@ -124,6 +125,14 @@ function App() {
     setToken(data.token);
     setAccount(data);
   };
+  useEffect(() => { deviceCapability().then(setDeviceCap).catch(() => {}); }, []);
+  useEffect(() => {
+    if (!token || !deviceCap?.ok) return undefined;
+    const load = () => axios.get(`${API_BASE}/api/queue`).then((r) => setQueue(r.data)).catch(() => {});
+    load();
+    const id = setInterval(load, 20000);
+    return () => clearInterval(id);
+  }, [token, deviceCap]);
   const refreshAccount = () => axios.get(`${API_BASE}/api/auth/me`).then((r) => setAccount(r.data)).catch(() => {});
   useEffect(() => {
     const id = axios.interceptors.response.use((r) => r, (err) => {
@@ -202,6 +211,10 @@ function App() {
   const [logoSize, setLogoSize] = useState(0.15);
   const [logoXY, setLogoXY] = useState(null); // dragged position in the preview (fractions of the frame); null = use logoPosition
   const [blurBoxes, setBlurBoxes] = useState([]); // user blur boxes, DISPLAYED coordinates (fractions)
+  const [deviceCap, setDeviceCap] = useState(null);     // can this phone/browser draw the video itself? (WebCodecs + WebGL + speed test)
+  const [useDevice, setUseDevice] = useState(false);     // "Render on my device (faster, beta)"
+  const [queue, setQueue] = useState(null);              // server queue: { busy, wait_seconds }
+  const lastDevice = useRef(false);                      // the shown result was drawn on this device (re-renders then do the same)
   const [resolution, setResolution] = useState('720'); // output size: 720 renders faster (recommended)
   const [aspect, setAspect] = useState('original'); // output format, chosen BEFORE uploading (like CapCut)
   const [fitMode, setFitMode] = useState('blur');     // 'blur' = whole picture over a blurred copy | 'crop' = fill the frame
@@ -299,6 +312,7 @@ function App() {
     // Boxes are in the output frame as shown (the render applies them after reframe and flip).
     formData.append('manual_blurs', JSON.stringify(blurBoxes.map((b) => [b.x, b.y, b.w, b.h])));
     formData.append('resolution', resolution);
+    formData.append('device_render', !!(useDevice && deviceCap?.ok));
     formData.append('aspect', aspect);
     formData.append('fit_mode', fitMode);
     formData.append('pan_x', pan.x);
@@ -347,6 +361,43 @@ function App() {
     setErrorMessage(trs(error.response?.data?.detail || error.message) || tr('Something went wrong while making the video.'));
   };
 
+  // Draw the video on this device from the server's plan. Returns the video's blob URL, or null after handing the job to the server.
+  const finishOnDevice = async (job, result) => {
+    const signal = { aborted: false };
+    const onHide = () => { if (document.hidden) signal.aborted = true; };   // iOS pauses the page in the background: the decoder dies
+    let lock = null, ok = false, error = '', stats = null;
+    const t0 = Date.now();
+    try {
+      if (!videoFile) throw new Error('The original video is not on this device any more');
+      setProgress({ pct: 0, stage: tr('Making the picture on your device: keep this screen open') });
+      document.addEventListener('visibilitychange', onHide);
+      try { lock = await navigator.wakeLock?.request('screen'); } catch (e) { /* optional */ }
+      const audioBlob = await (await fetch(absUrl(result.audio_url))).blob();
+      const run = () => renderFromPlan(videoFile, result.device_plan, audioBlob, customLogo, {
+        signal,
+        onProgress: (p) => { if (cancelled.current) signal.aborted = true; setProgress({ pct: Math.round(p * 100), stage: tr('Making the picture on your device: keep this screen open') }); },
+      });
+      let out;
+      try { out = await run(); } catch (e) { if (signal.aborted) throw e; out = await run(); }   // the first run after choosing a file sometimes fails once
+      ok = true; stats = out.stats;
+      axios.post(`${API_BASE}/api/jobs/${job.id}/device-log`, { ok: true, seconds: stats.seconds, speed: stats.speed, info: { cores: deviceCap?.cores, memory: deviceCap?.memory, fps: deviceCap?.fps, ua: deviceCap?.ua } }).catch(() => {});
+      return URL.createObjectURL(out.blob);
+    } catch (e) {
+      if (cancelled.current) { const err = new Error('Cancelled'); err.cancelled = true; throw err; }
+      error = String(e?.message || e).slice(0, 300);
+    } finally {
+      document.removeEventListener('visibilitychange', onHide);
+      try { await lock?.release(); } catch (e) { /* ignore */ }
+    }
+    // fallback: the same video, rendered by the server (voice clips are cached, nothing is charged)
+    axios.post(`${API_BASE}/api/jobs/${job.id}/device-log`, { ok: false, error, fell_back: true, seconds: (Date.now() - t0) / 1000, info: { cores: deviceCap?.cores, memory: deviceCap?.memory, fps: deviceCap?.fps, ua: deviceCap?.ua } }).catch(() => {});
+    setProgress({ pct: 0, stage: tr('Your device could not make it, so the server is doing it') });
+    const lines = (result.project?.segments || []).map((g) => ({ id: g.id, start: g.start, text: g.text, source_text: g.source_text || '', tempo: g.tempo || null, speaker: g.speaker || null }));
+    const { data } = await axios.post(`${API_BASE}/api/jobs/${job.id}/rerender`, { segments: lines, device_render: false });
+    await followJob(data.job_id);
+    return null;
+  };
+
   // Poll a job until it finishes, then show its result (used for new videos and for editor re-renders).
   const followJob = async (id) => {
     let job;
@@ -369,8 +420,16 @@ function App() {
     if (job.status === 'error') throw new Error(job.error);
     const result = job.result;
     if (result.expired) throw new Error(tr('This result has expired. Please generate it again.'));
-    setResultVideoUrl(absUrl(result.video_url));
-    setResultDownloadUrl(absUrl(result.download_url));
+    if (result.device_plan) {   // the server made the sound + a plan: this device draws the picture (any problem -> the server renders instead)
+      const done = await finishOnDevice(job, result);
+      if (!done) return;   // fell back: a new server job is being followed
+      lastDevice.current = true;
+      setResultVideoUrl(done); setResultDownloadUrl(done);
+    } else {
+      lastDevice.current = false;
+      setResultVideoUrl(absUrl(result.video_url));
+      setResultDownloadUrl(absUrl(result.download_url));
+    }
     setSubtitleUrl(absUrl(result.subtitle_url));
     setTimeline(result.timeline.filter((scene) => scene.text));
     setProject(result.project || null);
@@ -392,7 +451,7 @@ function App() {
     setErrorMessage('');
     setNotes('');
     try {
-      const { data } = await axios.post(`${API_BASE}/api/jobs/${jobId}/rerender`, { segments: lines, speaker_voices: speakerVoices || undefined, ...finish });
+      const { data } = await axios.post(`${API_BASE}/api/jobs/${jobId}/rerender`, { segments: lines, speaker_voices: speakerVoices || undefined, ...finish, device_render: lastDevice.current && !!videoFile });
       setProgress({ pct: 0, stage: tr('Queued') });
       await followJob(data.job_id);
     } catch (error) {
@@ -407,6 +466,7 @@ function App() {
     try {
       const { data: job } = await axios.get(`${API_BASE}/api/jobs/${id}`);
       const result = job.result;
+      if (result?.device_plan) { setErrorMessage(tr('This video was made on your device and is not stored on the server. Upload the video again to make it again.')); setView('create'); return; }
       if (!result || result.expired) { setErrorMessage(tr('This result has expired. Please generate it again.')); setView('create'); return; }
       setErrorMessage('');
       setResultVideoUrl(absUrl(result.video_url));
@@ -485,6 +545,24 @@ function App() {
               <option value="1080">{tr('1080p - sharper, slower')}</option>
             </select>
           </div>
+
+          {deviceCap?.ok && (
+            <div className="rounded-xl border border-slate-700 bg-slate-800/60 p-3">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input type="checkbox" checked={useDevice} onChange={(e) => setUseDevice(e.target.checked)} className="mt-1" />
+                <span className="text-sm text-slate-200">
+                  {tr('Render on my device (faster, beta)')}
+                  <span className="block text-xs text-slate-400 mt-0.5">{tr('Your phone makes the picture, so no waiting for the server. Keep the screen open. If it fails, the server does it.')}</span>
+                </span>
+              </label>
+              {queue?.busy && !useDevice && (
+                <div className="mt-2 text-xs text-amber-300">
+                  {tr('The server is busy: about {m} min wait.', { m: Math.max(1, Math.ceil(queue.wait_seconds / 60)) })}{' '}
+                  <button type="button" onClick={() => setUseDevice(true)} className="underline font-semibold">{tr('Use my phone instead (faster)')}</button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* File Upload Section */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
