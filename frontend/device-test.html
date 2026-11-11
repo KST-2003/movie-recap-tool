@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>Device render test</title>
+    <style>
+      body { font-family: system-ui, sans-serif; background: #0b1020; color: #e2e8f0; margin: 0; padding: 16px; max-width: 560px; margin: 0 auto; }
+      button, input { font: inherit; } button { padding: 10px 14px; border-radius: 10px; border: 0; background: #7c3aed; color: #fff; margin: 6px 6px 6px 0; }
+      pre { background: #111827; padding: 10px; border-radius: 10px; white-space: pre-wrap; word-break: break-word; font-size: 13px; }
+      video { width: 100%; border-radius: 10px; background: #000; margin-top: 8px; }
+    </style>
+  </head>
+  <body>
+    <h2>Render on my device: test</h2>
+    <p>1) Check this device. 2) Pick a short video (10-60 s) and render it to 720p here. Nothing is uploaded.</p>
+    <button id="cap">1. Check this device</button>
+    <div><input id="file" type="file" accept="video/*" /></div>
+    <button id="go">2. Render 720p in this browser</button>
+    <progress id="bar" value="0" max="1" style="width:100%"></progress>
+    <pre id="out">Ready.</pre>
+    <video id="vid" controls playsinline hidden></video>
+    <a id="dl" hidden download="device-render.mp4" style="color:#a78bfa">Download result</a>
+    <script type="module" src="/src/deviceTest.js"></script>
+  </body>
+</html>

@@ -38,6 +38,31 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
   const [looping, setLooping] = useState(false);
   const loopStart = useRef(0);
   const scrubbing = useRef(false); // finger/mouse is on the seek bar: ignore playback time updates
+  // Dragging the bar fires dozens of seeks a second. Safari on a Mac copes, a phone's decoder does not (every new seek cancels the
+  // one before, so the picture freezes until you let go). So only ONE seek runs at a time: while it is busy the latest target waits,
+  // and when it finishes ("seeked") the newest target is sought, so the picture keeps following the finger.
+  const seekBusy = useRef(false);
+  const seekWanted = useRef(null);
+  const seekTimer = useRef(null);
+  const seekNow = () => {
+    const v = videoRef.current;
+    if (!v || seekWanted.current == null) return;
+    const t = seekWanted.current;
+    seekWanted.current = null;
+    if (Math.abs(v.currentTime - t) < 0.01) return;   // already there: no "seeked" event would come
+    seekBusy.current = true;
+    v.currentTime = t;   // (fastSeek was tried: on iPhone Safari it can land on the same keyframe, no "seeked" event, and the picture never moved)
+    clearTimeout(seekTimer.current);
+    // Safety: some browsers never send "seeked" for a seek that was replaced; do not wait for it longer than this.
+    seekTimer.current = setTimeout(() => { seekBusy.current = false; if (seekWanted.current != null) seekNow(); }, 350);
+  };
+  const seekTo = (t) => { seekWanted.current = t; if (!seekBusy.current) seekNow(); };
+  const onSeeked = (e) => {
+    clearTimeout(seekTimer.current);
+    seekBusy.current = false;
+    if (seekWanted.current != null) { seekNow(); return; }
+    syncBg(e);   // the blurred background is only moved when the main picture has settled
+  };
 
   const [fw, fh] = frameSize(fx.aspect, dims);   // output frame in pixels
   const reframed = fx.aspect !== 'original' && Math.abs(fw / fh - dims.w / dims.h) > 0.01;
@@ -60,6 +85,7 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
     const bg = bgRef.current;
     if (!bg) return;
     const v = e.target;
+    if (scrubbing.current) return;   // while dragging, only the main picture moves (two seeking videos = a stuck picture on a phone)
     if (Math.abs(bg.currentTime - v.currentTime) > 0.2) bg.currentTime = v.currentTime;
     if (v.paused !== bg.paused) { if (v.paused) bg.pause(); else bg.play().catch(() => {}); }
   };
@@ -178,13 +204,14 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
               ref={videoRef}
               src={src}
               playsInline
+              preload="auto"
               onLoadedMetadata={(e) => {
                 setDims({ w: e.target.videoWidth || 16, h: e.target.videoHeight || 9 });
                 setDuration(e.target.duration || 0);
                 e.target.playbackRate = fx.videoSpeed;
               }}
               onTimeUpdate={(e) => { if (!scrubbing.current) setTime(e.target.currentTime); syncBg(e); }}
-              onSeeked={syncBg}
+              onSeeked={onSeeked}
               onPlay={syncBg}
               onPause={(e) => { setLooping(false); syncBg(e); }}
               style={cropFit ? { objectPosition: `${fx.panX * 100}% ${fx.panY * 100}%` } : undefined}
@@ -224,6 +251,8 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
                 className="w-full block pointer-events-none"
               />
               <div onPointerDown={resizeLogo} className="absolute -bottom-2 -right-2 w-5 h-5 rounded-full bg-purple-500 border-2 border-white cursor-nwse-resize" />
+              <button type="button" aria-label={tr('Remove logo')} onPointerDown={(e) => e.stopPropagation()} onClick={() => onChange({ removeLogo: true })}
+                className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 border-2 border-white text-white text-xs leading-none flex items-center justify-center">×</button>
             </div>
           )}
         </div>
@@ -233,12 +262,12 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
         <input
           type="range" min={0} max={duration || 1} step={0.1} value={time}
           onPointerDown={() => { scrubbing.current = true; }}
-          onPointerUp={() => { scrubbing.current = false; }}
+          onPointerUp={(e) => { scrubbing.current = false; const v = videoRef.current; if (v) { seekWanted.current = null; v.currentTime = Number(e.target.value); } }}   // let go: land exactly on the chosen time
           onPointerCancel={() => { scrubbing.current = false; }}
           onChange={(e) => {
             const t = Number(e.target.value);
             loopStart.current = t;   // while the 5 s loop plays, the window moves to where you drag
-            if (videoRef.current) videoRef.current.currentTime = t;
+            seekTo(t);
             setTime(t);
           }}
           className="flex-1 accent-purple-500"

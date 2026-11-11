@@ -154,6 +154,7 @@ const MY = {
   'Colours are approximate': 'အရောင်များမှာ ခန့်မှန်းမှုသာ',
   '▶ Play 5 s (loop)': '▶ ၅ စက္ကန့် ဖွင့်မည် (ထပ်ခါထပ်ခါ)',
   '+ Blur box': '+ မှုန်ဝါးအကွက်',
+  'Remove logo': 'လိုဂိုကို ဖယ်ရှားမည်',
   'Reset logo position': 'လိုဂိုနေရာ ပြန်ချမည်',
   'top-right': 'ညာဘက်အပေါ်',
   'top-left': 'ဘယ်ဘက်အပေါ်',

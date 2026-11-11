@@ -138,6 +138,7 @@ function App() {
   // Form State
   const [videoFile, setVideoFile] = useState(null);
   const [customLogo, setCustomLogo] = useState(null);
+  const [logoInputKey, setLogoInputKey] = useState(0); // changing it empties the file input (a chosen file cannot be cleared otherwise)
   const [voiceType, setVoiceType] = useState('Kore');
   const [voices, setVoices] = useState([]);
   const [looks, setLooks] = useState([]);
@@ -207,7 +208,9 @@ function App() {
   const [pan, setPan] = useState({ x: 0.5, y: 0.5 });  // crop mode: which part of the picture stays
   const previewFx = { videoSpeed, brightness, contrast, saturation, logoSize, logoPosition, logoXY, blurBoxes, flip: false,
     aspect, fitMode, panX: pan.x, panY: pan.y };
+  const removeLogo = () => { setCustomLogo(null); setLogoXY(null); setLogoInputKey((k) => k + 1); };
   const changePreviewFx = (patch) => {
+    if (patch.removeLogo) { removeLogo(); return; }
     const set = { videoSpeed: setVideoSpeed, brightness: setBrightness, contrast: setContrast, saturation: setSaturation,
       logoSize: setLogoSize, logoPosition: setLogoPosition, logoXY: setLogoXY, blurBoxes: setBlurBoxes };
     if ('panX' in patch) setPan((p) => ({ ...p, x: patch.panX }));
@@ -502,11 +505,17 @@ function App() {
                 {tr('Logo (optional)')}
               </label>
               <input
+                key={logoInputKey}
                 type="file"
                 accept="image/*"
-                onChange={(e) => setCustomLogo(e.target.files[0])}
+                onChange={(e) => setCustomLogo(e.target.files[0] || null)}
                 className="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-slate-700 file:text-white hover:file:bg-slate-600 cursor-pointer"
               />
+              {customLogo && (
+                <button type="button" onClick={removeLogo} className="mt-2 px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm text-slate-200">
+                  {tr('Remove logo')}
+                </button>
+              )}
             </div>
           </div>
 
