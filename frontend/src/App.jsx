@@ -718,7 +718,6 @@ function App() {
                     <button type="button" onClick={() => playSample(v)} className="text-purple-300 hover:text-white whitespace-nowrap">
                       {playing === v.name ? tr('■ Stop') : tr('▶ Play')}
                     </button>
-                    <a href={`${API_BASE}${v.sample_url}`} download title={tr('⬇ Download')} aria-label={tr('⬇ Download')} className="text-slate-400 hover:text-white">⬇</a>
                   </div>
                 </div>
               ))}
