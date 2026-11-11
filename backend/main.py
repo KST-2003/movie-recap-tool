@@ -665,6 +665,7 @@ class RerenderBody(BaseModel):
     enable_flip: bool | None = None
     device_render: bool | None = None                # True: the phone draws the picture again; False: the server renders (fallback)
     bg_volume: float | None = Field(default=None, ge=0.0, le=1.5)   # level of the film's own music/effects under the voice
+    blur_windows: list[list[float]] | None = Field(default=None, max_length=400)   # [[start, end]] SOURCE seconds when the subtitle blur is ON (the editor's blur track); [] = never
 
 
 @app.post("/api/jobs/{job_id}/rerender")
@@ -714,7 +715,18 @@ def rerender(job_id: str, body: RerenderBody, user: User = Depends(auth.current_
             d["speaker"] = d.get("speaker") or src.get("speaker")
             d["emotion"], d["style"] = src.get("emotion"), src.get("style")
         edit_lines.append(d)
-    params["edit"] = {"segments": edit_lines, "speakers": speakers or None, "fx": project["fx"],
+    fx = dict(project["fx"])
+    if body.blur_windows is not None:   # the blur track of the editor: the band stays where it was found, only WHEN it is blurred changes
+        top = float(project.get("source_duration") or 0) + 1.0
+        wins = sorted((max(0.0, a), min(b, top)) for a, b in (w[:2] for w in body.blur_windows if len(w) >= 2) if b > a and a < top)
+        merged: list[list[float]] = []
+        for a, b in wins:
+            if merged and a <= merged[-1][1] + 0.05:
+                merged[-1][1] = max(merged[-1][1], b)
+            else:
+                merged.append([round(a, 2), round(b, 2)])
+        fx["subtitle_windows"] = [[round(a, 2), round(b, 2)] for a, b in merged]
+    params["edit"] = {"segments": edit_lines, "speakers": speakers or None, "fx": fx,
                       "source_language": project.get("source_language"),
                       "cuts": project.get("cuts", []), "voice_model": project.get("voice_model"),
                       "tts_model": project.get("tts_model")}

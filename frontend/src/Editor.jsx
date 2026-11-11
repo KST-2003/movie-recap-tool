@@ -55,9 +55,29 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
   const liveCount = (sid) => lines.filter((l) => l.speaker === sid).length;
   const voicesChanged = speakerIds.some((s) => speakerVoices[s] !== project.speakers[s].voice);
   const isStandard = String(project.tts_model || '').startsWith('azure');   // Standard (Azure): only two voices exist, Nilar (female) and Thiha (male)
+  // ----- blur track: WHEN the original subtitle band is blurred (source seconds). Default = the whole film; split + delete where there is no subtitle -----
+  const bandKnown = !!project.fx?.subtitle_rect;
+  const normBlur = (list) => {
+    const out = [];
+    [...list].sort((a, b) => a.start - b.start).forEach((b) => {
+      const s = Math.round(b.start * 100) / 100, e = Math.round(b.end * 100) / 100;
+      if (out.length && s <= out[out.length - 1][1] + 0.05) out[out.length - 1][1] = Math.max(out[out.length - 1][1], e); else out.push([s, e]);
+    });
+    return out;
+  };
+  const initialBlur = useMemo(() => {
+    if (!bandKnown) return [];
+    const w = project.fx.subtitle_windows;   // null = the band is blurred the whole film
+    return (w == null ? [[0, project.source_duration]] : w).map(([a, b], i) => ({ key: `b${i}`, start: a, end: b }));
+  }, [project, bandKnown]);
+  const [blurs, setBlurs] = useState(initialBlur);
+  const [blurSel, setBlurSel] = useState(null);
+  const nextBlur = useRef(1000);
+  const blurDirty = bandKnown && JSON.stringify(normBlur(blurs)) !== JSON.stringify(normBlur(initialBlur));
+  const showBlur = bandKnown && finish?.blur_subtitles !== false;
   const initialFinish = useRef(finish);   // settings the video was made with (the editor is re-created for each new result)
   const finishChanged = !!finish && JSON.stringify(finish) !== JSON.stringify(initialFinish.current);
-  const dirty = JSON.stringify(lines) !== JSON.stringify(initial) || voicesChanged || finishChanged;
+  const dirty = JSON.stringify(lines) !== JSON.stringify(initial) || voicesChanged || finishChanged || blurDirty;
 
   // ----- output time (what the video element plays) <-> source time (what the timeline shows) -----
   const timed = useMemo(() => project.segments.filter((s) => s.out_start != null).sort((a, b) => a.out_start - b.out_start), [project]);
@@ -160,6 +180,54 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
   };
   const endDrag = () => { drag.current = null; };
 
+  const sortedBlurs = [...blurs].sort((a, b) => a.start - b.start);
+  const blurAt = (t) => sortedBlurs.find((b) => b.start < t && t < b.end);
+  const splitBlur = () => {   // cut the block under the playhead in two (CapCut style); the right half is selected so Delete removes it
+    const b = blurAt(srcT);
+    if (!b || srcT - b.start < 0.3 || b.end - srcT < 0.3) return;
+    const t = Math.round(srcT * 100) / 100;
+    const key = `b${nextBlur.current++}`;
+    setBlurs((bs) => bs.map((x) => (x.key === b.key ? { ...x, end: t } : x)).concat([{ key, start: t, end: b.end }]));
+    setBlurSel(key);
+  };
+  const deleteBlur = () => { if (blurSel) { setBlurs((bs) => bs.filter((b) => b.key !== blurSel)); setBlurSel(null); } };
+  const addBlur = () => {   // blur from the playhead for 3 s (or until the next block)
+    if (blurAt(srcT)) return;
+    const next = sortedBlurs.find((b) => b.start >= srcT);
+    const end = Math.min(srcT + 3, next ? next.start : duration, duration);
+    if (end - srcT < 0.3) return;
+    const key = `b${nextBlur.current++}`;
+    setBlurs((bs) => [...bs, { key, start: Math.round(srcT * 100) / 100, end: Math.round(end * 100) / 100 }]);
+    setBlurSel(key);
+  };
+  const bdrag = useRef(null);
+  const beginBlurDrag = (e, key, side) => {
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const b = blurs.find((x) => x.key === key);
+    bdrag.current = { key, side, x: e.clientX, v: side === 'l' ? b.start : b.end };
+    setBlurSel(key);
+  };
+  const moveBlurDrag = (e) => {
+    const d = bdrag.current;
+    if (!d) return;
+    const me = blurs.find((x) => x.key === d.key);
+    const others = sortedBlurs.filter((x) => x.key !== d.key);
+    let v = d.v + (e.clientX - d.x) / pps;
+    const near = cuts.find((c) => Math.abs(c - v) * pps < 8);
+    if (near !== undefined) v = near;
+    if (d.side === 'l') {
+      const lo = Math.max(0, ...others.filter((x) => x.end <= me.start + 0.001).map((x) => x.end));
+      v = clamp(v, lo, me.end - 0.3);
+      setBlurs((bs) => bs.map((x) => (x.key === d.key ? { ...x, start: Math.round(v * 100) / 100 } : x)));
+    } else {
+      const hi = Math.min(duration, ...others.filter((x) => x.start >= me.end - 0.001).map((x) => x.start));
+      v = clamp(v, me.start + 0.3, hi);
+      setBlurs((bs) => bs.map((x) => (x.key === d.key ? { ...x, end: Math.round(v * 100) / 100 } : x)));
+    }
+  };
+  const endBlurDrag = () => { bdrag.current = null; };
+
   const voiceLen = (l, i) => {
     const m = meta[l.key];
     const same = m && m.text === l.text;
@@ -250,6 +318,24 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
                 );
               })}
             </div>}
+            {/* blur track: WHERE in time the original subtitle is blurred */}
+            {showBlur && <div className="relative h-7 mb-2 rounded-md bg-slate-800/60" title={tr('Blur track')}>
+              {blurs.map((b) => {
+                const on = b.key === blurSel;
+                return (
+                  <div key={b.key} onClick={(e) => { e.stopPropagation(); setBlurSel(b.key); seekSrc(timeFromEvent(e)); }}
+                    className={`absolute top-0 h-7 rounded-md text-[10px] px-3 flex items-center text-slate-900 font-medium cursor-pointer border-2 ${on ? 'border-white bg-amber-300' : 'border-transparent bg-amber-400/80'}`}
+                    style={{ left: b.start * pps + 1, width: Math.max((b.end - b.start) * pps - 2, 8) }}
+                    title={`${tr('Subtitle blur')} ${fmt(b.start)}–${fmt(b.end)}`}>
+                    <span className="truncate">▒ {tr('Blur')}</span>
+                    <div onPointerDown={(e) => beginBlurDrag(e, b.key, 'l')} onPointerMove={moveBlurDrag} onPointerUp={endBlurDrag} onClick={(e) => e.stopPropagation()}
+                      className="absolute left-0 top-0 h-full w-2.5 cursor-ew-resize bg-slate-900/50 rounded-l-md" style={{ touchAction: 'none' }} />
+                    <div onPointerDown={(e) => beginBlurDrag(e, b.key, 'r')} onPointerMove={moveBlurDrag} onPointerUp={endBlurDrag} onClick={(e) => e.stopPropagation()}
+                      className="absolute right-0 top-0 h-full w-2.5 cursor-ew-resize bg-slate-900/50 rounded-r-md" style={{ touchAction: 'none' }} />
+                  </div>
+                );
+              })}
+            </div>}
             {/* playhead */}
             <div className="absolute top-0 bottom-0 w-0.5 bg-white pointer-events-none" style={{ left: srcT * pps }}>
               <div className="w-2.5 h-2.5 rounded-full bg-white -ml-1" />
@@ -260,6 +346,7 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
           <span><i className="inline-block w-2 h-2 bg-purple-600 rounded-sm mr-1" />{tr('subtitle (drag the left edge to move a scene boundary)')}</span>
           <span><i className="inline-block w-2 h-2 bg-red-500 rounded-sm mr-1" />{tr('voice too long')}</span>
           <span><i className="inline-block w-2 h-0.5 bg-cyan-400 mr-1" />{tr('scene cut')}</span>
+          {showBlur && <span><i className="inline-block w-2 h-2 bg-amber-400 rounded-sm mr-1" />{tr('subtitle blur is on (drag the edges, split, delete)')}</span>}
         </div>
       </div>
 
@@ -404,13 +491,19 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
 
       <div className="flex flex-wrap gap-2 mt-3">
         <button type="button" onClick={split} className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm">{tr('✂ Split / add line at playhead')}</button>
+        {showBlur && (<>
+          <button type="button" onClick={splitBlur} disabled={!blurAt(srcT)} className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-sm disabled:opacity-40">{tr('✂ Split blur')}</button>
+          <button type="button" onClick={deleteBlur} disabled={!blurSel} className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-sm disabled:opacity-40">{tr('Delete blur')}</button>
+          <button type="button" onClick={addBlur} disabled={!!blurAt(srcT)} className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-sm disabled:opacity-40">{tr('+ Blur here')}</button>
+          <button type="button" onClick={() => { setBlurs([{ key: `b${nextBlur.current++}`, start: 0, end: duration }]); setBlurSel(null); }} className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm">{tr('Blur everywhere')}</button>
+        </>)}
         <button type="button" disabled={!dirty || busy || lines.every((l) => !l.text.trim())}
-          onClick={() => onApply([...lines].sort((a, b) => a.start - b.start).map((l) => ({ id: l.id ?? null, speaker: l.speaker, start: Number(l.start), text: l.text, source_text: l.source_text, tempo: l.tempo })), voicesChanged ? speakerVoices : undefined)}
+          onClick={() => onApply([...lines].sort((a, b) => a.start - b.start).map((l) => ({ id: l.id ?? null, speaker: l.speaker, start: Number(l.start), text: l.text, source_text: l.source_text, tempo: l.tempo })), voicesChanged ? speakerVoices : undefined, blurDirty ? normBlur(blurs) : undefined)}
           className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 font-semibold text-sm disabled:opacity-40">
           {busy ? tr('Re-rendering…') : tr('Apply changes & re-render')}
         </button>
         {dirty && !busy && (
-          <button type="button" onClick={() => { setLines(initial); setSelected(initial[0]?.key ?? null); setSpeakerVoices(Object.fromEntries(speakerIds.map((s) => [s, project.speakers[s].voice]))); setMovedTo({}); if (finish) onFinish(initialFinish.current); }} className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm">{tr('Reset')}</button>
+          <button type="button" onClick={() => { setLines(initial); setSelected(initial[0]?.key ?? null); setSpeakerVoices(Object.fromEntries(speakerIds.map((s) => [s, project.speakers[s].voice]))); setMovedTo({}); setBlurs(initialBlur); setBlurSel(null); if (finish) onFinish(initialFinish.current); }} className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm">{tr('Reset')}</button>
         )}
         {dirty && !busy && <span className="self-center text-xs text-amber-300">{tr('Not applied yet: press "Apply changes & re-render" to hear it.')}</span>}
         <span className="self-center text-xs text-slate-500">{tr('Only changed lines are re-voiced. Estimated length ≈ {t}.', { t: fmt(total) })}</span>

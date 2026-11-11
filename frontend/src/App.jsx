@@ -492,14 +492,14 @@ function App() {
     );
   };
 
-  const applyEdits = async (lines, speakerVoices) => {
+  const applyEdits = async (lines, speakerVoices, blurWindows) => {
     cancelled.current = false;
     activeJob.current = '';
     setLoading(true);
     setErrorMessage('');
     setNotes('');
     try {
-      const { data } = await axios.post(`${API_BASE}/api/jobs/${jobId}/rerender`, { segments: lines, speaker_voices: speakerVoices || undefined, ...finish, device_render: lastDevice.current && !!videoFile });
+      const { data } = await axios.post(`${API_BASE}/api/jobs/${jobId}/rerender`, { segments: lines, speaker_voices: speakerVoices || undefined, blur_windows: blurWindows || undefined, ...finish, device_render: lastDevice.current && !!videoFile });
       setProgress({ pct: 0, stage: tr('Queued') });
       await followJob(data.job_id);
     } catch (error) {
