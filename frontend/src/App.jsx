@@ -547,12 +547,21 @@ function App() {
           </div>
 
           {deviceCap?.ok && (
-            <div className="rounded-xl border border-slate-700 bg-slate-800/60 p-3">
-              <label className="flex items-start gap-3 cursor-pointer">
-                <input type="checkbox" checked={useDevice} onChange={(e) => setUseDevice(e.target.checked)} className="mt-1" />
-                <span className="text-sm text-slate-200">
-                  {tr('Render on my device (faster, beta)')}
-                  <span className="block text-xs text-slate-400 mt-0.5">{tr('Your phone makes the picture, so no waiting for the server. Keep the screen open. If it fails, the server does it.')}</span>
+            <div className={`rounded-xl border-2 p-3 transition-all duration-300 ease-out ${useDevice
+              ? 'border-emerald-400 bg-emerald-500/15 shadow-[0_0_0_3px_rgba(52,211,153,0.15)]'
+              : 'border-slate-700 bg-slate-800/60 hover:border-slate-500'}`}>
+              <label className="flex items-start gap-3 cursor-pointer select-none">
+                <input type="checkbox" checked={useDevice} onChange={(e) => setUseDevice(e.target.checked)} className="peer sr-only" />
+                <span aria-hidden="true" className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-2 transition-all duration-300 ease-out peer-focus-visible:ring-2 peer-focus-visible:ring-emerald-300 ${useDevice
+                  ? 'border-emerald-400 bg-emerald-500 scale-110'
+                  : 'border-slate-500 bg-slate-900'}`}>
+                  <svg viewBox="0 0 20 20" className={`h-4 w-4 text-white transition-all duration-300 ease-out ${useDevice ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`} fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 10.5l4 4 8-9" />
+                  </svg>
+                </span>
+                <span className={`text-sm transition-colors duration-300 ${useDevice ? 'text-emerald-100' : 'text-slate-200'}`}>
+                  <span className="font-semibold">{tr('Render on my device (faster, beta)')}</span>
+                  <span className={`block text-xs mt-0.5 transition-colors duration-300 ${useDevice ? 'text-emerald-200/80' : 'text-slate-400'}`}>{tr('Your phone makes the picture, so no waiting for the server. Keep the screen open. If it fails, the server does it.')}</span>
                 </span>
               </label>
               {queue?.busy && !useDevice && (
