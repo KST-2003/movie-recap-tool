@@ -125,14 +125,6 @@ function App() {
     setToken(data.token);
     setAccount(data);
   };
-  useEffect(() => { deviceCapability().then(setDeviceCap).catch(() => {}); }, []);
-  useEffect(() => {
-    if (!token || !deviceCap?.ok) return undefined;
-    const load = () => axios.get(`${API_BASE}/api/queue`).then((r) => setQueue(r.data)).catch(() => {});
-    load();
-    const id = setInterval(load, 20000);
-    return () => clearInterval(id);
-  }, [token, deviceCap]);
   const refreshAccount = () => axios.get(`${API_BASE}/api/auth/me`).then((r) => setAccount(r.data)).catch(() => {});
   useEffect(() => {
     const id = axios.interceptors.response.use((r) => r, (err) => {
@@ -215,6 +207,14 @@ function App() {
   const [useDevice, setUseDevice] = useState(false);     // "Render on my device (faster, beta)"
   const [queue, setQueue] = useState(null);              // server queue: { busy, wait_seconds }
   const lastDevice = useRef(false);                      // the shown result was drawn on this device (re-renders then do the same)
+  useEffect(() => { deviceCapability().then(setDeviceCap).catch(() => {}); }, []);
+  useEffect(() => {
+    if (!token || !deviceCap?.ok) return undefined;
+    const load = () => axios.get(`${API_BASE}/api/queue`).then((r) => setQueue(r.data)).catch(() => {});
+    load();
+    const id = setInterval(load, 20000);
+    return () => clearInterval(id);
+  }, [token, deviceCap]);
   const [resolution, setResolution] = useState('720'); // output size: 720 renders faster (recommended)
   const [aspect, setAspect] = useState('original'); // output format, chosen BEFORE uploading (like CapCut)
   const [fitMode, setFitMode] = useState('blur');     // 'blur' = whole picture over a blurred copy | 'crop' = fill the frame
