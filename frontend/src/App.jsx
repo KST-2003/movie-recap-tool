@@ -599,7 +599,7 @@ function App() {
                 </span>
                 <span className={`text-sm transition-colors duration-300 ${useDevice ? 'text-emerald-100' : 'text-slate-200'}`}>
                   <span className="font-semibold">{tr('Render on my device (faster, beta)')}</span>
-                  <span className={`block text-xs mt-0.5 transition-colors duration-300 ${useDevice ? 'text-emerald-200/80' : 'text-slate-400'}`}>{tr('Your phone makes the picture, so no waiting for the server. Keep the screen open. If it fails, the server does it.')}</span>
+                  <span className={`block text-xs mt-0.5 transition-colors duration-300 ${useDevice ? 'text-emerald-200/80' : 'text-slate-400'}`}>{tr('Your phone makes the picture. Keep the screen open.')}</span>
                 </span>
               </label>
               {queue?.busy && !useDevice && (
@@ -714,13 +714,11 @@ function App() {
                     <span className="font-semibold text-sm block">{v.name}</span>
                     <span className="text-xs text-purple-300 capitalize">{tr('{gender} Burmese voice', { gender: tr(v.gender) })}</span>
                   </button>
-                  <div className="flex gap-3 mt-2 text-xs">
-                    <button type="button" onClick={() => playSample(v)} className="text-purple-300 hover:text-white">
+                  <div className="flex items-center gap-3 mt-2 text-xs whitespace-nowrap">
+                    <button type="button" onClick={() => playSample(v)} className="text-purple-300 hover:text-white whitespace-nowrap">
                       {playing === v.name ? tr('■ Stop') : tr('▶ Play')}
                     </button>
-                    <a href={`${API_BASE}${v.sample_url}`} download className="text-slate-400 hover:text-white">
-                      {tr('⬇ Download')}
-                    </a>
+                    <a href={`${API_BASE}${v.sample_url}`} download title={tr('⬇ Download')} aria-label={tr('⬇ Download')} className="text-slate-400 hover:text-white">⬇</a>
                   </div>
                 </div>
               ))}

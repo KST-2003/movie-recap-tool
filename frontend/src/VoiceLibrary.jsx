@@ -44,8 +44,8 @@ export default function VoiceLibrary({ voices, looks, selected, playing, onPlay,
             <div key={it.key} className={`p-2 min-w-0 rounded-xl border ${it.kind === 'voice' && selected === it.key ? 'border-purple-500 bg-purple-950/40' : 'border-slate-800 bg-slate-800/50'}`}>
               <div className="font-semibold text-sm break-words leading-snug">{it.kind === 'look' ? tr(it.title) : it.title}</div>
               <div className="text-xs text-slate-400 capitalize break-words leading-snug">{it.sub}</div>
-              <div className="flex flex-wrap gap-x-2 gap-y-1 mt-2 text-xs items-center">
-                <button type="button" onClick={() => onPlay({ name: it.key, sample_url: it.sample_url })} className="text-purple-300 hover:text-white">
+              <div className="flex items-center gap-2 mt-2 text-xs whitespace-nowrap">
+                <button type="button" onClick={() => onPlay({ name: it.key, sample_url: it.sample_url })} className="text-purple-300 hover:text-white whitespace-nowrap">
                   {playing === it.key ? tr('■ Stop') : tr('▶ Play')}
                 </button>
                 <a href={`${apiBase}${it.sample_url}`} download className="text-slate-400 hover:text-white">⬇</a>
