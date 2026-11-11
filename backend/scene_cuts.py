@@ -1,4 +1,5 @@
 """Visual scene-cut detection (ffmpeg). The cut times are given to Gemini as a hint and used to snap segment starts."""
+import os
 import re
 import subprocess
 
@@ -8,7 +9,8 @@ THRESHOLD = 0.35  # 0..1, higher = only hard cuts
 BIG_PIXELS = 1920 * 1080 * 1.2   # above this (4K phone clips) every frame is not worth decoding just to find the cuts
 # Decoding every frame costs about (pixels x seconds). A 10-minute 1080x1912 film took ~5 MINUTES on the capped server CPU (while OCR shared it)
 # and held back the whole job. Past this much work only keyframes are read (x264 puts a keyframe on most hard cuts).
-MAX_DECODE_WORK = 1280 * 720 * 150   # = a 2.5-minute 720p clip, or 70 s of 1080p
+# OFF by default (0): on a synthetic test it found only 11 of 25 cuts, not yet compared on real footage. Set SCENE_CUT_KEYFRAME_WORK=138240000 to turn on (= 2.5 min of 720p or 70 s of 1080p).
+MAX_DECODE_WORK = float(os.getenv("SCENE_CUT_KEYFRAME_WORK", "0"))
 
 
 def _duration(video_path: str) -> float:
@@ -26,7 +28,7 @@ def _skip_args(video_path: str) -> list[str]:
     try:
         from common import display_size
         w, h = display_size(video_path)
-        return ["-skip_frame", "nokey"] if w * h > BIG_PIXELS or w * h * _duration(video_path) > MAX_DECODE_WORK else []
+        return ["-skip_frame", "nokey"] if w * h > BIG_PIXELS or (MAX_DECODE_WORK and w * h * _duration(video_path) > MAX_DECODE_WORK) else []
     except Exception:
         return []
 
