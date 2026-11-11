@@ -154,7 +154,7 @@ const MY = {
   'Colours are approximate': 'အရောင်များမှာ ခန့်မှန်းမှုသာ',
   '▶ Play 5 s (loop)': '▶ ၅ စက္ကန့် ဖွင့်မည် (ထပ်ခါထပ်ခါ)',
   '+ Blur box': '+ မှုန်ဝါးအကွက်',
-  '30 voices to choose from.': 'ရွေးချယ်ရန် အသံ ၃၀။',
+  '30 voices to choose from, with emotion. Uses more of your allowance.': 'အသံ ၃၀ ခုမှ ရွေးနိုင်ပြီး စိတ်ခံစားမှုပါသည်။ သင့်ခွင့်ပြုချက်ကို ပိုသုံးပါသည်။',
   'Tighten long translations to fit each scene': 'ဇာတ်ခန်းတစ်ခုချင်းနှင့် ကိုက်ညီအောင် ရှည်လွန်းသော ဘာသာပြန်ကို တိုစေမည်',
   'Remove logo': 'လိုဂိုကို ဖယ်ရှားမည်',
   'Render on my device (faster, beta)': 'ကျွန်ုပ်၏ စက်ပေါ်တွင် ပြုလုပ်မည် (ပိုမြန်သည်၊ စမ်းသပ်ဆဲ)',

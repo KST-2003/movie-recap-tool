@@ -652,7 +652,7 @@ function App() {
             <div className="rounded-xl border border-slate-800 bg-slate-800/30 p-4 space-y-2">
               <label className="block text-sm font-medium text-slate-300">{tr('Voice quality')}</label>
               <div className="grid gap-2 sm:grid-cols-2">
-                {[['premium', 'High quality', '30 voices to choose from.'],
+                {[['premium', 'High quality', '30 voices to choose from, with emotion. Uses more of your allowance.'],
                   ['standard', 'Standard', 'Two clear Burmese voices (female / male), no emotion. Cheaper and almost always available.']].map(([q, title, text]) => (
                   <button key={q} type="button" onClick={() => { setVoiceQuality(q); if (q === 'standard') { setVoiceType(voiceGender === 'male' ? 'Charon' : 'Kore'); } }}
                     className={`text-left rounded-xl border p-3 ${voiceQuality === q ? 'border-purple-500 bg-purple-950/40' : 'border-slate-700 bg-slate-800/50 hover:bg-slate-800'}`}>
