@@ -34,6 +34,8 @@ ok(c.post("/api/admin/users", headers=A, json={"username": "bob2", "role": "user
 r = c.post("/api/admin/users", headers=S, json={"username": "carol", "role": "admin"})
 ok(r.status_code == 200 and r.json()["role"] == "admin", "superadmin creates admin")
 ok(c.post("/api/admin/users", headers=S, json={"username": "dave1", "role": "superadmin"}).status_code == 400, "superadmin cannot be made in API")
+ok("boss" not in [u["email"] for u in c.get("/api/admin/users?per_page=100", headers=A).json()["items"]], "admin does not see the superadmin in the user list")
+ok(c.get("/api/admin/users?q=boss", headers=A).json()["total"] == 0, "admin cannot find the superadmin by search")
 ids = {u["email"]: u["id"] for u in c.get("/api/admin/users?per_page=100", headers=S).json()["items"]}
 ok(c.patch(f"/api/admin/users/{ids['alice']}", headers=A, json={"role": "admin"}).status_code == 403, "admin cannot promote")
 ok(c.post(f"/api/admin/users/{ids['carol']}/reset-password", headers=A).status_code == 200, "admin can reset another admin's password")

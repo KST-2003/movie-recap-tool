@@ -45,7 +45,8 @@ def params(r):
         return s.get(Job, r.json()["job_id"]).params
 
 
-ok(c.get("/api/voice-quality").json() == {"premium": True, "standard": True}, "standard is offered when Azure is set up")
+vq = c.get("/api/voice-quality").json()
+ok(vq["premium"] is True and vq["standard"] is True and "separation" in vq, "standard is offered when Azure is set up (and the server says whether it can remove original speech)")
 p = params(up())
 ok(p["voice_quality"] == "premium" and p["reserved_model"] == "m1", "default = premium, reserved on a Gemini model")
 p = params(up(voice_quality="standard", mode="full", emotion="true"))

@@ -81,7 +81,7 @@ except RuntimeError as e:
     ok(str(e).startswith("429"), "HTTP 429 raised with the status first (retry logic)")
 
 # cache keys never mix Gemini and Azure clips
-ok(pipeline.clip_voice("Kore", model="azure/neural") == "Kore|azure" and pipeline.clip_voice("Kore", model="a1") == "Kore", "Azure clips get their own cache key")
+ok(pipeline.clip_voice("Kore", model="azure/neural") == "my-MM-NilarNeural|azure" and pipeline.clip_voice("Charon", model="azure/neural") == pipeline.clip_voice("Puck", model="azure/neural") and pipeline.clip_voice("Kore", model="a1") == "Kore", "Azure clips get their own cache key")
 ok(pipeline.clip_name("t", pipeline.clip_voice("Kore", model="azure/neural")) != pipeline.clip_name("t", "Kore"), "different cache names")
 
 # off switches

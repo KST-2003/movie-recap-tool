@@ -190,6 +190,7 @@ function App() {
   const [voiceGender, setVoiceGender] = useState('female');
   const [voiceQuality, setVoiceQuality] = useState('premium'); // 'premium' = Gemini (30 voices, emotion) | 'standard' = Azure (2 voices, cheaper, more usage)
   const [standardOk, setStandardOk] = useState(false);
+  const [separationOk, setSeparationOk] = useState(true);   // can the server remove the original speech (Demucs)? the small server cannot
   const standard = voiceQuality === 'standard' && standardOk;
   const [playing, setPlaying] = useState(null);
   const audioRef = useRef(null);
@@ -197,7 +198,7 @@ function App() {
   useEffect(() => {
     axios.get(`${API_BASE}/api/voices`).then((r) => setVoices(r.data)).catch(() => setVoices([]));
     axios.get(`${API_BASE}/api/looks`).then((r) => setLooks(r.data)).catch(() => setLooks([]));
-    axios.get(`${API_BASE}/api/voice-quality`).then((r) => setStandardOk(!!r.data.standard)).catch(() => setStandardOk(false));
+    axios.get(`${API_BASE}/api/voice-quality`).then((r) => { setStandardOk(!!r.data.standard); setSeparationOk(r.data.separation !== false); if (r.data.separation === false) setBgMode((m) => (m === 'separate' ? 'original' : m)); }).catch(() => setStandardOk(false));
     return () => audioRef.current?.pause();
   }, []);
 
@@ -792,8 +793,8 @@ function App() {
                     <label className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                       <span>{tr('Original music & sounds')}</span>
                       <Select size="sm" className="w-full sm:w-auto min-w-0 sm:max-w-md" value={bgMode} onChange={setBgMode} options={[
-                        { value: 'separate', label: tr('Keep music & sound effects, remove the original speech (recommended)') },
-                        { value: 'original', label: tr('Keep everything, lowered (original speech stays faintly audible)') },
+                        ...(separationOk ? [{ value: 'separate', label: tr('Keep music & sound effects, remove the original speech (recommended)') }] : []),
+                        { value: 'original', label: tr(separationOk ? 'Keep everything, lowered (original speech stays faintly audible)' : 'Keep everything, original sound quiet under the Burmese voice (recommended)') },
                         { value: 'off', label: tr('Remove all original sound') }]} />
                     </label>
                     {!standard && (<label className="flex items-center gap-2 cursor-pointer">

@@ -180,7 +180,9 @@ def clip_voice(voice: str, path: str | None = None, model: str | None = None) ->
     key, so Gemini and Azure clips are never mixed in one video through the cache."""
     import azure_tts
     model = model or (tts_pool.model_of(path) if path else None)
-    return f"{voice}|azure" if azure_tts.is_azure(model) else voice
+    # Azure has two voices: every Gemini voice name maps to Nilar (female) or Thiha (male), so the key uses the AZURE voice
+    # (Puck and Charon lines with the same text are the same clip, and a Standard editor that offers only 2 voices hits the cache).
+    return f"{azure_tts.azure_voice(voice)}|azure" if azure_tts.is_azure(model) else voice
 
 
 def clip_name(text: str, voice: str, style: str | None = None) -> str:
@@ -385,7 +387,10 @@ def voice_many(texts: list[str], paths: list[str], voice, model: dict, job_id: s
                 ok = bulk_tts.synthesize_batch([texts[i] for i in idx], v, [paths[i] for i in idx],
                                                lambda text, path: synthesize(text, v, path, chooser, ladder=False), OUTPUT_DIR, model)
                 if ok:
+                    used_model = chooser.get() if chooser else None   # the cut-out clips never went through gemini_tts: tag them with the model
                     for i in idx:
+                        if used_model:
+                            tts_pool.note_model(paths[i], used_model)   # (else an Azure clip was cached under a Gemini key and every edit re-voiced the film)
                         durs[i] = media_duration(paths[i])
                         storage.put_clip(paths[i], clip_name(texts[i], clip_voice(voices[i], paths[i])))
                     if progress:
@@ -867,7 +872,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
             captions=p["enable_subtitles"],
             background_path=bg_state.get("path") if not duck else bg_path,
             duck_background=duck,
-            background_volume=float(p["bg_volume"]) if p.get("bg_volume") is not None else (0.7 if duck else 0.8),
+            background_volume=float(p["bg_volume"]) if p.get("bg_volume") is not None else (0.3 if duck else 0.8),
             source_audio=(not dub and src_has_audio),
             **fx_kwargs,
         )
@@ -916,7 +921,8 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
             "fx": {"subtitle_rect": list(fx_kwargs["subtitle_rect"]) if fx_kwargs.get("subtitle_rect") else None,
                    "caption_px": fx_kwargs.get("caption_px"),
                    "watermark_rects": [list(r) for r in fx_kwargs.get("watermark_rects", [])],
-                   "subtitle_windows": [list(w) for w in fx_kwargs["subtitle_windows"]] if fx_kwargs.get("subtitle_windows") is not None else None},
+                   "subtitle_windows": [list(w) for w in fx_kwargs["subtitle_windows"]] if fx_kwargs.get("subtitle_windows") is not None else None,
+                   "bg_volume": effects.background_volume, "bg_ducked": bool(duck)},
             "segments": [
                 {"id": i, "start": round(sg["start"], 2), "text": sg["translated_text"],
                  "source_text": sg.get("source_text", ""), "tempo": sg.get("tempo"),

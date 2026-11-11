@@ -137,7 +137,7 @@ def _user_row(u: User, used_seconds: float, month_seconds: float = 0.0, devices:
 
 
 @router.get("/users")
-def list_users(q: str = "", page: int = 1, per_page: int = 25, status: str = ""):
+def list_users(q: str = "", page: int = 1, per_page: int = 25, status: str = "", viewer: User = Depends(require_admin)):
     per_page = min(max(per_page, 1), 100)
     page = max(page, 1)
     if status and status not in USER_STATUSES:
@@ -146,6 +146,8 @@ def list_users(q: str = "", page: int = 1, per_page: int = 25, status: str = "")
     with Session() as s:
         query = select(User)
         count = select(func.count()).select_from(User)
+        if not viewer.is_superadmin:   # the owner account is invisible to admins
+            query, count = query.where(User.is_superadmin.is_(False)), count.where(User.is_superadmin.is_(False))
         if q.strip():
             like = f"%{q.strip().lower()}%"
             query, count = query.where(User.email.like(like)), count.where(User.email.like(like))

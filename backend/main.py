@@ -238,8 +238,9 @@ LOOK_SAMPLES_DIR = "look_samples"
 @app.get("/api/voice-quality")
 def voice_quality_options():
     """Which voice qualities can be chosen: premium (Gemini) always, standard (Azure) only when it is set up."""
+    import audio_tools
     import azure_tts
-    return {"premium": True, "standard": azure_tts.enabled()}
+    return {"premium": True, "standard": azure_tts.enabled(), "separation": audio_tools.separation_available()}
 
 
 @app.get("/api/azure-samples/{gender}.wav")

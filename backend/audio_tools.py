@@ -4,6 +4,12 @@ import subprocess
 import sys
 
 
+def separation_available() -> bool:
+    """Demucs (removes the original speech, keeps music + effects) needs torch; the small production server does not have it."""
+    import importlib.util
+    return importlib.util.find_spec("demucs") is not None
+
+
 def separate_background(video_path: str, work_dir: str, tag: str, timeout: int = 1800) -> str:
     """Return the path of a stereo music+effects track with the original voice removed (Demucs)."""
     work_dir = os.path.abspath(work_dir)

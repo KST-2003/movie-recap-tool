@@ -575,8 +575,9 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
         f.append(f"[bgcat]volume={fx.background_volume:.3f}[bgq]")
         if fx.duck_background:   # the background dips whenever the voice speaks, then comes back
             f.append("[vo]asplit=2[vo1][vo2]")
-            f.append("[bgq][vo1]sidechaincompress=threshold=0.03:ratio=4:attack=20:release=400[bgd]")
-            f.append("[vo2][bgd]amix=inputs=2:normalize=0:duration=first[acat2]")
+            f.append("[bgq][vo1]sidechaincompress=threshold=0.02:ratio=8:attack=15:release=500[bgd]")
+            f.append("[vo2]volume=1.25[vo2l]")   # the Burmese voice a little louder than the (ducked) original
+            f.append("[vo2l][bgd]amix=inputs=2:normalize=0:duration=first,alimiter=limit=0.97[acat2]")
         else:
             f.append("[vo][bgq]amix=inputs=2:normalize=0:duration=first[acat2]")
         acat = "acat2"

@@ -89,6 +89,7 @@ const MY = {
   'Original music & sounds': 'မူလ တေးဂီတနှင့် အသံများ',
   'Keep music & sound effects, remove the original speech (recommended)': 'တေးဂီတနှင့် အသံပြုလွှာများ ထားပြီး မူလစကားပြောကို ဖယ်မည် (အကြံပြုသည်)',
   'Keep everything, lowered (original speech stays faintly audible)': 'အားလုံးကို အသံလျှော့၍ ထားမည် (မူလစကားပြောကို မသဲမကွဲ ကြားရဦးမည်)',
+  'Keep everything, original sound quiet under the Burmese voice (recommended)': 'အားလုံးကို ထားပါ၊ မူရင်းအသံကို မြန်မာအသံအောက်တွင် တိုးတိုးထားမည် (အကြံပြု)',
   'Remove all original sound': 'မူလအသံအားလုံး ဖယ်မည်',
   'Add emotion to the voices (angry, sad, scared…; a few key lines)': 'အသံများတွင် စိတ်ခံစားမှု ထည့်မည် (ဒေါသ၊ ဝမ်းနည်း၊ ကြောက်…၊ အဓိကစာကြောင်းအနည်းငယ်)',
   'Add a soft background tone (optional)': 'နူးညံ့သော နောက်ခံတေးသံ ထည့်မည် (ရွေးချယ်စရာ)',
