@@ -24,7 +24,7 @@ def ok(cond, msg):
         raise SystemExit(1)
 
 with Session() as s:
-    admin = User(email="boss@x.com", password_hash=auth.hash_password("password1"), is_admin=True, daily_minutes=60)
+    admin = User(email="boss@x.com", password_hash=auth.hash_password("password1"), is_admin=True, is_superadmin=True, daily_minutes=60)
     user = User(email="bob@x.com", password_hash=auth.hash_password("password2"), daily_minutes=20)
     s.add_all([admin, user]); s.commit()
     for i, st in enumerate(["done", "error", "running", "queued"]):

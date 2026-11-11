@@ -16,7 +16,7 @@ import capacity
 import usage as usage_log
 from . import settings as runtime_settings
 import storage
-from db import STATUSES as USER_STATUSES, AuditLog, Job, Session, TopupRequest, User, UserDevice, month_start, set_status, update_job, used_seconds_month, used_seconds_today, utcnow
+from db import STATUSES as USER_STATUSES, AuditLog, user_role, Job, Session, TopupRequest, User, UserDevice, month_start, set_status, update_job, used_seconds_month, used_seconds_today, utcnow
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 STATUSES = ("queued", "running", "done", "error", "cancelled")
@@ -31,7 +31,20 @@ def require_admin(user: User = Depends(auth.current_user)) -> User:
     return user
 
 
+def require_superadmin(user: User = Depends(auth.current_user)) -> User:
+    if not (user.is_admin and user.is_superadmin):
+        raise HTTPException(status_code=403, detail="Only the owner (superadmin) can do this.")
+    return user
+
+
+def _guard_target(actor: User, target: User):
+    """Admins manage users and other admins (reset password, devices, limits, status); only the owner's own account is off limits to them."""
+    if target.id != actor.id and target.is_superadmin and not actor.is_superadmin:
+        raise HTTPException(status_code=403, detail="Only the owner (superadmin) can change the owner account.")
+
+
 router = APIRouter(prefix="/api/admin", dependencies=[Depends(require_admin)])
+SUPER = [Depends(require_superadmin)]
 
 
 def _audit(s, admin: User, action: str, target_type: str, target_id, target_label: str | None = None, details: dict | None = None):
@@ -115,7 +128,7 @@ def _user_row(u: User, used_seconds: float, month_seconds: float = 0.0, devices:
     devices = sorted(devices or [], key=lambda d: d.last_seen or d.first_seen, reverse=True)
     last = devices[0] if devices else None
     return {"id": u.id, "email": u.email, "daily_minutes": u.daily_minutes, "monthly_minutes": u.monthly_minutes,
-            "is_admin": u.is_admin, "is_active": u.is_active, "status": u.status, "status_reason": u.status_reason,
+            "is_admin": u.is_admin, "is_superadmin": u.is_superadmin, "role": user_role(u), "is_active": u.is_active, "status": u.status, "status_reason": u.status_reason,
             "device_limit": u.device_limit, "device_count": len(devices), "credit_minutes": round(max(0.0, u.credit_seconds or 0.0) / 60, 1),
             "last_seen": _iso(last.last_seen) if last else None, "last_ip": last.ip if last else None,
             "last_device": last.name if last else None, "last_browser": last.browser if last else None, "last_os": last.os if last else None,
@@ -161,12 +174,18 @@ class NewUser(BaseModel):
     password: str | None = None          # empty = generated
     daily_minutes: int = Field(DEFAULT_DAILY_MINUTES, ge=0, le=100000)
     monthly_minutes: int = Field(DEFAULT_MONTHLY_MINUTES, ge=0, le=3000000)
-    is_admin: bool = False
+    is_admin: bool = False               # older name of role == "admin"
+    role: str | None = None              # "user" | "admin" (superadmin cannot be created here)
     device_limit: int = Field(1, ge=0, le=20)   # 1 = one device only, 0 = any number of devices (the admin chooses per account)
 
 
 @router.post("/users")
 def create_user(body: NewUser, admin: User = Depends(require_admin)):
+    role = body.role or ("admin" if body.is_admin else "user")
+    if role not in ("user", "admin"):
+        raise HTTPException(status_code=400, detail="Role must be user or admin.")
+    if role == "admin" and not admin.is_superadmin:
+        raise HTTPException(status_code=403, detail="Only the owner (superadmin) can create admins.")
     password = body.password or make_password()
     if len(password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
@@ -177,7 +196,7 @@ def create_user(body: NewUser, admin: User = Depends(require_admin)):
         if s.execute(select(User).where(User.email == name)).scalar_one_or_none():
             raise HTTPException(status_code=409, detail="That username is already taken.")
         user = User(email=name, password_hash=auth.hash_password(password), daily_minutes=body.daily_minutes, monthly_minutes=body.monthly_minutes,
-                    is_admin=body.is_admin, device_limit=body.device_limit)
+                    is_admin=role == "admin", device_limit=body.device_limit)
         s.add(user)
         s.flush()
         _audit(s, admin, "user.create", "user", user.id, user.email, {"daily_minutes": user.daily_minutes, "monthly_minutes": user.monthly_minutes,
@@ -193,7 +212,8 @@ class UserPatch(BaseModel):
     status: str | None = None                # active | paused | deactivated | banned
     status_reason: str | None = Field(None, max_length=300)
     device_limit: int | None = Field(None, ge=0, le=20)
-    is_admin: bool | None = None
+    is_admin: bool | None = None         # older name of role
+    role: str | None = None              # "user" | "admin"
     password: str | None = None
 
 
@@ -202,8 +222,13 @@ def patch_user(user_id: int, body: UserPatch, admin: User = Depends(require_admi
     new_status = body.status or (None if body.is_active is None else ("active" if body.is_active else "deactivated"))
     if new_status is not None and new_status not in USER_STATUSES:
         raise HTTPException(status_code=400, detail="Unknown status.")
-    if user_id == admin.id and (new_status not in (None, "active") or body.is_admin is False):
+    if body.role is not None and body.role not in ("user", "admin"):
+        raise HTTPException(status_code=400, detail="Role must be user or admin.")
+    new_admin = (body.role == "admin") if body.role is not None else body.is_admin
+    if user_id == admin.id and (new_status not in (None, "active") or new_admin is False):
         raise HTTPException(status_code=400, detail="You cannot disable or demote your own account.")
+    if new_admin is not None and not admin.is_superadmin:
+        raise HTTPException(status_code=403, detail="Only the owner (superadmin) can change roles.")
     if body.password is not None and len(body.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
     cancel = []
@@ -211,7 +236,11 @@ def patch_user(user_id: int, body: UserPatch, admin: User = Depends(require_admi
         user = s.get(User, user_id)
         if user is None:
             raise HTTPException(status_code=404, detail="Unknown user")
+        _guard_target(admin, user)
+        if new_admin is False and user.is_superadmin:
+            raise HTTPException(status_code=400, detail="The superadmin role cannot be removed here.")
         changes = {}
+        body.is_admin = new_admin
         for field in ("daily_minutes", "monthly_minutes", "is_admin", "device_limit"):
             new = getattr(body, field)
             if new is not None and new != getattr(user, field):
@@ -246,6 +275,7 @@ def reset_password(user_id: int, admin: User = Depends(require_admin)):
         user = s.get(User, user_id)
         if user is None:
             raise HTTPException(status_code=404, detail="Unknown user")
+        _guard_target(admin, user)
         password = make_password()
         user.password_hash = auth.hash_password(password)
         _audit(s, admin, "user.update", "user", user.id, user.email, {"password_reset": True})
@@ -269,6 +299,7 @@ def remove_device(user_id: int, device_pk: int, admin: User = Depends(require_ad
         user, d = s.get(User, user_id), s.get(UserDevice, device_pk)
         if user is None or d is None or d.user_id != user_id:
             raise HTTPException(status_code=404, detail="Unknown device")
+        _guard_target(admin, user)
         _audit(s, admin, "user.device", "user", user.id, user.email, {"removed": d.name, "ip": d.ip})
         s.delete(d)
         s.commit()
@@ -281,6 +312,7 @@ def remove_all_devices(user_id: int, admin: User = Depends(require_admin)):
         user = s.get(User, user_id)
         if user is None:
             raise HTTPException(status_code=404, detail="Unknown user")
+        _guard_target(admin, user)
         rows = s.execute(select(UserDevice).where(UserDevice.user_id == user_id)).scalars().all()
         for d in rows:
             s.delete(d)
@@ -415,7 +447,7 @@ def _settings_view() -> dict:
             "prices": usage_log.prices(), "storage": storage.disk_usage() if storage.BACKEND == "local" else None}
 
 
-@router.get("/costs")
+@router.get("/costs", dependencies=SUPER)
 def costs():
     """Real cost from token counts: per model (last 30 days), per recent video, the measured THB per video minute, and the price table."""
     since = utcnow() - timedelta(days=30)
@@ -451,7 +483,7 @@ def costs():
             "configured_cost_per_minute": runtime_settings.cost_per_minute_thb(), "total_thb_30d": round(sum(m["thb"] for m in models), 2)}
 
 
-@router.get("/settings")
+@router.get("/settings", dependencies=SUPER)
 def get_settings():
     return _settings_view()
 
@@ -480,7 +512,7 @@ def _check_prices(prices: dict):
             raise HTTPException(status_code=400, detail="Prices must be USD per 1M tokens between 0 and 1000.")
 
 
-@router.put("/settings")
+@router.put("/settings", dependencies=SUPER)
 def put_settings(body: SettingsPatch, admin: User = Depends(require_admin)):
     before = _settings_view()
     wanted = {k: v for k, v in body.model_dump().items() if v is not None}
@@ -503,7 +535,7 @@ def put_settings(body: SettingsPatch, admin: User = Depends(require_admin)):
 
 # ---------- pay as you go: pricing, payment QR, slips, credit ----------
 
-@router.get("/pricing")
+@router.get("/pricing", dependencies=SUPER)
 def pricing():
     """How the price per minute compares with what a video minute really costs us (measured, else the configured estimate)."""
     import topup
@@ -516,7 +548,7 @@ def pricing():
             "margin_percent": margin, "payment_note": runtime_settings.payment_note(), "qr_url": topup.link(runtime_settings.payment_qr_file())}
 
 
-@router.post("/payment-qr")
+@router.post("/payment-qr", dependencies=SUPER)
 def upload_qr(file: UploadFile = File(...), admin: User = Depends(require_admin)):
     import os
     import uuid
@@ -539,7 +571,7 @@ def upload_qr(file: UploadFile = File(...), admin: User = Depends(require_admin)
     return pricing()
 
 
-@router.delete("/payment-qr")
+@router.delete("/payment-qr", dependencies=SUPER)
 def delete_qr(admin: User = Depends(require_admin)):
     import os
     from config import DATA_DIR

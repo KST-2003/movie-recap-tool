@@ -34,7 +34,7 @@ def ok(cond, msg):
 with Session() as s:
     for i in range(24):
         s.add(User(email=f"u{i}@x.com", password_hash=auth.hash_password("password1"), daily_minutes=1000, monthly_minutes=100000,
-                   is_admin=(i == 0)))
+                   is_admin=(i == 0), is_superadmin=(i == 0)))
     s.commit()
 tokens = {}
 c0 = TestClient(main.app)

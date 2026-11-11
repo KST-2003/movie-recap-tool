@@ -69,8 +69,8 @@ ok(usage.cost_thb({"cloud/gemini-2.5-flash-tts": {"in": 10, "audio_out": 100, "e
 S.update(budget_thb=100.0, budget_enabled=True, cost_per_minute_thb=1.0, min_free_minutes=30.0)   # (counts what is used from now on)
 import time; time.sleep(0.01)
 with Session() as s:
-    admin = User(email="boss@x.com", password_hash=auth.hash_password("password1"), is_admin=True, plan=None) if False else User(
-        email="boss@x.com", password_hash=auth.hash_password("password1"), is_admin=True, daily_minutes=1000, monthly_minutes=100000)
+    admin = User(email="boss@x.com", password_hash=auth.hash_password("password1"), is_admin=True, is_superadmin=True, plan=None) if False else User(
+        email="boss@x.com", password_hash=auth.hash_password("password1"), is_admin=True, is_superadmin=True, daily_minutes=1000, monthly_minutes=100000)
     s.add(admin); s.commit(); uid = admin.id
     for i in range(1, 6):
         s.add(Job(id=f"d{i}", user_id=uid, status="done", params={}, data={}, charged_seconds=600.0, created_at=utcnow()))
@@ -97,7 +97,7 @@ ok(abs(b["spent_thb"] - round(10 + c1 + 2.0, 1)) < 0.11 and b["videos_priced_fro
 ok(b["cost_per_minute_measured"] == 0.2 and b["available_minutes"] > 400, f"free budget in minutes uses the measured cost: {b['available_minutes']} min")
 
 # 7. admin: costs, prices, audit
-tok = auth.make_token(User(id=uid, email="boss@x.com", password_hash="x", is_admin=True)) if False else None
+tok = auth.make_token(User(id=uid, email="boss@x.com", password_hash="x", is_admin=True, is_superadmin=True)) if False else None
 with Session() as s:
     tok = auth.make_token(s.get(User, uid))
 c = TestClient(app)

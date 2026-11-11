@@ -1,5 +1,6 @@
 """Admin commands:
-  python manage.py create-user EMAIL PASSWORD [--minutes N] [--monthly N] [--admin]
+  python manage.py create-user EMAIL PASSWORD [--minutes N] [--monthly N] [--admin | --superadmin]
+  python manage.py set-role EMAIL user|admin|superadmin   # the only way to make a superadmin (the dashboard cannot)
   python manage.py set-minutes EMAIL N        # daily allowance
   python manage.py set-monthly EMAIL N        # monthly allowance
   python manage.py set-budget THB             # what is left in the Google billing account (turns the money gate on); 'off' turns it off
@@ -26,7 +27,7 @@ def main(argv):
             email, password = args[0].lower(), args[1]
             minutes = int(args[args.index("--minutes") + 1]) if "--minutes" in args else DEFAULT_DAILY_MINUTES
             monthly = int(args[args.index("--monthly") + 1]) if "--monthly" in args else DEFAULT_MONTHLY_MINUTES
-            s.add(User(email=email, password_hash=auth.hash_password(password), daily_minutes=minutes, monthly_minutes=monthly, is_admin="--admin" in args))
+            s.add(User(email=email, password_hash=auth.hash_password(password), daily_minutes=minutes, monthly_minutes=monthly, is_admin="--admin" in args or "--superadmin" in args, is_superadmin="--superadmin" in args))
             s.commit()
             print(f"created {email} ({minutes} min/day, {monthly} min/month)")
         elif cmd in ("set-minutes", "set-monthly", "deactivate", "activate"):
@@ -42,6 +43,15 @@ def main(argv):
                 user.is_active = cmd == "activate"
             s.commit()
             print("ok")
+        elif cmd == "set-role":
+            user = s.execute(select(User).where(User.email == args[0].lower())).scalar_one_or_none()
+            if not user or len(args) < 2 or args[1] not in ("user", "admin", "superadmin"):
+                print("usage: set-role EMAIL user|admin|superadmin (user must exist)")
+                return 1
+            user.is_admin = args[1] in ("admin", "superadmin")
+            user.is_superadmin = args[1] == "superadmin"
+            s.commit()
+            print(f"{user.email} is now {args[1]}")
         elif cmd == "set-budget":
             from admin import settings as S
             if args[0] == "off":
@@ -53,7 +63,7 @@ def main(argv):
             for u in s.execute(select(User).order_by(User.id)).scalars():
                 print(f"{u.id:>4} {u.email:<35} {u.daily_minutes:>4} min/day  used today {used_seconds_today(s, u.id) / 60:5.1f} min"
                       f"  | {u.monthly_minutes:>5} min/month  used {used_seconds_month(s, u.id) / 60:6.1f}"
-                      f"{'  admin' if u.is_admin else ''}{'' if u.is_active else '  DISABLED'}")
+                      f"{'  superadmin' if u.is_superadmin else '  admin' if u.is_admin else ''}{'' if u.is_active else '  DISABLED'}")
         elif cmd == "cleanup":
             print(f"removed {storage.cleanup()} file(s)")
         else:

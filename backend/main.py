@@ -26,7 +26,7 @@ import looks
 import storage
 import topup
 from common import media_duration, tts_provider
-from db import Job, Session, User, active_jobs, month_start, refund_credit, used_seconds_month, used_seconds_today, utcnow
+from db import Job, Session, User, active_jobs, month_start, refund_credit, user_role, used_seconds_month, used_seconds_today, utcnow
 from voices import VOICES, VOICE_NAMES
 
 import logging
@@ -160,12 +160,12 @@ def login(body: Credentials, request: Request):
         device_id = auth.clean_device_id(body.device_id)
         auth.register_device(s, user, device_id, request)   # may refuse: this login is limited to N devices
         s.commit()
-    return {"token": auth.make_token(user, device_id), "device_id": device_id, "email": user.email, "is_admin": user.is_admin, **_quota(user)}
+    return {"token": auth.make_token(user, device_id), "device_id": device_id, "email": user.email, "is_admin": user.is_admin, "is_superadmin": user.is_superadmin, "role": user_role(user), **_quota(user)}
 
 
 @app.get("/api/auth/me")
 def me(user: User = Depends(auth.current_user)):
-    return {"id": user.id, "email": user.email, "is_admin": user.is_admin, **_quota(user)}
+    return {"id": user.id, "email": user.email, "is_admin": user.is_admin, "is_superadmin": user.is_superadmin, "role": user_role(user), **_quota(user)}
 
 
 @app.get("/api/usage")

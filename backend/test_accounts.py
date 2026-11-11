@@ -34,7 +34,7 @@ ok(auth.parse_ua(CHROME_WIN) == ("Chrome", "Windows") and auth.parse_ua(SAFARI_I
    and auth.parse_ua(CHROME_IOS) == ("Chrome", "iPhone") and auth.parse_ua(EDGE) == ("Edge", "Windows"), "browser + system from the User-Agent")
 
 with Session() as s:
-    s.add(User(email="boss", password_hash=auth.hash_password("bosspass1"), is_admin=True)); s.commit()
+    s.add(User(email="boss", password_hash=auth.hash_password("bosspass1"), is_admin=True, is_superadmin=True)); s.commit()
     boss_id = s.query(User).filter_by(email="boss").one().id
 adm = c.post("/api/auth/login", json={"email": "boss", "password": "bosspass1"}).json()
 H = lambda t: {"Authorization": f"Bearer {t}"}  # noqa: E731

@@ -26,7 +26,7 @@ def ok(cond, msg):
 
 
 with Session() as s:
-    s.add(User(email="boss", password_hash="x", is_admin=True))
+    s.add(User(email="boss", password_hash="x", is_admin=True, is_superadmin=True))
     s.add(User(email="amy", password_hash="x", daily_minutes=15, monthly_minutes=1000))
     s.commit()
     A = {"Authorization": f"Bearer {auth.make_token(s.query(User).filter_by(email='boss').one())}"}

@@ -24,13 +24,19 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     daily_minutes = Column(Integer, default=DEFAULT_DAILY_MINUTES, nullable=False)
     monthly_minutes = Column(Integer, default=DEFAULT_MONTHLY_MINUTES, nullable=False)
-    is_admin = Column(Boolean, default=False, nullable=False)
+    is_admin = Column(Boolean, default=False, nullable=False)       # can open the admin dashboard (admin AND superadmin)
+    is_superadmin = Column(Boolean, default=False, nullable=False)  # the owner: also settings, prices, payment QR, roles (always has is_admin too)
     is_active = Column(Boolean, default=True, nullable=False)   # always == (status == "active"): kept for older code
     status = Column(String(16), default="active", nullable=False)   # active | paused | deactivated | banned
     status_reason = Column(String(300))                              # shown to the owner only
     credit_seconds = Column(Float, default=0.0, nullable=False)     # BOUGHT video seconds (top-ups): used only after the daily / monthly allowance is used up
     device_limit = Column(Integer, default=0, nullable=False)       # how many different devices may use the login; 0 = any number
     created_at = Column(DateTime(timezone=True), default=utcnow)
+
+
+def user_role(user: "User") -> str:
+    """superadmin (owner) > admin (dashboard without settings) > user."""
+    return "superadmin" if user.is_superadmin else "admin" if user.is_admin else "user"
 
 
 STATUSES = ("active", "paused", "deactivated", "banned")
@@ -115,7 +121,8 @@ if "monthly_minutes" not in {c["name"] for c in inspect(engine).get_columns("use
         _conn.execute(text(f"ALTER TABLE users ADD COLUMN monthly_minutes INTEGER NOT NULL DEFAULT {int(DEFAULT_MONTHLY_MINUTES)}"))
 
 _user_cols = {c["name"] for c in inspect(engine).get_columns("users")}
-for _col, _ddl in (("status", "status VARCHAR(16) NOT NULL DEFAULT 'active'"), ("status_reason", "status_reason VARCHAR(300)"),
+for _col, _ddl in (("is_superadmin", "is_superadmin BOOLEAN NOT NULL DEFAULT 0" if DATABASE_URL.startswith("sqlite") else "is_superadmin BOOLEAN NOT NULL DEFAULT FALSE"),
+                   ("status", "status VARCHAR(16) NOT NULL DEFAULT 'active'"), ("status_reason", "status_reason VARCHAR(300)"),
                    ("device_limit", "device_limit INTEGER NOT NULL DEFAULT 0")):
     if _col not in _user_cols:
         with engine.begin() as _conn:

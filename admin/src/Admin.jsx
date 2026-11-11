@@ -25,15 +25,17 @@ const NAV = [
   { id: 'jobs', label: 'Jobs', icon: ListVideo },
   { id: 'tts', label: 'Voice models', icon: Mic },
   { id: 'audit', label: 'Audit log', icon: ScrollText },
-  { id: 'settings', label: 'Settings', icon: SettingsIcon },
+  { id: 'settings', label: 'Settings', icon: SettingsIcon, superOnly: true },
 ];
 
 
 export default function Admin({ account, onLogout }) {
   const { tr } = useI18n();
+  const superadmin = !!account?.is_superadmin;   // the API enforces it; this only hides what the account cannot use
+  const pages = NAV.filter((n) => !n.superOnly || superadmin);
   const [page, setPage] = useState(() => {
     const p = location.hash.slice(1);
-    return NAV.some((n) => n.id === p) ? p : 'overview';
+    return pages.some((n) => n.id === p) ? p : 'overview';
   });
   const [drawer, setDrawer] = useState(false);
   const [userFilter, setUserFilter] = useState(null);
@@ -41,12 +43,12 @@ export default function Admin({ account, onLogout }) {
   const pending = ov?.topups_pending || 0;
 
   useEffect(() => { location.hash = page; }, [page]);
-  const go = (id) => { setPage(id); setDrawer(false); if (id !== 'jobs') setUserFilter(null); window.scrollTo(0, 0); };
+  const go = (id) => { if (!pages.some((n) => n.id === id)) return; setPage(id); setDrawer(false); if (id !== 'jobs') setUserFilter(null); window.scrollTo(0, 0); };
   const title = tr(NAV.find((n) => n.id === page)?.label || 'Admin');
 
   const nav = (
     <nav className="space-y-1">
-      {NAV.map(({ id, label, icon: Icon }) => (
+      {pages.map(({ id, label, icon: Icon }) => (
         <button key={id} onClick={() => go(id)}
           className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm ${page === id ? 'bg-purple-600/20 text-purple-200' : 'text-slate-300 hover:bg-slate-800'}`}>
           <Icon size={18} />{tr(label)}{id === 'topups' && pending > 0 && <span className="ml-auto rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-semibold text-slate-900">{pending}</span>}
@@ -88,12 +90,12 @@ export default function Admin({ account, onLogout }) {
         </header>
         <main className="mx-auto max-w-6xl p-4 pb-16 md:p-6">
           {page === 'overview' && <OverviewPage go={go} />}
-          {page === 'users' && <UsersPage me={account.id} openJobsFor={(u) => { setUserFilter(u); setPage('jobs'); }} />}
+          {page === 'users' && <UsersPage me={account.id} superadmin={superadmin} openJobsFor={(u) => { setUserFilter(u); setPage('jobs'); }} />}
           {page === 'topups' && <TopupsPage onChanged={reloadOv} />}
           {page === 'jobs' && <JobsPage userFilter={userFilter} clearUser={() => setUserFilter(null)} />}
           {page === 'tts' && <TtsPage />}
           {page === 'audit' && <AuditPage />}
-          {page === 'settings' && <SettingsPage />}
+          {page === 'settings' && superadmin && <SettingsPage />}
         </main>
       </div>
     </div>

@@ -57,20 +57,36 @@ const DevicePolicy = ({ value, onChange }) => {
   );
 };
 
-function CreateForm({ defaultMinutes, defaultMonthly, onClose, onCreated }) {
+function RolePicker({ value, onChange, disabled, note }) {
+  const { tr } = useI18n();
+  return (
+    <div>
+      <p className="mb-1.5 text-xs text-slate-400">{tr('Role')}</p>
+      <div className="grid grid-cols-2 gap-2">
+        {['user', 'admin'].map((r) => (
+          <button type="button" key={r} disabled={disabled} onClick={() => onChange(r)}
+            className={`rounded-xl border px-2 py-2 text-sm disabled:opacity-50 ${value === r ? 'border-purple-500 bg-purple-600/30 text-white' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`}>{tr(r === 'user' ? 'User' : 'Admin')}</button>
+        ))}
+      </div>
+      <p className="mt-1.5 text-xs text-slate-500">{note || tr('Admin: can use the dashboard (users, jobs, top-ups, voice models, audit log) but not Settings.')}</p>
+    </div>
+  );
+}
+
+function CreateForm({ defaultMinutes, defaultMonthly, superadmin, onClose, onCreated }) {
   const { tr, trs } = useI18n();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [minutes, setMinutes] = useState(defaultMinutes ?? 100);
   const [monthly, setMonthly] = useState(defaultMonthly ?? 2000);
   const [devices, setDevices] = useState(1);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [role, setRole] = useState('user');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const save = async (e) => {
     e.preventDefault(); setBusy(true); setError('');
     try {
-      const { data } = await axios.post('/api/admin/users', { username: username.trim() || null, password: password || null, daily_minutes: Number(minutes), monthly_minutes: Number(monthly), device_limit: devices, is_admin: isAdmin });
+      const { data } = await axios.post('/api/admin/users', { username: username.trim() || null, password: password || null, daily_minutes: Number(minutes), monthly_minutes: Number(monthly), device_limit: devices, role });
       onCreated(data);
     } catch (err) { setError(errText(err)); setBusy(false); }
   };
@@ -82,7 +98,7 @@ function CreateForm({ defaultMinutes, defaultMonthly, onClose, onCreated }) {
         <DevicePolicy value={devices} onChange={setDevices} />
         <label className="block text-xs text-slate-400">{tr('Daily minutes')}<input className={`${field} mt-1`} type="number" min="0" value={minutes} onChange={(e) => setMinutes(e.target.value)} required /></label>
         <label className="block text-xs text-slate-400">{tr('Monthly minutes')}<input className={`${field} mt-1`} type="number" min="0" value={monthly} onChange={(e) => setMonthly(e.target.value)} required /></label>
-        <div className="flex items-center justify-between rounded-xl bg-slate-800/60 px-3 py-2 text-sm"><span>{tr('Admin')}</span><Toggle checked={isAdmin} onChange={setIsAdmin} /></div>
+        {superadmin && <RolePicker value={role} onChange={setRole} />}
         {error && <p className="text-sm text-red-400">{trs(error)}</p>}
         <div className="flex justify-end gap-2 pt-1">
           <button type="button" className={btnGhost} onClick={onClose}>{tr('Cancel')}</button>
@@ -93,7 +109,7 @@ function CreateForm({ defaultMinutes, defaultMonthly, onClose, onCreated }) {
   );
 }
 
-function EditSheet({ user, me, onClose, onSaved, onCredentials }) {
+function EditSheet({ user, me, superadmin, onClose, onSaved, onCredentials }) {
   const { tr, trs } = useI18n();
   const self = user.id === me;
   const [minutes, setMinutes] = useState(user.daily_minutes);
@@ -101,7 +117,8 @@ function EditSheet({ user, me, onClose, onSaved, onCredentials }) {
   const [status, setStatus] = useState(user.status || 'active');
   const [reason, setReason] = useState(user.status_reason || '');
   const [devices, setDevices] = useState(user.device_limit);
-  const [isAdmin, setIsAdmin] = useState(user.is_admin);
+  const [role, setRole] = useState(user.is_admin ? 'admin' : 'user');
+  const locked = !superadmin && user.is_superadmin && !self;   // only the owner can change the owner account
   const [list, setList] = useState(null);
   const [credit, setCredit] = useState(user.credit_minutes || 0);
   const [addMin, setAddMin] = useState('');
@@ -112,7 +129,7 @@ function EditSheet({ user, me, onClose, onSaved, onCredentials }) {
 
   const run = async (fn) => { setBusy(true); setError(''); try { await fn(); } catch (err) { setError(errText(err)); } finally { setBusy(false); } };
   const save = (e) => { e.preventDefault(); run(async () => {
-    await axios.patch(`/api/admin/users/${user.id}`, { daily_minutes: Number(minutes), monthly_minutes: Number(monthly), status, status_reason: status === 'active' ? '' : reason, device_limit: devices, is_admin: isAdmin });
+    await axios.patch(`/api/admin/users/${user.id}`, { daily_minutes: Number(minutes), monthly_minutes: Number(monthly), status, status_reason: status === 'active' ? '' : reason, device_limit: devices, ...(superadmin && !user.is_superadmin ? { role } : {}) });
     onSaved();
   }); };
   const regenerate = () => { if (!window.confirm(tr('Make a new password? The old one stops working and the user is signed out everywhere.'))) return; run(async () => {
@@ -139,7 +156,10 @@ function EditSheet({ user, me, onClose, onSaved, onCredentials }) {
         <DevicePolicy value={devices} onChange={setDevices} />
         <label className="block text-xs text-slate-400">{tr('Daily minutes')}<input className={`${field} mt-1`} type="number" min="0" value={minutes} onChange={(e) => setMinutes(e.target.value)} required /></label>
         <label className="block text-xs text-slate-400">{tr('Monthly minutes')}<input className={`${field} mt-1`} type="number" min="0" value={monthly} onChange={(e) => setMonthly(e.target.value)} required /></label>
-        <div className="flex items-center justify-between rounded-xl bg-slate-800/60 px-3 py-2 text-sm"><span>{tr('Admin')}</span><Toggle checked={isAdmin} onChange={setIsAdmin} disabled={self} /></div>
+        {user.is_superadmin
+          ? <p className="rounded-xl bg-purple-500/10 px-3 py-2 text-xs text-purple-200">{tr('Superadmin (owner): sees everything, including Settings.')}</p>
+          : superadmin && <RolePicker value={role} onChange={setRole} disabled={self} />}
+        {locked && <p className="rounded-xl bg-amber-500/10 px-3 py-2 text-xs text-amber-200">{tr('Only the owner (superadmin) can change the owner account.')}</p>}
         {self && <p className="text-xs text-slate-500">{tr('You cannot disable or demote your own account.')}</p>}
 
         <div className="rounded-xl border border-slate-800 p-3">
@@ -180,7 +200,7 @@ function EditSheet({ user, me, onClose, onSaved, onCredentials }) {
 
 const FILTERS = ['', 'active', 'paused', 'deactivated', 'banned'];
 
-export default function UsersPage({ me, openJobsFor }) {
+export default function UsersPage({ me, superadmin, openJobsFor }) {
   const { tr } = useI18n();
   const [q, setQ] = useState('');
   const [query, setQuery] = useState('');
@@ -200,7 +220,7 @@ export default function UsersPage({ me, openJobsFor }) {
   const devLabel = (u) => (u.last_device ? `${u.last_device}` : tr('Never logged in'));
   const limitLabel = (u) => `${u.device_count} / ${u.device_limit === 0 ? tr('any') : u.device_limit}`;
   const Tags = ({ u }) => (<>
-    {u.is_admin && <span className="inline-flex items-center gap-1 rounded-full bg-purple-500/15 px-2 py-0.5 text-[11px] text-purple-300"><ShieldCheck size={11} />{tr('admin')}</span>}
+    {u.is_admin && <span className="inline-flex items-center gap-1 rounded-full bg-purple-500/15 px-2 py-0.5 text-[11px] text-purple-300"><ShieldCheck size={11} />{tr(u.is_superadmin ? 'superadmin' : 'admin')}</span>}
     {u.status !== 'active' && <StatusChip status={u.status} />}
   </>);
 
@@ -264,9 +284,9 @@ export default function UsersPage({ me, openJobsFor }) {
         {!items.length && <p className="p-6 text-center text-sm text-slate-500">{loading ? tr('Loading…') : tr('No users found.')}</p>}
       </Card>
       {data && <Pager page={data.page} perPage={data.per_page} total={data.total} onPage={setPage} />}
-      {editing === null && <CreateForm defaultMinutes={data?.default_daily_minutes} defaultMonthly={data?.default_monthly_minutes} onClose={() => setEditing(undefined)}
+      {editing === null && <CreateForm superadmin={superadmin} defaultMinutes={data?.default_daily_minutes} defaultMonthly={data?.default_monthly_minutes} onClose={() => setEditing(undefined)}
         onCreated={(u) => { setEditing(undefined); setCreds({ username: u.email, password: u.password }); reload(); }} />}
-      {editing && <EditSheet key={editing.id} user={editing} me={me} onClose={() => setEditing(undefined)} onSaved={() => { setEditing(undefined); reload(); }}
+      {editing && <EditSheet key={editing.id} user={editing} me={me} superadmin={superadmin} onClose={() => setEditing(undefined)} onSaved={() => { setEditing(undefined); reload(); }}
         onCredentials={(c) => { setEditing(undefined); setCreds(c); reload(); }} />}
       {creds && <Credentials username={creds.username} password={creds.password} onClose={() => setCreds(null)} />}
     </div>

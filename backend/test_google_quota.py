@@ -113,7 +113,7 @@ gq.clear_cache()
 gq._get_json = fake_get
 gq._list_models = lambda: {M: {"input_token_limit": 8192, "output_token_limit": 16384, "actions": ["generateContent"]}}
 with Session() as s:
-    s.add(User(email="boss@x.com", password_hash=auth.hash_password("password1"), is_admin=True))
+    s.add(User(email="boss@x.com", password_hash=auth.hash_password("password1"), is_admin=True, is_superadmin=True))
     s.commit()
 client = TestClient(app)
 tok = client.post("/api/auth/login", json={"email": "boss@x.com", "password": "password1"}).json()["token"]
