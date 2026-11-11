@@ -156,7 +156,15 @@ def update_job(job_id: str, **fields) -> bool:
             data["stages"] = (data.get("stages") or [])[-59:] + [{"stage": fields["stage"], "progress": fields.get("progress", job.progress), "at": now}]
         if fields.get("status") == "error":
             data["failed_stage"] = {"stage": prev_stage, "progress": prev_progress, "at": now}
-        if extra or "stages" in data or "failed_stage" in data:
+        try:   # the video's console log (joblog.py): saved at most every 5 s, always when the video ends
+            import joblog
+            ended = fields.get("status") in ("done", "error", "cancelled")
+            lines = joblog.pending(job_id, force=ended)
+            if lines is not None:
+                data["log"] = lines
+        except Exception:
+            pass
+        if extra or "stages" in data or "failed_stage" in data or "log" in data:
             job.data = {**data, **extra}
         if fields.get("status") in ("done", "error", "cancelled"):
             job.finished_at = utcnow()
@@ -165,6 +173,19 @@ def update_job(job_id: str, **fields) -> bool:
             refund_credit(s, job)
         s.commit()
         return True
+
+
+def save_log(job_id: str) -> None:
+    """Save the video's console log now (called when a video ends, after its last lines were printed)."""
+    import joblog
+    lines = joblog.pending(job_id, force=True)
+    if lines is not None:
+        with Session() as s:
+            job = s.get(Job, job_id)
+            if job is not None:
+                job.data = {**(job.data or {}), "log": lines}
+                s.commit()
+    joblog.forget(job_id)
 
 
 def refund_credit(s, job: "Job") -> None:

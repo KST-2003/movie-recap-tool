@@ -1,13 +1,20 @@
-import { capabilityTest, renderOnDevice } from './deviceRender.js';
+import { capabilityTest, renderOnDevice, speedLab } from './deviceRender.js';
 const $ = (id) => document.getElementById(id), out = $('out');
+const retry = async (fn) => { try { return await fn(); } catch (e) { out.textContent = 'First try failed (' + (e && e.message || e) + '), trying again…'; return await fn(); } };   // the first run after picking a file sometimes fails on iPhone
 const show = (o) => { out.textContent = typeof o === 'string' ? o : JSON.stringify(o, null, 2); if (new URLSearchParams(location.search).get('src')) document.title = typeof o === 'string' ? o : JSON.stringify(o); };
 $('cap').onclick = async () => { show('Testing…'); try { show(await capabilityTest()); } catch (e) { show('Failed: ' + e.message); } };
+$('lab').onclick = async () => {
+  const f = $('file').files[0];
+  if (!f) return show('Pick a video first.');
+  $('lab').disabled = true;
+  try { const lines = []; const res = await retry(() => speedLab(f, 15, (t) => { lines.push(t); out.textContent = lines.join('\n'); })); show(res); } catch (e) { show('Failed: ' + (e && e.message || e)); } finally { $('lab').disabled = false; }
+};
 $('go').onclick = async () => {
   const f = $('file').files[0];
   if (!f) return show('Pick a video first.');
   $('go').disabled = true; show('Rendering…');
   try {
-    const { blob, stats } = await renderOnDevice(f, { onProgress: (p, t) => { $('bar').value = p; out.textContent = `${Math.round(p * 100)}%  ${t}`; } });
+    const { blob, stats } = await retry(() => renderOnDevice(f, { onProgress: (p, t) => { $('bar').value = p; out.textContent = `${Math.round(p * 100)}%  ${t}`; } }));
     $('bar').value = 1; show(stats);
     const url = URL.createObjectURL(blob);
     $('vid').src = url; $('vid').hidden = false; $('dl').href = url; $('dl').hidden = false;
@@ -27,4 +34,9 @@ if (srcParam) {
       window.__result = { cap, stats }; show(window.__result);
     } catch (e) { window.__result = { error: String(e && e.message || e) }; show(window.__result); }
   })();
+}
+
+if (new URLSearchParams(location.search).get('lab')) {   // test helper: /device-test.html?lab=/clip.mp4 runs the speed lab at once
+  (async () => { try { const blob = await (await fetch(new URLSearchParams(location.search).get('lab'))).blob();
+    const res = await speedLab(new File([blob], 'clip.mp4', { type: blob.type }), 15); document.title = JSON.stringify(res); show(res); } catch (e) { document.title = 'error ' + e; } })();
 }

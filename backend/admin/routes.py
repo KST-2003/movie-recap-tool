@@ -338,7 +338,7 @@ def job_detail(job_id: str):
         return {
             "id": job.id, "status": job.status, "stage": job.stage, "progress": job.progress,
             "user": {"id": job.user_id, "email": owner.email if owner else None, "status": getattr(owner, "status", None)},
-            "error": job.error, "error_detail": data.get("error_detail"), "failed_stage": data.get("failed_stage"), "stages": data.get("stages") or [],
+            "error": job.error, "error_detail": data.get("error_detail"), "log": data.get("log") or [], "failed_stage": data.get("failed_stage"), "stages": data.get("stages") or [],
             "params": params,
             "charged_minutes": round((job.charged_seconds or 0) / 60, 2), "bought_minutes": round((job.credit_seconds or 0) / 60, 2),
             "run_seconds": data.get("run_seconds"), "created_at": _iso(job.created_at), "finished_at": _iso(job.finished_at),

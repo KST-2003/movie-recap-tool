@@ -119,6 +119,15 @@ ok(d["failed_stage"]["stage"] == "Voiceover (gemini)" and d["failed_stage"]["pro
 ok([x["stage"] for x in d["stages"]] == ["Starting", "Voiceover (gemini)"], f"detail: stage history {[x['stage'] for x in d['stages']]}")
 ok(d["params"]["voice_quality"] == "standard" and d["params"]["aspect"] == "9:16" and d["params"]["manual_blurs"] == [{"x": 0.1}] and d["params"]["filename"] == "movie.mp4", "detail: every option the user chose")
 ok(d["user"]["email"] == "bob@x.com" and d["bought_minutes"] == 0.0, "detail: user shown; a failed video's bought minutes were given back")
+import joblog, usage  # noqa: E402
+joblog.install()
+usage.start("jobx")
+print("  fake pipeline line: scene cuts found 69", flush=True)
+usage.start(None)
+import db as _db  # noqa: E402
+_db.save_log("jobx")
+d2 = c.get("/api/admin/jobs/jobx", headers=H(a)).json()
+ok(any("scene cuts found 69" in ln for ln in d2["log"]), f"detail: the video's console log is kept ({len(d2['log'])} lines)")
 ok(c.get("/api/admin/jobs/nope", headers=H(a)).status_code == 404, "detail: unknown job -> 404")
 ok(c.get("/api/admin/jobs/jobx", headers=H(b)).status_code in (401, 403) and c.get("/api/admin/jobs/jobx").status_code == 401, "detail is closed to non-admins")
 print("all admin tests passed")

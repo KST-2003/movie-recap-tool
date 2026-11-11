@@ -25,15 +25,17 @@ import gemini_tts
 import local_dub
 import storage
 from common import audio_ext, dub_provider, media_duration, tts_provider
+ALWAYS_SUBTITLE_SHARE = float(os.getenv("ALWAYS_SUBTITLE_SHARE", "0.9"))   # subtitle in >= this share of sampled frames = blur the band all the time (no window scan)
 FULL_MODE_BACKGROUND = os.getenv("FULL_MODE_BACKGROUND", "separate")   # full-movie original sound: separate (Demucs, slow, CPU heavy) | original (whole track lowered, fast) | off
 from audio_tools import cleanup_separation, make_soft_tone, mix_music, separate_background
 from config import LOGOS_DIR, OUTPUT_DIR, UPLOAD_DIR
+import joblog
 import usage
 from db import Job, Session, update_job
 import fit_text
 from fit_text import available as fit_available
 from scene_cuts import detect_cuts
-from recap_engine import (BREATH, EffectOptions, SyncOptions, has_audio, plan_source_timing, plan_timeline, probe_video,
+from recap_engine import (BREATH, burmese_font_available, EffectOptions, SyncOptions, has_audio, plan_source_timing, plan_timeline, probe_video,
                           render, write_srt)
 from subtitle_detect import detect_text_regions, subtitle_windows, to_pixels
 
@@ -622,7 +624,11 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                     fx_kwargs["watermark_rects"] = [
                         to_pixels(r, info["width"], info["height"], 0.01, 0.005) for r in found["watermarks"]
                     ]
-                    if found["subtitle"] and p["blur_subtitles"]:   # blur only while a subtitle is really there
+                    if found["subtitle"] and p["blur_subtitles"] and (found.get("presence") or 0) >= ALWAYS_SUBTITLE_SHARE:
+                        # the subtitle was there in (nearly) every sampled frame: blur the band the whole time. The exact scan would
+                        # cost ~2/3 of a second per video minute on a small server (110 s for a 169 s video) and find one big window anyway.
+                        print(f"  subtitle seen in {found['presence']:.0%} of the sampled frames: blurring the band for the whole video (window scan skipped)", flush=True)
+                    elif found["subtitle"] and p["blur_subtitles"]:   # blur only while a subtitle is really there
                         wins = subtitle_windows(video_path, video_duration, found["subtitle"])
                         if wins is not None:
                             fx_kwargs["subtitle_windows"] = wins
@@ -867,6 +873,9 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
         )
         check_cancelled(job_id)
         set_job(job_id, stage="Rendering video", progress=75)
+        if p.get("enable_subtitles", True) and not burmese_font_available():   # without it every Burmese letter is drawn as an empty box
+            print("  WARNING: no Burmese font found on this server: the subtitles will be drawn as boxes (set BURMESE_FONT_PATH or add backend/fonts)", flush=True)
+            warn.append("The Burmese subtitle font is missing on the server, so the subtitles may show as boxes. The owner has been informed.")
         with pipeline_stage("FFmpeg Render"):
             result = render(video_path, segments, scenes, effects, output_path, OUTPUT_DIR, job_id)
             if p.get("soft_music"):   # optional quiet pad under everything
@@ -977,6 +986,7 @@ def run_job_by_id(job_id: str):
         return
     video_path = logo_path = None
     usage.install()
+    joblog.install()   # keep what is printed for this video, shown in the admin's video details
     usage.start(job_id)   # every Gemini / Claude answer from here on is counted for this video
     try:
         video_path = storage.fetch(input_key)
@@ -988,6 +998,11 @@ def run_job_by_id(job_id: str):
     finally:
         usage.flush(job_id, force=True)   # also for failed / cancelled videos: their tokens were paid
         usage.forget(job_id)
+        try:
+            from db import save_log
+            save_log(job_id)
+        except Exception:
+            pass
         # Keep the stored source until the retention window ends (storage.cleanup / bucket lifecycle rule):
         # the editor re-renders from it. Only the temporary local copies fetched from s3 are removed.
         if storage.BACKEND == "s3":

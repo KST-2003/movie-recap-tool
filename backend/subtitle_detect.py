@@ -161,7 +161,7 @@ def detect_text_regions(video_path: str, duration: float, min_conf: float = 0.45
         persistent = len(seen) / n_frames
         changing = len(distinct) >= max(2, 0.4 * len(bs))
         if changing and persistent >= 0.3 and width >= 0.15:
-            bands.append((x0, y0, x1, y1, sorted(b[4] - b[2] for b in bs)[len(bs) // 2]))  # + typical text-line height
+            bands.append((x0, y0, x1, y1, sorted(b[4] - b[2] for b in bs)[len(bs) // 2], seen))  # + typical text-line height + frames it was seen in
             texts += [b[5] for b in bs]
         elif not changing and persistent >= 0.7:
             # a real watermark: the SAME short text at the SAME place, read with high confidence. Wide strips, mixed
@@ -187,9 +187,10 @@ def detect_text_regions(video_path: str, duration: float, min_conf: float = 0.45
         subtitle = (min(r[0] for r in best), min(r[1] for r in best),
                     max(r[2] for r in best), max(r[3] for r in best))
         line_height = sorted(r[4] for r in best)[len(best) // 2]   # fraction of the frame height
+        presence = len(set().union(*(r[5] for r in best))) / max(1, n_frames)   # share of the sampled frames that show a subtitle there
     else:
-        line_height = None
-    return {"subtitle": subtitle, "watermarks": watermarks, "texts": texts, "line_height": line_height}
+        line_height = presence = None
+    return {"subtitle": subtitle, "watermarks": watermarks, "texts": texts, "line_height": line_height, "presence": presence}
 
 
 def to_pixels(rect, w: int, h: int, pad_x: float = 0.03, pad_y: float = 0.012):

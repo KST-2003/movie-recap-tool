@@ -42,7 +42,8 @@ export default function JobDetail({ id, onClose }) {
     const lines = [`Job ${d.id} (${d.status}) - ${d.user.email}`, `Created ${d.created_at}, finished ${d.finished_at || '-'}, run ${d.run_seconds ?? '-'} s`,
       `Stage: ${d.stage} (${d.progress}%)`, d.failed_stage ? `Failed at: ${d.failed_stage.stage} (${d.failed_stage.progress}%) ${d.failed_stage.at}` : '',
       d.error ? `Error: ${d.error}` : '', d.error_detail ? `Details:\n${d.error_detail}` : '', 'Options:', ...Object.entries(d.params || {}).map(([k, v]) => `  ${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`),
-      'Stages:', ...d.stages.map((s) => `  ${s.at} ${s.progress}% ${s.stage}`)];
+      'Stages:', ...d.stages.map((s) => `  ${s.at} ${s.progress}% ${s.stage}`),
+      ...(d.log?.length ? ['Log:', ...d.log] : [])];
     return lines.filter((l) => l !== '').join('\n');
   };
   const copy = async () => {
@@ -115,6 +116,13 @@ export default function JobDetail({ id, onClose }) {
                 ))}
               </ol>
             )}
+          </Section>
+
+          <Section title={tr('Log (what the server printed for this video)')}>
+            {!d.log?.length ? <p className="text-xs text-slate-500">{tr('No log was recorded for this video (videos made before this feature have none).')}</p> : (
+              <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-slate-800 bg-slate-950 p-3 font-mono text-[11px] leading-relaxed text-slate-300 select-text">{d.log.join('\n')}</pre>
+            )}
+            {d.status === 'running' && <p className="mt-1 text-xs text-slate-500">{tr('Updates about every 8 seconds while the video is running.')}</p>}
           </Section>
 
           {d.result?.warnings?.length > 0 && (

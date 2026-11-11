@@ -23,6 +23,7 @@ FONT_CANDIDATES = [
     (os.getenv("BURMESE_FONT_PATH", ""), 0),
     ("/System/Library/Fonts/NotoSansMyanmar.ttc", 1),
     ("/System/Library/Fonts/Supplemental/Myanmar Sangam MN.ttc", 0),
+    (os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts", "NotoSansMyanmar-Bold.ttf"), 0),   # shipped with the app (SIL OFL, see fonts/NOTICE.txt): a Linux server has no Burmese font and the captions came out as empty boxes
     ("/usr/share/fonts/truetype/noto/NotoSansMyanmar-Bold.ttf", 0),
     ("/usr/share/fonts/truetype/noto/NotoSansMyanmar-Regular.ttf", 0),
     ("C:/Windows/Fonts/mmrtext.ttf", 0),
@@ -195,6 +196,10 @@ class Fonts:
             draw.text((x, baseline), t, font=font, anchor="ls", fill=(255, 235, 59, 255),
                       stroke_width=1, stroke_fill=(0, 0, 0, 255))
             x += draw.textlength(t, font=font)
+
+
+def burmese_font_available() -> bool:
+    return any(path and os.path.isfile(path) for path, _ in FONT_CANDIDATES)
 
 
 def _load_font(size: int):
