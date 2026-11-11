@@ -414,8 +414,7 @@ def create_job(
                 have = max(0.0, s.get(User, user.id).credit_seconds or 0.0)
                 if have + 1e-6 < credit_part:
                     raise HTTPException(status_code=402, detail=(
-                        f"Limit reached: {free / 60:.1f} minutes of your allowance are left right now (daily or monthly limit), this video is "
-                        f"{seconds / 60:.1f} minutes, and you have {have / 60:.1f} bought minutes. Top up minutes to make this video."))
+                        "Your available minutes are not enough for this video. Please top up minutes to make it."))
             cap = runtime_settings.global_daily_minutes()
             if cap and used_seconds_today(s, None, True) + seconds > cap * 60:
                 raise HTTPException(status_code=503, detail="We've reached today's capacity. Please try again tomorrow.")
@@ -430,7 +429,7 @@ def create_job(
                     taken = s.execute(update(User).where(User.id == user.id, User.credit_seconds >= credit_part - 1e-6)
                                       .values(credit_seconds=User.credit_seconds - credit_part)).rowcount
                     if not taken:
-                        raise HTTPException(status_code=402, detail="Limit reached: not enough bought minutes. Top up minutes to make this video.")
+                        raise HTTPException(status_code=402, detail="Your available minutes are not enough for this video. Please top up minutes to make it.")
                 s.add(Job(id=job_id, user_id=user.id, status="queued", params=params, data={},
                           input_key=input_key, logo_key=logo_key, charged_seconds=seconds - credit_part, credit_seconds=credit_part))
                 s.commit()
@@ -489,9 +488,26 @@ def _queue_info(job: Job) -> dict:
     return {"queue_position": ahead + 1, "eta_seconds": int(waiting_for * avg / WORKERS)}
 
 
+FRIENDLY_BUSY = "Our service is very busy right now, so we couldn't finish this video. Your minutes were refunded. Please try again a little later."
+FRIENDLY_FAILED = "We couldn't finish this video this time. Our team has been notified and your minutes were refunded. Please try again a little later."
+_BUSY_WORDS = ("quota", "rate", "429", "busy", "capacity", "exhausted", "too slow", "time limit", "timed out", "overloaded", "unavailable", "503")
+
+
+def friendly_error(raw: str | None) -> str | None:
+    """What the USER sees for a failed video: a calm notice, never raw errors or numbers. The admin sees the full text (job detail)."""
+    if not raw:
+        return None
+    low = raw.lower()
+    return FRIENDLY_BUSY if any(w in low for w in _BUSY_WORDS) else FRIENDLY_FAILED
+
+
+_ADMIN_ONLY = ("result", "started_at", "run_seconds", "error_detail", "log", "stages", "failed_stage", "usage", "device_render")
+
+
 def _job_view(job: Job) -> dict:
     view = {"id": job.id, "status": job.status, "stage": job.stage, "progress": job.progress,
-            "error": job.error, **{k: v for k, v in (job.data or {}).items() if k not in ("result", "started_at", "run_seconds")}}
+            "error": friendly_error(job.error) if job.status == "error" else job.error,
+            **{k: v for k, v in (job.data or {}).items() if k not in _ADMIN_ONLY}}
     if job.status == "queued":
         view.update(_queue_info(job))
     result = (job.data or {}).get("result")
@@ -535,7 +551,7 @@ def _history_row(job: Job) -> dict:
             "created_at": (job.created_at if job.created_at.tzinfo else job.created_at.replace(tzinfo=timezone.utc)).isoformat(), "video_available": video_ok,
             "can_edit": bool(video_ok and project and storage.source_exists(job.input_key)),
             "expires_at": (finished + timedelta(days=runtime_settings.keep_result_days())).isoformat() if video_ok else None,
-            "error": job.error if job.status == "error" else None}
+            "error": friendly_error(job.error) if job.status == "error" else None}
 
 
 @app.get("/api/jobs")

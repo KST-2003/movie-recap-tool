@@ -160,6 +160,7 @@ const MY = {
   'Your last 5 videos did not finish (failed or cancelled), so new videos are paused to keep the service stable. Please try again in about {t}. Our admin has been notified, and your minutes were refunded.': 'သင်၏ နောက်ဆုံးဗီဒီယို ၅ ခု မပြီးစီးခဲ့ပါ (မအောင်မြင်ခြင်း သို့မဟုတ် ပယ်ဖျက်ခြင်း)။ ဝန်ဆောင်မှု တည်ငြိမ်စေရန် ဗီဒီယိုအသစ်များကို ခေတ္တရပ်ထားပါသည်။ ခန့်မှန်း {t} အကြာတွင် ပြန်လည်ကြိုးစားပါ။ ကျွန်ုပ်တို့၏ admin ကို အကြောင်းကြားပြီးဖြစ်ပြီး သင့်မိနစ်များကို ပြန်အမ်းပေးပြီးဖြစ်ပါသည်။',
   '{h} h {m} min': '{h} နာရီ {m} မိနစ်',
   '{m} min': '{m} မိနစ်',
+  'We could not complete this just now. Our team has been notified. Please try again a little later.': 'ယခုအချိန်တွင် မပြီးစီးနိုင်ပါ။ ကျွန်ုပ်တို့အဖွဲ့ကို အကြောင်းကြားပြီးဖြစ်သည်။ ခဏနေမှ ပြန်ကြိုးစားပါ။',
   'Remove logo': 'လိုဂိုကို ဖယ်ရှားမည်',
   'Render on my device (faster, beta)': 'ကျွန်ုပ်၏ စက်ပေါ်တွင် ပြုလုပ်မည် (ပိုမြန်သည်၊ စမ်းသပ်ဆဲ)',
   "Rendered with your phone's own processor. Keep the screen open.": 'သင့်ဖုန်း၏ ကိုယ်ပိုင် ပရိုဆက်ဆာဖြင့် ပြုလုပ်သည်။ မျက်နှာပြင်ဖွင့်ထားပါ။',
@@ -255,6 +256,9 @@ const MY = {
 
 // Texts that come from the server (progress steps, warnings, errors). [pattern, Burmese with $1, $2 ... captures].
 const SERVER = [
+  [/^Your available minutes are not enough for this video\. Please top up minutes to make it\.$/, "သင့်မိနစ်များ ဤဗီဒီယိုအတွက် မလုံလောက်ပါ။ ဗီဒီယိုပြုလုပ်ရန် မိနစ်ဖြည့်ပါ။"],
+  [/^Our service is very busy right now, so we couldn't finish this video\. Your minutes were refunded\. Please try again a little later\.$/, "ယခု ဝန်ဆောင်မှု အလွန်များနေသဖြင့် ဤဗီဒီယိုကို မပြီးစီးနိုင်ခဲ့ပါ။ သင့်မိနစ်များကို ပြန်အမ်းပေးပြီးဖြစ်သည်။ ခဏနေမှ ပြန်ကြိုးစားပါ။"],
+  [/^We couldn't finish this video this time\. Our team has been notified and your minutes were refunded\. Please try again a little later\.$/, "ဤအကြိမ် ဗီဒီယိုကို မပြီးစီးနိုင်ခဲ့ပါ။ ကျွန်ုပ်တို့အဖွဲ့ကို အကြောင်းကြားပြီးဖြစ်ပြီး သင့်မိနစ်များကို ပြန်အမ်းပေးပြီးဖြစ်သည်။ ခဏနေမှ ပြန်ကြိုးစားပါ။"],
   [/^Limit reached: ([\d.]+) minutes of your allowance are left right now \(daily or monthly limit\), this video is ([\d.]+) minutes, and you have ([\d.]+) bought minutes\. Top up minutes to make this video\.$/, 'အကန့်အသတ်ပြည့်ပါပြီ - ခွင့်ပြုချက် $1 မိနစ်သာ ကျန်ပြီး ဤဗီဒီယိုမှာ $2 မိနစ်ဖြစ်ကာ ဝယ်ယူထားသော $3 မိနစ်ရှိပါသည်။ ဤဗီဒီယိုအတွက် မိနစ်ဖြည့်ပါ။'],
   [/^Limit reached: not enough bought minutes\. Top up minutes to make this video\.$/, "အကန့်အသတ်ပြည့်ပါပြီ - ဝယ်ယူထားသောမိနစ် မလုံလောက်ပါ။ ဤဗီဒီယိုအတွက် မိနစ်ဖြည့်ပါ။"],
   [/^Pick one of the minute packs\.$/, "မိနစ်အထုပ်များထဲမှ တစ်ခုရွေးပါ။"],

@@ -401,7 +401,11 @@ function App() {
       return;
     }
     console.error('Processing error:', error);
-    setErrorMessage(trs(error.response?.data?.detail || error.message) || tr('Something went wrong while making the video.'));
+    // Users get calm notices, never raw errors: texts written for users (limits, busy, paused) come through; anything else (network, 500, code errors) is a generic notice. The admin sees the real error in the job log.
+    const status = error.response?.status;
+    const detail = error.response?.data?.detail;
+    const userText = typeof detail === 'string' && [400, 402, 413, 429, 503].includes(status) ? detail : (!error.response && error.message && /busy|refunded|minutes/i.test(error.message) ? error.message : '');
+    setErrorMessage(userText ? trs(userText) : tr('We could not complete this just now. Our team has been notified. Please try again a little later.'));
   };
 
   // Draw the video on this device from the server's plan. Returns the video's blob URL, or null after handing the job to the server.
@@ -523,7 +527,7 @@ function App() {
       setView('create');
       window.scrollTo?.({ top: 0 });
     } catch (e) {
-      setErrorMessage(trs(e.response?.data?.detail) || e.message);
+      setErrorMessage(tr('We could not complete this just now. Our team has been notified. Please try again a little later.'));
       setView('create');
     }
   };
@@ -868,8 +872,8 @@ function App() {
 
         {/* Error Message */}
         {errorMessage && (
-          <div className="mt-4 p-4 bg-red-950/50 border border-red-800 text-red-300 rounded-xl text-sm">
-            {errorMessage}
+          <div className="mt-4 p-4 bg-amber-500/10 border border-amber-400/60 text-amber-100 rounded-xl text-sm flex gap-2">
+            <span aria-hidden="true">ℹ️</span><span>{errorMessage}</span>
           </div>
         )}
 
