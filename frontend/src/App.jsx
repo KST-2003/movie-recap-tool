@@ -21,6 +21,44 @@ const deviceId = () => {
   } catch { return 'unknown'; }
 };
 
+// Glossy "3D" icons for the two modes (inline SVG, gradients + highlights + soft shadow)
+function RecapIcon() {   // clapperboard
+  return (
+    <svg viewBox="0 0 64 64" className="h-16 w-16 drop-shadow-[0_6px_6px_rgba(0,0,0,0.45)]" aria-hidden="true">
+      <defs>
+        <linearGradient id="rc-body" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#7c8aa5" /><stop offset="1" stopColor="#2b3447" /></linearGradient>
+        <linearGradient id="rc-top" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#f0abfc" /><stop offset="1" stopColor="#7e22ce" /></linearGradient>
+        <linearGradient id="rc-play" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#ffffff" /><stop offset="1" stopColor="#d8b4fe" /></linearGradient>
+      </defs>
+      <rect x="6" y="26" width="52" height="30" rx="5" fill="url(#rc-body)" />
+      <rect x="6" y="26" width="52" height="5" rx="2" fill="#ffffff" opacity="0.18" />
+      <path d="M6 12 L58 5 L60 17 L8 24 Z" fill="url(#rc-top)" />
+      <path d="M16 10.7 L24 9.6 L18 22.4 L10 23.4 Z M32 8.5 L40 7.4 L34 20.2 L26 21.3 Z M48 6.3 L56 5.2 L50 18 L42 19.1 Z" fill="#1e1b4b" opacity="0.55" />
+      <path d="M6 24 L58 17 L58 24 L6 28 Z" fill="#4c1d95" />
+      <path d="M26 33 L26 51 L42 42 Z" fill="url(#rc-play)" />
+      <path d="M26 33 L34 37.5 L26 42 Z" fill="#fff" opacity="0.5" />
+    </svg>
+  );
+}
+function MovieIcon() {   // film reel on a base
+  return (
+    <svg viewBox="0 0 64 64" className="h-16 w-16 drop-shadow-[0_6px_6px_rgba(0,0,0,0.45)]" aria-hidden="true">
+      <defs>
+        <radialGradient id="mv-disc" cx="0.35" cy="0.3" r="0.9"><stop offset="0" stopColor="#fde68a" /><stop offset="0.55" stopColor="#f59e0b" /><stop offset="1" stopColor="#b45309" /></radialGradient>
+        <radialGradient id="mv-hole" cx="0.4" cy="0.35" r="0.8"><stop offset="0" stopColor="#475569" /><stop offset="1" stopColor="#0f172a" /></radialGradient>
+        <linearGradient id="mv-base" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#64748b" /><stop offset="1" stopColor="#1e293b" /></linearGradient>
+      </defs>
+      <ellipse cx="32" cy="58" rx="20" ry="3.5" fill="#000" opacity="0.35" />
+      <rect x="18" y="50" width="28" height="8" rx="4" fill="url(#mv-base)" />
+      <circle cx="32" cy="29" r="24" fill="url(#mv-disc)" />
+      <ellipse cx="25" cy="15" rx="12" ry="6" fill="#fff" opacity="0.35" transform="rotate(-25 25 15)" />
+      {[[32, 14], [46, 29], [32, 44], [18, 29]].map(([x, y]) => <circle key={`${x}-${y}`} cx={x} cy={y} r="6.2" fill="url(#mv-hole)" />)}
+      <circle cx="32" cy="29" r="5" fill="#7c2d12" /><circle cx="32" cy="29" r="2.2" fill="#fde68a" />
+      <circle cx="32" cy="29" r="24" fill="none" stroke="#fff" strokeOpacity="0.25" strokeWidth="1.2" />
+    </svg>
+  );
+}
+
 function AuthScreen({ onAuth, notice }) {
   const { tr, trs } = useI18n();
   const [username, setUsername] = useState('');
@@ -703,16 +741,26 @@ function App() {
 
           {/* What kind of video is this? */}
           <div className="rounded-xl border border-slate-800 bg-slate-800/30 p-4 space-y-3">
-            <div className="flex gap-2">
-              {[['recap', tr('Recap video'), tr('One narrator voice')], ['full', tr('Full movie / drama'), tr('A voice for each character')]].map(([k, title, sub]) => (
-                <button
-                  key={k} type="button" onClick={() => setFilmMode(k)}
-                  className={`flex-1 rounded-xl px-3 py-2 text-left border ${filmMode === k ? 'border-purple-400 bg-purple-600/30' : 'border-slate-700 bg-slate-800/50'}`}
-                >
-                  <span className="block text-sm font-semibold text-white">{title}</span>
-                  <span className="block text-xs text-slate-400">{sub}</span>
-                </button>
-              ))}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {[['recap', tr('Recap video'), tr('One narrator voice')], ['full', tr('Full movie / drama'), tr('A voice for each character')]].map(([k, title, sub]) => {
+                const on = filmMode === k;
+                return (
+                  <button
+                    key={k} type="button" onClick={() => setFilmMode(k)} aria-pressed={on}
+                    className={`group flex sm:flex-col items-center sm:text-center gap-4 sm:gap-3 rounded-2xl px-4 py-5 sm:py-6 text-left border-2 transition-all duration-300 ease-out active:scale-[0.98] ${on
+                      ? 'border-purple-400 bg-purple-600/25 shadow-[0_8px_30px_-8px_rgba(168,85,247,0.55)] sm:-translate-y-0.5'
+                      : 'border-slate-700 bg-slate-800/50 hover:border-slate-500 hover:bg-slate-800'}`}
+                  >
+                    <span className={`shrink-0 transition-transform duration-300 ease-out ${on ? 'scale-110 -rotate-3' : 'group-hover:scale-105'}`}>
+                      {k === 'recap' ? <RecapIcon /> : <MovieIcon />}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-base font-bold text-white">{title}</span>
+                      <span className={`block text-xs mt-0.5 transition-colors duration-300 ${on ? 'text-purple-200' : 'text-slate-400'}`}>{sub}</span>
+                    </span>
+                  </button>
+                );
+              })}
             </div>
             <div className="text-sm text-slate-300">
                 <div className="flex gap-4 flex-wrap">
