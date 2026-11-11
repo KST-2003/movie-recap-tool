@@ -17,6 +17,7 @@ from datetime import timedelta, timezone
 
 from sqlalchemy import func, select, update
 
+import alerts
 import auth
 from admin import router as admin_router, settings as runtime_settings
 import capacity
@@ -117,13 +118,15 @@ def _quota(user: User) -> dict:
     with Session() as s:
         used = used_seconds_today(s, user.id)
         month_used = used_seconds_month(s, user.id)
+        blocked = failure_wait_seconds(s, user.id)
     day_left = max(0, user.daily_minutes * 60 - used)
     month_left = max(0, user.monthly_minutes * 60 - month_used)
     credit = max(0.0, user.credit_seconds or 0.0)
     return {"daily_minutes": user.daily_minutes, "used_seconds": round(used), "remaining_seconds": round(min(day_left, month_left) + credit),
             "allowance_remaining_seconds": round(min(day_left, month_left)), "credit_seconds": round(credit),
             "monthly_minutes": user.monthly_minutes, "month_used_seconds": round(month_used),
-            "month_remaining_seconds": round(month_left), "day_remaining_seconds": round(day_left)}
+            "month_remaining_seconds": round(month_left), "day_remaining_seconds": round(day_left),
+            "upload_blocked_seconds": 0 if user.is_admin else round(blocked)}
 
 
 @app.post("/api/auth/register")
@@ -446,6 +449,7 @@ def _refuse_if_failing(s, user: User):
         return
     wait = failure_wait_seconds(s, user.id)
     if wait > 0:
+        alerts.raise_alert(f"failures:{user.id}", f"User {user.email} tried to upload while paused after repeated failed or cancelled videos.")
         h, m = int(wait // 3600), int(wait % 3600 // 60) + 1
         raise HTTPException(status_code=429, detail=f"Too many videos failed or were cancelled recently. You can start a new video in about {h} h {m} min." if h else
                             f"Too many videos failed or were cancelled recently. You can start a new video in about {m} min.")

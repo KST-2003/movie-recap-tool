@@ -180,6 +180,13 @@ def update_job(job_id: str, **fields) -> bool:
             job.charged_seconds = 0.0  # failed or cancelled jobs don't use up the allowance
             refund_credit(s, job)
         s.commit()
+        if fields.get("status") in ("error", "cancelled") and failure_wait_seconds(s, job.user_id) > 0:   # this failure completed the run: tell the owner
+            owner = s.get(User, job.user_id)
+            try:
+                import alerts
+                alerts.raise_alert(f"failures:{job.user_id}", f"User {owner.email if owner else job.user_id} has {FAIL_STREAK} failed or cancelled videos in a row and is paused for {FAIL_BLOCK_HOURS:g} hours.")
+            except Exception:
+                pass
         return True
 
 

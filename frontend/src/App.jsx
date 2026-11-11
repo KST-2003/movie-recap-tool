@@ -164,7 +164,11 @@ function App() {
     setToken(data.token);
     setAccount(data);
   };
-  const refreshAccount = () => axios.get(`${API_BASE}/api/auth/me`).then((r) => setAccount(r.data)).catch(() => {});
+  const refreshAccount = () => axios.get(`${API_BASE}/api/auth/me`).then((r) => { setAccount(r.data); setBlockedUntil(r.data.upload_blocked_seconds > 0 ? Date.now() + r.data.upload_blocked_seconds * 1000 : 0); }).catch(() => {});
+  const [blockedUntil, setBlockedUntil] = useState(0);   // paused after repeated failed/cancelled videos
+  const [nowTick, setNowTick] = useState(Date.now());
+  useEffect(() => { if (!blockedUntil) return undefined; const id = setInterval(() => setNowTick(Date.now()), 30000); return () => clearInterval(id); }, [blockedUntil]);
+  const blockedSeconds = Math.max(0, Math.round((blockedUntil - nowTick) / 1000));
   useEffect(() => {
     const id = axios.interceptors.response.use((r) => r, (err) => {
       if (err.response?.status === 401 && !String(err.config?.url).includes('/api/auth/')) logout(err.response?.data?.detail);
@@ -535,6 +539,15 @@ function App() {
       <div className={view === 'create' ? '' : 'hidden'}>
       <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl">
 
+        {blockedSeconds > 0 && (
+          <div role="alert" className="mb-5 rounded-2xl border-2 border-amber-400/70 bg-amber-500/10 p-4 flex gap-3 animate-[selectIn_200ms_ease-out]">
+            <span className="text-2xl leading-none" aria-hidden="true">⚠️</span>
+            <div className="min-w-0 text-sm text-amber-100 space-y-1">
+              <p className="font-semibold">{tr('Your uploads are paused for now')}</p>
+              <p>{tr('Your last 5 videos did not finish (failed or cancelled), so new videos are paused to keep the service stable. Please try again in about {t}. Our admin has been notified, and your minutes were refunded.', { t: blockedSeconds >= 3600 ? tr('{h} h {m} min', { h: Math.floor(blockedSeconds / 3600), m: Math.ceil((blockedSeconds % 3600) / 60) }) : tr('{m} min', { m: Math.max(1, Math.ceil(blockedSeconds / 60)) }) })}</p>
+            </div>
+          </div>
+        )}
         <form onSubmit={handleGenerateRecap} className="space-y-6">
           
           {/* Format first, then the video (like CapCut) */}
@@ -831,7 +844,7 @@ function App() {
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || blockedSeconds > 0}
             className="w-full py-4 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 font-bold rounded-xl shadow-lg transition-all transform active:scale-[0.99] disabled:opacity-50 cursor-pointer"
           >
             {loading ? tr('⚡ Processing…') : tr('✨ Generate video')}
