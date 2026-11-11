@@ -594,8 +594,13 @@ function App() {
                 </div>
               ))}
             </div>
-            <button type="button" onClick={() => setShowLibrary(true)} className="mt-3 w-full py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm text-purple-200">
-              {tr('See more voices ({n}) · search & categories →', { n: voices.length + looks.length })}
+            <button type="button" onClick={() => setShowLibrary(true)} className="mt-3 w-full px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm text-purple-200 text-center leading-snug">
+              {/* long text: the two halves wrap onto their own lines on a phone instead of running off the button */}
+              <span className="flex flex-wrap justify-center items-center gap-x-2 gap-y-0.5">
+                {tr('See more voices ({n}) · search & categories →', { n: voices.length + looks.length }).split(' · ').map((part, i) => (
+                  <span key={i} className={`break-words min-w-0 ${i ? 'text-xs text-purple-300/80' : 'font-medium'}`}>{part}</span>
+                ))}
+              </span>
             </button>
           </div>
           )}
