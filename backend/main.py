@@ -26,7 +26,7 @@ import looks
 import storage
 import topup
 from common import media_duration, tts_provider
-from db import Job, Session, User, active_jobs, month_start, refund_credit, user_role, used_seconds_month, used_seconds_today, utcnow
+from db import Job, Session, User, active_jobs, failure_wait_seconds, month_start, refund_credit, user_role, used_seconds_month, used_seconds_today, utcnow
 from voices import VOICES, VOICE_NAMES
 
 import logging
@@ -389,6 +389,7 @@ def create_job(
               "filename": os.path.basename(video_file.filename or "")[:120]}   # shown in "My videos"
 
     with Session() as s:
+        _refuse_if_failing(s, user)
         if active_jobs(s, user.id) >= MAX_ACTIVE_JOBS_PER_USER:
             raise HTTPException(status_code=429, detail="You already have videos processing. Wait for one to finish.")
 
@@ -437,6 +438,17 @@ def create_job(
         raise
     jobs_queue.enqueue(job_id)
     return {"job_id": job_id}
+
+
+def _refuse_if_failing(s, user: User):
+    """Several failed / cancelled videos that already spent paid tokens in a short time: wait a few hours (their minutes were refunded, our API bill was not)."""
+    if user.is_admin:
+        return
+    wait = failure_wait_seconds(s, user.id)
+    if wait > 0:
+        h, m = int(wait // 3600), int(wait % 3600 // 60) + 1
+        raise HTTPException(status_code=429, detail=f"Too many videos failed or were cancelled recently. You can start a new video in about {h} h {m} min." if h else
+                            f"Too many videos failed or were cancelled recently. You can start a new video in about {m} min.")
 
 
 def _refuse_if_voice_limit():

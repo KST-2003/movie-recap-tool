@@ -1,6 +1,7 @@
 """Users and jobs (SQLite by default; set DATABASE_URL=postgresql+psycopg://... for production)."""
+import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, create_engine, func, inspect, select, text
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -231,6 +232,22 @@ def used_seconds_month(s, user_id: int | None = None) -> float:
     if user_id is not None:
         q = q.where(Job.user_id == user_id)
     return float(s.execute(q).scalar_one())
+
+
+FAIL_STREAK = int(os.getenv("FAIL_STREAK", "5"))            # this many failed / cancelled videos IN A ROW (a finished video resets it) ...
+FAIL_BLOCK_HOURS = float(os.getenv("FAIL_BLOCK_HOURS", "3"))  # ... = no new video until this long after the last one
+
+
+def failure_wait_seconds(s, user_id: int) -> float:
+    """Seconds this user must wait before starting another video (0 = free to go). Failed / cancelled videos are refunded to the user,
+    but Google does not refund us, so a long unbroken run of them (spam, or something badly wrong) pauses the account for a few hours."""
+    rows = s.execute(select(Job.status, Job.finished_at).where(Job.user_id == user_id, Job.status.in_(("done", "error", "cancelled")))
+                     .order_by(Job.finished_at.desc()).limit(max(FAIL_STREAK, 1))).all()
+    if FAIL_STREAK <= 0 or len(rows) < FAIL_STREAK or any(r[0] == "done" for r in rows):
+        return 0.0
+    last = rows[0][1]
+    last = last if last.tzinfo else last.replace(tzinfo=timezone.utc)
+    return max(0.0, (last + timedelta(hours=FAIL_BLOCK_HOURS) - utcnow()).total_seconds())
 
 
 def active_jobs(s, user_id: int) -> int:
