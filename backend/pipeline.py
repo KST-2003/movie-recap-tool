@@ -312,6 +312,10 @@ CAPTION_SIZE_FACTOR = float(os.getenv("CAPTION_SIZE_FACTOR", "0.8"))
 # predicted * RATIO + EXTRA is treated as that and re-voiced plainly (was 1.5x + 1.0 s, which let short lines through).
 READ_ALOUD_RATIO = float(os.getenv("READ_ALOUD_RATIO", "1.25"))
 READ_ALOUD_EXTRA = float(os.getenv("READ_ALOUD_EXTRA", "0.45"))
+# An emotional line may rise this far above the voice's normal pitch before it is voiced again plainly. Was 1.28 (+4 semitones):
+# real test 2026-11-13, "angrily" lifts male voices 1.4-1.9x and 5-6 of 8 such lines were thrown away (2 requests each); the owner
+# listened: same person, acceptable. 2.0 still catches a voice that jumps a whole octave. Downward stays 0.78.
+EMOTION_PITCH_HI = float(os.getenv("EMOTION_PITCH_HI", "2.0"))
 EMOTION_MAX = int(os.getenv("EMOTION_MAX_LINES", "12"))   # emotional lines are voiced one per request: cap them (quota + time)
 # Time budget: a video must be finished in about its own length (hard cap JOB_BUDGET_MAX seconds). The optional
 # polishing steps (pre-fit, fit rounds) only start if enough budget is left AFTER reserving time for the render.
@@ -371,7 +375,7 @@ def voice_many(texts: list[str], paths: list[str], voice, model: dict, job_id: s
             durs[i] = synthesize(texts[i], voices[i], paths[i], chooser, None)
         elif styles[i] and tts_provider() == "gemini":   # an emotion direction can pull the voice to another pitch (male -> female)
             try:
-                bad, got, ref = pitch.drifted(paths[i], voices[i])
+                bad, got, ref = pitch.drifted(paths[i], voices[i], hi=EMOTION_PITCH_HI)
             except Exception:
                 bad = False
             if bad:

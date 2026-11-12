@@ -19,10 +19,13 @@ from zoneinfo import ZoneInfo
 
 import gemini_tts
 
+# Order = preference. 3.8 Flash first since 2026-11-13: clearest Burmese in two real checks (Gemini writing down what it hears:
+# 0.98 vs 0.86 for 3.1 preview on full lines; with an emotion direction 0.87 vs 0.72; a real film voiced on 3.1 scored 0.76 where
+# Azure scored 0.90) and less than half the price per audio token. 3.1 preview sounded best to the owner but is the least clear.
 DEFAULT_MODELS = [
-    ("gemini-3.1-flash-tts-preview", 10, 100),
-    ("gemini-2.5-flash-preview-tts", 10, 100),
     ("gemini-3.8-flash-tts", 10, 100),
+    ("gemini-2.5-flash-preview-tts", 10, 100),
+    ("gemini-3.1-flash-tts-preview", 10, 100),
     ("gemini-3.8-flash-lite-tts", 10, 100),
     ("gemini-2.5-pro-preview-tts", 10, 50),
 ]

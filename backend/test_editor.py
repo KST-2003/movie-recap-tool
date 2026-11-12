@@ -137,7 +137,7 @@ import gemini_tts  # noqa: E402
 import tts_pool  # noqa: E402
 
 names = [m for m, _, _ in tts_pool.models()]
-assert names[0] == "gemini-3.1-flash-tts-preview" and names[-1] == "gemini-2.5-pro-preview-tts"
+assert names[0] == "gemini-3.8-flash-tts" and names[-1] == "gemini-2.5-pro-preview-tts"
 ch = tts_pool.Chooser(10)
 assert ch.get() == names[0], ch.get()
 assert tts_pool.Chooser(10, preferred=names[1]).get() == names[1], "a job's earlier model is preferred (edits keep the voice)"
