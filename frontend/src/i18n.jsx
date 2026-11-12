@@ -206,6 +206,7 @@ const MY = {
   'Uploading': 'တင်နေသည်',
   // progress checklist
   'Working on your video': 'သင့်ဗီဒီယိုကို လုပ်ဆောင်နေသည်',
+  'The sample line in the preview shows the subtitle style. "Automatic" puts subtitles over the original ones when they are found.': 'ကြိုကြည့်ပုံထဲက နမူနာစာကြောင်းသည် စာတန်းထိုးပုံစံကို ပြသည်။ "အလိုအလျောက်" ဆိုလျှင် မူရင်းစာတန်းထိုးကို တွေ့ပါက ၎င်းအပေါ်တွင် ထားမည်။',
   'Subtitle style': 'စာတန်းထိုး ပုံစံ',
   'Font': 'ဖောင့်',
   'Position': 'နေရာ',

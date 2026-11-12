@@ -323,6 +323,18 @@ def keep_first_seconds(path: str, limit: float) -> float:
             os.remove(tmp)
 
 
+def _clean_caption_style(raw: str) -> dict | None:
+    """Subtitle style sent with the upload (JSON text) -> a normalised style, or None for the default. A broken value is ignored
+    (the video is made with the default look) rather than refusing the whole upload."""
+    if not (raw or "").strip():
+        return None
+    try:
+        body = CaptionStyle(**json.loads(raw))
+    except Exception:
+        return None
+    return recap_engine.caption_style({k: v for k, v in body.model_dump().items() if v is not None})
+
+
 def _clean_blurs(raw: str) -> list:
     """Parse the preview's blur boxes; keep at most 6 sane [x, y, w, h] fractions."""
     try:
@@ -377,6 +389,7 @@ def create_job(
     fit_mode: str = Form("blur"),         # blur: whole picture over a blurred copy | crop: fill the frame
     pan_x: float = Form(0.5),             # crop mode: which part is kept (0..1)
     pan_y: float = Form(0.5),
+    caption_style: str = Form(""),        # JSON subtitle style chosen in the preview before generating (same fields as /rerender)
     manual_blurs: str = Form(""),         # JSON [[x,y,w,h],...] fractions of the frame, blurred for the whole video
 ):
     if runtime_settings.maintenance():
@@ -412,6 +425,7 @@ def create_job(
               "brightness": brightness, "contrast": contrast, "saturation": saturation,
               "logo_position": logo_position, "logo_size": logo_size,
               "logo_x": logo_x, "logo_y": logo_y, "manual_blurs": _clean_blurs(manual_blurs),
+              "caption_style": _clean_caption_style(caption_style),
               "device_render": device_render, "resolution": resolution, "aspect": aspect, "fit_mode": fit_mode, "pan_x": pan_x, "pan_y": pan_y,
               "filename": os.path.basename(video_file.filename or "")[:120]}   # shown in "My videos"
 

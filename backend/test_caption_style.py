@@ -111,4 +111,15 @@ ys = np.where(mag.any(axis=1))[0]
 ok(mag.sum() > 150 and ys.max() < frame.shape[0] * 0.35, f"the video shows magenta letters near the top ({int(mag.sum())} px, rows {ys.min()}-{ys.max()})")
 third = wait(c.post(f"/api/jobs/{second['id']}/rerender", headers=H_, json={"segments": lines, "caption_style": {"size": 1.0}}).json()["job_id"])
 ok(third["result"]["project"]["fx"]["caption_style"] == {**style, "size": 1.0}, "a later edit changes only what it sends")
+# --- the style can be chosen BEFORE generating (upload form field) ---
+import json as _json
+pre = {"font": "serif", "size": 1.3, "color": "#00FFFF", "outline": "#000000", "bg": "#000000", "bg_opacity": 0.2, "position": "middle"}
+with open(video, "rb") as f:
+    up = wait(c.post("/api/jobs", headers=H_, files={"video_file": ("in.mp4", f, "video/mp4")},
+                     data={"voice_type": "su", "fit_translation": "false", "caption_style": _json.dumps(pre)}).json()["job_id"])
+ok(up["status"] == "done" and up["result"]["project"]["fx"]["caption_style"] == pre, "a style sent with the upload is used for the FIRST render")
+with open(video, "rb") as f:
+    broken = wait(c.post("/api/jobs", headers=H_, files={"video_file": ("in.mp4", f, "video/mp4")},
+                         data={"voice_type": "su", "fit_translation": "false", "caption_style": '{"color": "red"'}).json()["job_id"])
+ok(broken["status"] == "done" and broken["result"]["project"]["fx"]["caption_style"] == r.DEFAULT_CAPTION_STYLE, "a broken style in the upload falls back to the default (upload not refused)")
 print("ALL OK")

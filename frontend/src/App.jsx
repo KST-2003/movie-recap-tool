@@ -4,6 +4,8 @@ import Editor from './Editor.jsx';
 import VoiceLibrary from './VoiceLibrary.jsx';
 import Select from './Select.jsx';
 import PreviewStudio, { ASPECTS } from './PreviewStudio.jsx';
+import CaptionStyleControls from './CaptionStyleControls.jsx';
+import { DEFAULT_CAPTION_STYLE } from './captionFonts.js';
 import Shell from './Shell.jsx';
 import UsageDashboard from './UsageDashboard.jsx';
 import HistoryPage from './HistoryPage.jsx';
@@ -254,6 +256,7 @@ function App() {
   const [logoSize, setLogoSize] = useState(0.15);
   const [logoXY, setLogoXY] = useState(null); // dragged position in the preview (fractions of the frame); null = use logoPosition
   const [blurBoxes, setBlurBoxes] = useState([]); // user blur boxes, DISPLAYED coordinates (fractions)
+  const [captionStyle, setCaptionStyle] = useState({ ...DEFAULT_CAPTION_STYLE });   // subtitle look chosen BEFORE generating
   const [deviceCap, setDeviceCap] = useState(null);     // can this phone/browser draw the video itself? (WebCodecs + WebGL + speed test)
   const [useDevice, setUseDevice] = useState(false);     // "Render on my device (faster, beta)"
   const [queue, setQueue] = useState(null);              // server queue: { busy, wait_seconds }
@@ -362,6 +365,7 @@ function App() {
     }
     // Boxes are in the output frame as shown (the render applies them after reframe and flip).
     formData.append('manual_blurs', JSON.stringify(blurBoxes.map((b) => [b.x, b.y, b.w, b.h])));
+    if (JSON.stringify(captionStyle) !== JSON.stringify(DEFAULT_CAPTION_STYLE)) formData.append('caption_style', JSON.stringify(captionStyle));
     formData.append('resolution', resolution);
     formData.append('device_render', !!(useDevice && deviceCap?.ok));
     formData.append('aspect', aspect);
@@ -670,7 +674,11 @@ function App() {
           </div>
 
           {sourceUrl && !loading && !resultVideoUrl && (
-            <PreviewStudio src={sourceUrl} logoFile={customLogo} fx={previewFx} onChange={changePreviewFx} />
+            <>
+              <PreviewStudio src={sourceUrl} logoFile={customLogo} fx={{ ...previewFx, captionStyle }} onChange={changePreviewFx} />
+              <CaptionStyleControls cap={captionStyle} onChange={setCaptionStyle} showSample={false} />
+              <p className="text-xs text-slate-500 -mt-2">{tr('The sample line in the preview shows the subtitle style. "Automatic" puts subtitles over the original ones when they are found.')}</p>
+            </>
           )}
 
           {standardOk && (

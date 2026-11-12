@@ -1,6 +1,8 @@
 import Select from './Select.jsx';
 import React, { useEffect, useRef, useState } from 'react';
 import { useI18n } from './i18n.jsx';
+import { rgba } from './captionFonts.js';
+import { SAMPLE, useCaptionFamily } from './CaptionStyleControls.jsx';
 
 // Live preview of the chosen video BEFORE generating, inside the chosen output frame (9:16, 1:1, ...), like CapCut:
 // reframe (fit over blurred copy, or crop + drag to pan), grading, speed, flip, draggable logo and blur boxes.
@@ -29,6 +31,8 @@ export function frameSize(aspect, src) {
 export default function PreviewStudio({ src, logoFile, fx, onChange }) {
   const { tr } = useI18n();
   const stageRef = useRef(null);
+  const cap = fx.captionStyle;   // subtitle style chosen before generating: a sample line is drawn in the frame
+  const capFamily = useCaptionFamily(cap?.font || 'sans');
   const videoRef = useRef(null);
   const bgRef = useRef(null);
   const [logoUrl, setLogoUrl] = useState('');
@@ -183,7 +187,7 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
       <div className="flex justify-center">
         <div
           ref={stageRef}
-          style={{ aspectRatio: `${fw} / ${fh}`, width: portraitish ? `min(100%, calc(70vh * ${fw / fh}))` : '100%' }}
+          style={{ aspectRatio: `${fw} / ${fh}`, width: portraitish ? `min(100%, calc(70vh * ${fw / fh}))` : '100%', containerType: 'inline-size' }}
           className="relative max-w-3xl select-none touch-none overflow-hidden rounded-xl border border-slate-800 bg-black"
         >
           <div
@@ -219,6 +223,16 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
               className={`absolute inset-0 w-full h-full pointer-events-none ${cropFit ? 'object-cover' : 'object-contain'}`}
             />
           </div>
+          {cap && (   /* sample subtitle in the chosen style; same rules as the render: 5% of the width x size, strip at top / middle / bottom */
+            <div className="absolute inset-x-0 flex justify-center px-[6%] pointer-events-none"
+              style={cap.position === 'top' ? { top: '5%' } : cap.position === 'middle' ? { top: '50%', transform: 'translateY(-50%)' } : { bottom: '4%' }}>
+              <span style={{
+                fontFamily: capFamily, fontWeight: cap.font === 'sans-regular' ? 400 : 700, fontSize: `${(5 * cap.size).toFixed(2)}cqw`, lineHeight: 1.75,
+                color: cap.color, background: cap.bg_opacity > 0 ? rgba(cap.bg, cap.bg_opacity) : 'transparent', borderRadius: '0.4em', padding: '0 0.5em',
+                WebkitTextStroke: cap.outline ? `${(5 * cap.size / 11).toFixed(2)}cqw ${cap.outline}` : '0', paintOrder: 'stroke fill', textAlign: 'center',
+              }}>{SAMPLE}</span>
+            </div>
+          )}
           {fx.blurBoxes.map((b, i) => (
             <div
               key={i}
