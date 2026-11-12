@@ -191,7 +191,8 @@ def synthesize_to_file(text: str, path: str, voice: str | None = None, retries: 
             text_err = err_l = str(exc).lower()
             if "429" in text_err or "resource_exhausted" in text_err:
                 learn_limit(str(exc), model)
-            transient = any(k in text_err for k in ("429", "500", "503", "resource_exhausted", "unavailable", "timeout", "too_many_requests"))
+            transient = any(k in text_err for k in ("429", "500", "503", "resource_exhausted", "unavailable", "timeout", "too_many_requests",
+                                                     "could not be completed"))   # "The audio stream could not be completed. Please retry your request" (400, seen 2026-11-12)
             if "per day" in err_l or "perday" in err_l:  # daily quota: retrying is pointless
                 _block(str(exc), model)
                 raise QuotaExceeded(quota_message(model)) from exc

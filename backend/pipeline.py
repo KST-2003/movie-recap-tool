@@ -331,6 +331,9 @@ def plan_batches(texts: list[str], voices: list[str], styles: list) -> list[list
     return batches + [[i] for i in range(len(texts)) if styles[i]]
 
 
+BULK_HALVE_MIN = int(os.getenv("TTS_BULK_HALVE_MIN", "4"))   # a failed batch of at least this many lines is retried as two halves
+
+
 def voice_many(texts: list[str], paths: list[str], voice, model: dict, job_id: str, progress=None,
                chooser=None, styles: list | None = None, blocked: list | None = None) -> list[float]:
     """Voice many lines with as few requests as possible (several lines per request when TTS_BULK is on; a group
@@ -404,7 +407,15 @@ def voice_many(texts: list[str], paths: list[str], voice, model: dict, job_id: s
             except (JobCancelled, gemini_tts.QuotaExceeded):
                 raise   # cancelled, or the daily limit is used up: more requests would only be refused
             except Exception as exc:
-                print(f"  bulk voice failed ({exc}); using one request each", flush=True)
+                # One failed batch used to cost one request PER LINE (12 requests against a 9-per-minute limit: a real 10-min video
+                # lost over a minute and its fit step, 2026-11-12). Halve instead: the bad line is isolated in a few requests.
+                if len(idx) >= BULK_HALVE_MIN:
+                    print(f"  bulk voice failed for {len(idx)} lines ({str(exc)[:160]}); trying two smaller groups", flush=True)
+                    half = len(idx) // 2
+                    group(idx[:half])
+                    group(idx[half:])
+                    return
+                print(f"  bulk voice failed ({str(exc)[:160]}); using one request each", flush=True)
         for i in idx:
             single(i)
 

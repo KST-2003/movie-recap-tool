@@ -111,7 +111,7 @@ function makeCompositor(plan) {
   srcRects.forEach((r, i) => flat.set(r, i * 4));
   const radius = (r) => Math.max(1, Math.min(Math.min(r[2] * SW, r[3] * SH) / 4, 30));
   const rectPx = Math.max(6, ...[...srcRects, ...(sub ? [sub.rect] : [])].map(radius));
-  const manual = (plan.manual_blurs || []).slice(0, 6);
+  const manualAll = (plan.manual_blurs || []).slice(0, 6), manualTimed = plan.manual_timed || [];
   const grade = plan.grade || {};
   const hasGrade = (grade.brightness || 0) !== 0 || (grade.contrast ?? 1) !== 1 || (grade.saturation ?? 1) !== 1;
 
@@ -152,6 +152,7 @@ function makeCompositor(plan) {
       gl.uniform2f(u.vis, ...vis);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       gl.viewport(0, 0, W, H);
+      const manual = manualAll.filter((_, k) => subOn || !manualTimed[k]);   // a box over the subtitle follows the blur windows
       if (manual.length) {   // user boxes on the finished frame: copy it, then draw a blurred copy of each box over itself
         gl.bindTexture(gl.TEXTURE_2D, frameTex);
         gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGB, 0, 0, W, H, 0);

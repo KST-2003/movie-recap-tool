@@ -500,6 +500,63 @@ def _blur_region(rect, src: str, name: str, windows: list | None = None) -> str:
             f"[{name}_m][{name}_b]overlay={x}:{y}{enable}[{name}_o]")
 
 
+def subtitle_rect_in_output(fx, SW: int, SH: int, W: int, H: int) -> tuple | None:
+    """Where the source subtitle band lands in the OUTPUT frame (after reframe + flip), as (x, y, w, h) pixels."""
+    if not fx.subtitle_rect:
+        return None
+    x, y, w, h = fx.subtitle_rect
+    if (W, H) != (SW, SH):
+        if abs(W * SH - H * SW) <= 2 * max(SW, SH):
+            kx, ky, ox, oy = W / SW, H / SH, 0.0, 0.0
+        elif fx.fit_mode == "crop":
+            kx = ky = max(W / SW, H / SH)
+            ox = -(SW * kx - W) * min(max(fx.pan_x, 0.0), 1.0)
+            oy = -(SH * ky - H) * min(max(fx.pan_y, 0.0), 1.0)
+        else:
+            kx = ky = min(W / SW, H / SH)
+            ox, oy = (W - SW * kx) / 2, (H - SH * ky) / 2
+        x, y, w, h = x * kx + ox, y * ky + oy, w * kx, h * ky
+    if fx.flip_h:
+        x = W - x - w
+    if getattr(fx, "flip_v", False):
+        y = H - y - h
+    return x, y, w, h
+
+
+def manual_blur_timed(fx, SW: int, SH: int, W: int, H: int) -> list[bool]:
+    """Per user-drawn blur box: True when it covers the source subtitle and so follows the subtitle blur's time windows (the
+    editor's Blur track) instead of staying on for the whole video. A user who draws a box over the subtitle before uploading
+    expects the Blur track to switch it too (real case 2026-11-12: the band was timed correctly, the hand-drawn box over the same
+    place stayed on all the time and looked like the track did nothing). Boxes elsewhere (a watermark, a logo) stay always on."""
+    sub = subtitle_rect_in_output(fx, SW, SH, W, H) if (fx.blur_subtitles and fx.subtitle_windows is not None) else None
+    out = []
+    for x, y, w, h in fx.extra_blur_rects:
+        hit = False
+        if sub:
+            ix = min(x + w, sub[0] + sub[2]) - max(x, sub[0])
+            iy = min(y + h, sub[1] + sub[3]) - max(y, sub[1])
+            hit = ix > 0 and iy > 0 and ix * iy >= 0.25 * min(w * h, sub[2] * sub[3])
+        out.append(hit)
+    return out
+
+
+def _windows_in_output(windows: list, scenes: list) -> list:
+    """Source-time windows -> the output times at which those source moments are shown (through slow-downs and freezes)."""
+    res, out = [], 0.0
+    for sc in scenes:
+        for a, b in windows:
+            lo, hi = max(a, sc.src_start), min(b, sc.src_end)
+            if hi > lo:
+                t0 = out + (lo - sc.src_start) / sc.video_speed
+                t1 = out + sc.out_len if b >= sc.src_end - 0.05 else out + (hi - sc.src_start) / sc.video_speed
+                if res and t0 - res[-1][1] < 0.05:
+                    res[-1][1] = max(res[-1][1], t1)
+                else:
+                    res.append([t0, min(t1, out + sc.out_len)])
+        out += sc.out_len
+    return res
+
+
 _LOGO_POS = {
     "top-right": "W-w-30:30", "top-left": "30:30",
     "bottom-right": "W-w-30:H-h-30", "bottom-left": "30:H-h-30", "center": "(W-w)/2:(H-h)/2",
@@ -623,8 +680,8 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
     labels = []
     # Source subtitle blurred only while it is on screen: blur the SOURCE stream (source time) before it is cut into scenes.
     pre_blur = bool(fx.blur_subtitles and fx.subtitle_rect and fx.subtitle_windows is not None) and not audio_only
+    local = [(max(a - src_offset, 0.0), b - src_offset) for a, b in fx.subtitle_windows or [] if b - src_offset > 0]
     if pre_blur:
-        local = [(max(a - src_offset, 0.0), b - src_offset) for a, b in fx.subtitle_windows if b - src_offset > 0]
         f.append(_blur_region(fx.subtitle_rect, "0:v", "bs", local))
     if not audio_only:
         f.append(_retime_chain("bs_o" if pre_blur else "0:v", scenes, fps))
@@ -717,8 +774,10 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
         chain("hflip", "fh")
     if fx.flip_v:
         chain("vflip", "fv")
+    timed = manual_blur_timed(fx, SW, SH, W, H)
+    out_windows = _windows_in_output(local, scenes) if any(timed) else None   # this stream is already retimed: output seconds
     for k, rect in enumerate(fx.extra_blur_rects):   # drawn on the preview of the final frame, so after reframe + flip
-        f.append(_blur_region(rect, cur, f"bm{k}"))
+        f.append(_blur_region(rect, cur, f"bm{k}", out_windows if timed[k] else None))
         cur = f"bm{k}_o"
     if (fx.brightness, fx.contrast, fx.saturation) != (0.0, 1.0, 1.0):
         chain(f"eq=brightness={fx.brightness:.3f}:contrast={fx.contrast:.3f}:saturation={fx.saturation:.3f}", "gr")
@@ -789,6 +848,7 @@ def device_plan(info: dict, scenes: list[Scene], fx: EffectOptions, cues: list, 
                       "windows": [list(w) for w in fx.subtitle_windows] if fx.subtitle_windows is not None else None}
                      if fx.blur_subtitles and fx.subtitle_rect else None),
         "manual_blurs": [list(r) for r in fx.extra_blur_rects],
+        "manual_timed": manual_blur_timed(fx, SW, SH, W, H),   # True = follows subtitle.windows (a box drawn over the subtitle)
         "caption": {"size": size, "bottom": cap_y + cap_h - 8, "max_w": int(W * 0.88),   # `bottom` kept for older app builds
                     "top": cap_y, "height": cap_h, "valign": cap_valign,
                     "style": {k: st[k] for k in ("font", "color", "outline", "bg", "bg_opacity")}},
