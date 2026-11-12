@@ -4,6 +4,8 @@ Text *detection* is language-agnostic, so this works for Chinese, Thai, Burmese 
 Subtitles are text that sits at one vertical position but changes between frames; watermarks are
 text that stays put and does not change.
 """
+import os
+from concurrent.futures import ThreadPoolExecutor
 import time
 
 import cv2
@@ -203,6 +205,10 @@ def to_pixels(rect, w: int, h: int, pad_x: float = 0.03, pad_y: float = 0.012):
     return px, py, max(pw, 2), max(ph, 2)
 
 
+SCAN_LAYOUTS = ((8, 3), (8, 2))   # (rows, columns) of band images per detector call; a sample counts when ANY layout sees text
+SCAN_THREADS = int(os.getenv("SUBTITLE_SCAN_THREADS", "4"))
+
+
 def subtitle_windows(video_path: str, duration: float, rect, step: float | None = None, stack: int = 8,
                      pad: float | None = None) -> list[tuple[float, float]] | None:
     """When is there really a subtitle in the band `rect` (fractions)? Returns merged (start, end) windows in SOURCE
@@ -235,23 +241,49 @@ def subtitle_windows(video_path: str, duration: float, rect, step: float | None 
         print(f"  subtitle window scan failed ({exc})", flush=True)
         return None
 
+    # Text detection on the samples. The band images are tiled into GRIDS (several columns), not one narrow column: the
+    # detector enlarges a narrow picture ~3x before looking at it, which made one call cost 0.8 s (70 s for a 10-minute film,
+    # measured on the server 2026-11-13). A 3-column grid is ~10x cheaper. A marginal subtitle can be missed in one layout
+    # and found in another, so the scan runs TWO layouts and a sample counts when either sees text (a missed subtitle shows
+    # through the blur; a little extra blur does not hurt). Checked by eye on a real film's disputed samples: the old single
+    # column found 13 of 23 real subtitles with 13 false alarms, the two grids 21 of 23 with none, in 17 s instead of 70 s.
     gap = 16
     present = [False] * n
     eng = _engine()
-    for s in range(0, n, stack):
-        group = frames[s: s + stack]
-        canvas = np.zeros((len(group) * out_h + (len(group) - 1) * gap, out_w, 3), np.uint8)
-        for k, fr in enumerate(group):
-            canvas[k * (out_h + gap): k * (out_h + gap) + out_h] = fr
-        res, _ = eng(canvas, use_det=True, use_cls=False, use_rec=False)
-        for pts in res or []:
-            ys = [p[1] for p in pts]
-            h_box = max(ys) - min(ys)
-            if h_box < out_h * 0.2:
-                continue
-            k = int(((max(ys) + min(ys)) / 2) // (out_h + gap))
-            if 0 <= k < len(group):
-                present[s + k] = True
+
+    def scan(rows: int, cols: int):
+        per = rows * cols
+
+        def one(s0: int):
+            group = frames[s0: s0 + per]
+            canvas = np.zeros((rows * out_h + (rows - 1) * gap, cols * out_w + (cols - 1) * gap, 3), np.uint8)
+            for k, fr in enumerate(group):
+                r, q = k % rows, k // rows
+                canvas[r * (out_h + gap): r * (out_h + gap) + out_h, q * (out_w + gap): q * (out_w + gap) + out_w] = fr
+            res, _ = eng(canvas, use_det=True, use_cls=False, use_rec=False)
+            hit = []
+            for pts in res or []:
+                ys, xs = [p[1] for p in pts], [p[0] for p in pts]
+                if max(ys) - min(ys) < out_h * 0.2:
+                    continue
+                r = int(((max(ys) + min(ys)) / 2) // (out_h + gap))
+                q = int(((max(xs) + min(xs)) / 2) // (out_w + gap))
+                k = q * rows + r
+                if 0 <= r < rows and 0 <= q < cols and k < len(group):
+                    hit.append(s0 + k)
+            return hit
+
+        with ThreadPoolExecutor(max_workers=SCAN_THREADS) as pool:   # the detector runs outside the GIL; same result as one thread
+            for hit in pool.map(one, range(0, n, per)):
+                for i in hit:
+                    present[i] = True
+
+    try:
+        for rows, cols in SCAN_LAYOUTS:
+            scan(rows, cols)
+    except Exception as exc:
+        print(f"  subtitle window scan failed ({exc})", flush=True)
+        return None
     wins: list[list[float]] = []
     for i, ok in enumerate(present):
         if not ok:
