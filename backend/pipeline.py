@@ -35,7 +35,7 @@ from db import Job, Session, update_job
 import fit_text
 from fit_text import available as fit_available
 from scene_cuts import detect_cuts
-from recap_engine import (BREATH, burmese_font_available, _render_single, device_plan, caption_cues, EffectOptions, SyncOptions, has_audio, plan_source_timing, plan_timeline, probe_video,
+from recap_engine import (BREATH, burmese_font_available, caption_style, _render_single, render_audio, device_plan, caption_cues, EffectOptions, SyncOptions, has_audio, plan_source_timing, plan_timeline, probe_video,
                           render, write_srt)
 from subtitle_detect import detect_text_regions, subtitle_windows, to_pixels
 
@@ -651,6 +651,9 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
         if not dub or not src_has_audio:
             bg_choice = "off"
         warn: list[str] = []
+        if p.get("trimmed_from") and not edit:   # the upload was longer than allowed: main.create_job kept only the beginning
+            warn.append(f"This video was {round(p['trimmed_from'] / 60, 1):g} minutes long, so only the first "
+                        f"{round(p.get('trimmed_to', 0) / 60, 1):g} minutes were used.")
         # The separated music/effects of a video are cached (an editor re-render of the same video must not run Demucs again).
         bg_cache = os.path.join(OUTPUT_DIR, f"bgcache_{p.get('bg_source_job') or job_id}.wav")
         if bg_choice == "separate" and os.path.isfile(bg_cache):
@@ -870,6 +873,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
             out_size=out_size, fit_mode=p.get("fit_mode", "blur"),
             pan_x=float(p.get("pan_x", 0.5)), pan_y=float(p.get("pan_y", 0.5)),
             captions=p["enable_subtitles"],
+            caption_style=p.get("caption_style"),
             background_path=bg_state.get("path") if not duck else bg_path,
             duck_background=duck,
             background_volume=float(p["bg_volume"]) if p.get("bg_volume") is not None else (0.3 if duck else 0.8),
@@ -882,14 +886,18 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
             print("  WARNING: no Burmese font found on this server: the subtitles will be drawn as boxes (set BURMESE_FONT_PATH or add backend/fonts)", flush=True)
             warn.append("The Burmese subtitle font is missing on the server, so the subtitles may show as boxes. The owner has been informed.")
         device = bool(p.get("device_render"))
+
+        def render_progress(done: int, total: int):   # one step per finished segment, so the time-left estimate follows the render
+            set_job(job_id, stage="Rendering video", progress=75 + int(23 * done / max(total, 1)))
+
         with pipeline_stage("Voice track (device render)" if device else "FFmpeg Render"):
             if device:   # the phone draws the picture: the server only mixes the sound, in the same filter graph as a full render
                 audio_path = os.path.join(OUTPUT_DIR, f"{job_id}_voice.m4a")
-                result = _render_single(video_path, segments, scenes, effects, audio_path, OUTPUT_DIR, job_id, audio_only=True)
+                result = render_audio(video_path, segments, scenes, effects, audio_path, OUTPUT_DIR, job_id, on_progress=render_progress)
                 device_plan_data = device_plan(info, scenes, effects, result["cues"], result["duration"])
                 audio_key = storage.put_output(audio_path)
             else:
-                result = render(video_path, segments, scenes, effects, output_path, OUTPUT_DIR, job_id)
+                result = render(video_path, segments, scenes, effects, output_path, OUTPUT_DIR, job_id, on_progress=render_progress)
             if p.get("soft_music") and not device:   # optional quiet pad under everything
                 try:
                     tone = os.path.join(OUTPUT_DIR, f"{job_id}_tone.wav")
@@ -922,7 +930,8 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                    "caption_px": fx_kwargs.get("caption_px"),
                    "watermark_rects": [list(r) for r in fx_kwargs.get("watermark_rects", [])],
                    "subtitle_windows": [list(w) for w in fx_kwargs["subtitle_windows"]] if fx_kwargs.get("subtitle_windows") is not None else None,
-                   "bg_volume": effects.background_volume, "bg_ducked": bool(duck)},
+                   "bg_volume": effects.background_volume, "bg_ducked": bool(duck),
+                   "caption_style": caption_style(p.get("caption_style"))},
             "segments": [
                 {"id": i, "start": round(sg["start"], 2), "text": sg["translated_text"],
                  "source_text": sg.get("source_text", ""), "tempo": sg.get("tempo"),

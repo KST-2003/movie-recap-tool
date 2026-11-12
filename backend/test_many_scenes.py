@@ -62,4 +62,20 @@ for k in (0, 1, 37, 80, 121, 159):   # the loudest frequency inside scene k must
     spec = np.abs(np.fft.rfft(seg * np.hanning(len(seg))))
     peak = np.argmax(spec) * 44100 / len(seg)
     ok(abs(peak - (300 + 12 * k)) < 10, f"scene {k}: voice tone {peak:.0f} Hz == clip {k} ({300 + 12 * k} Hz)")
+
+# sound only (on-device render): built in scene groups and joined; every clip must still sit in its own scene, with no drift at the joins
+aout = f"{tmp}/sound.m4a"
+r.render_audio(src, segments, scenes, r.EffectOptions(captions=False), aout, tmp, "s")
+adur = float(real_run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", aout], capture_output=True, text=True).stdout)
+ok(abs(adur - N * SCENE) < 0.1, f"sound-only length {adur:.2f}s matches the plan {N * SCENE}s")
+pcm = np.frombuffer(real_run(["ffmpeg", "-v", "error", "-i", aout, "-f", "s16le", "-ar", "44100", "-ac", "1", "-"], capture_output=True).stdout, dtype=np.int16).astype(float)
+for k in (0, 39, 40, 41, 80, 121, 159):   # 40 = first scene of the second group
+    a = int((k * SCENE + 0.05) * 44100)
+    seg = pcm[a:a + int(0.3 * 44100)]
+    spec = np.abs(np.fft.rfft(seg * np.hanning(len(seg))))
+    peak = np.argmax(spec) * 44100 / len(seg)
+    ok(abs(peak - (300 + 12 * k)) < 10, f"sound only, scene {k}: tone {peak:.0f} Hz == clip {k} ({300 + 12 * k} Hz)")
+    quiet = pcm[int((k * SCENE + 0.42) * 44100):int((k * SCENE + 0.47) * 44100)]   # the clip is 0.4 s: the scene's last part is silent
+    ok(np.abs(quiet).max() < 600, f"sound only, scene {k}: silent after its clip (no drift into the next scene)")
+ok(not [f for f in os.listdir(tmp) if f.startswith("s_")], "sound-only temporary files are removed")
 print("ALL OK")

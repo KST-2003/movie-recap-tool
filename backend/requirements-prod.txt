@@ -5,6 +5,8 @@ requests==2.31.0
 Pillow==10.2.0
 pydantic>=2.12.5
 rapidocr-onnxruntime>=1.4.4   # subtitle / watermark detection
+numpy>=1.24                   # bounded Spleeter spectrogram processing
+onnxruntime>=1.17,<2          # CPU inference for optional Spleeter separation
 opencv-python-headless>=4.9
 anthropic>=2.0                # optional: tighten translations to fit scene timing (ANTHROPIC_API_KEY)
 google-genai>=2.25,<3   # Gemini TTS
@@ -15,4 +17,5 @@ redis>=5.0
 pyjwt>=2.8            # login tokens
 boto3>=1.34
 psycopg[binary]>=3.1   # Postgres driver (DATABASE_URL=postgresql+psycopg://...)
-httpx<0.28          # needed by starlette TestClient (tests only; newer httpx breaks Starlette 0.36)
+# NOT here: httpx<0.28 (starlette TestClient, tests only). It conflicts with google-genai (needs httpx>=0.28.1) and made
+# "pip install -r" fail on a fresh server (2026-11-12). For tests on a server: pip install --target <tmp> "httpx<0.28" + PYTHONPATH.

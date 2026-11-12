@@ -6,6 +6,7 @@ aligned no matter how long the translation runs.
 """
 import json
 import os
+import threading
 import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
@@ -28,6 +29,66 @@ FONT_CANDIDATES = [
     ("/usr/share/fonts/truetype/noto/NotoSansMyanmar-Regular.ttf", 0),
     ("C:/Windows/Fonts/mmrtext.ttf", 0),
 ]
+
+# ---------- subtitle style (chosen in the editor) ----------
+_FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
+# id -> font file shipped in backend/fonts (all SIL OFL, see fonts/NOTICE.txt). The same files are served to the browser
+# (frontend/public/fonts) so the on-device render and the editor's sample use the same letters. "sans" = the look before styles existed.
+CAPTION_FONTS = {"sans": "NotoSansMyanmar-Bold.ttf", "sans-regular": "NotoSansMyanmar-Regular.ttf",
+                 "serif": "NotoSerifMyanmar-Bold.ttf", "padauk": "Padauk-Bold.ttf"}
+CAPTION_POSITIONS = ("auto", "bottom", "middle", "top")   # auto = where the original subtitle was (or near the bottom)
+DEFAULT_CAPTION_STYLE = {"font": "sans", "size": 1.0, "color": "#FFEB3B", "outline": "#000000",
+                         "bg": "#000000", "bg_opacity": 0.59, "position": "auto"}
+_HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def caption_style(raw: dict | None) -> dict:
+    """A complete, safe style from whatever was stored / sent: unknown or broken values fall back to the default look."""
+    st = dict(DEFAULT_CAPTION_STYLE)
+    raw = raw if isinstance(raw, dict) else {}
+    if raw.get("font") in CAPTION_FONTS:
+        st["font"] = raw["font"]
+    if raw.get("position") in CAPTION_POSITIONS:
+        st["position"] = raw["position"]
+    for key in ("color", "bg"):
+        if isinstance(raw.get(key), str) and _HEX.match(raw[key]):
+            st[key] = raw[key].upper()
+    if "outline" in raw:   # "" = no outline
+        st["outline"] = raw["outline"].upper() if isinstance(raw["outline"], str) and _HEX.match(raw["outline"]) else ""
+    try:
+        if raw.get("size") is not None:
+            st["size"] = round(min(max(float(raw["size"]), 0.6), 1.8), 2)
+        if raw.get("bg_opacity") is not None:
+            st["bg_opacity"] = round(min(max(float(raw["bg_opacity"]), 0.0), 1.0), 2)
+    except (TypeError, ValueError):
+        pass
+    return st
+
+
+def _rgb(hex_colour: str) -> tuple:
+    return tuple(int(hex_colour[i:i + 2], 16) for i in (1, 3, 5))
+
+
+def caption_font_px(width: int, size_px: int | None, style: dict) -> int:
+    """Font size of the captions in px: the automatic size (from the original subtitle, else 5% of the width) x the style's size."""
+    size = max(int(width * 0.05), 18)
+    if size_px:  # match the original subtitle (slightly bigger), within sane bounds
+        size = int(min(max(size_px, width * 0.035), width * 0.075))
+    return int(min(max(size * style["size"], 12), width * 0.14))
+
+
+def caption_box(fx: "EffectOptions", W: int, H: int, reframed: bool) -> tuple[int, int, str]:
+    """(height, top, vertical alignment) of the strip of the output frame the captions are drawn in."""
+    st = caption_style(fx.caption_style)
+    cap_h = int(H * min(0.22 * max(1.0, st["size"]), 0.45))
+    if st["position"] == "top":
+        return cap_h, int(H * 0.05), "top"
+    if st["position"] == "middle":
+        return cap_h, (H - cap_h) // 2, "middle"
+    if st["position"] == "auto" and fx.subtitle_rect and not reframed:  # sit exactly where the blurred source subtitles were
+        cy = min(fx.subtitle_rect[1] + fx.subtitle_rect[3] + int(H * 0.01), H)
+        return cap_h, max(0, min(cy - cap_h, H - cap_h)), "bottom"
+    return cap_h, H - cap_h - int(H * 0.04), "bottom"
 
 
 @dataclass
@@ -65,6 +126,7 @@ class EffectOptions:
     duck_background: bool = False     # lower the background track while the new voice speaks (sidechain compression)
     source_audio: bool = False        # no dubbing: keep the video's own audio (subtitles-only mode)
     caption_px: int | None = None     # caption font size in px (set from the original subtitle height); None = default
+    caption_style: dict | None = None  # font / size / colours / position chosen in the editor (see caption_style()); None = default look
 
 
 @dataclass
@@ -178,9 +240,9 @@ def _runs(text: str):
 class Fonts:
     """Myanmar face with a Latin/digit fallback; the Myanmar font has no Latin glyphs."""
 
-    def __init__(self, size: int):
+    def __init__(self, size: int, font_id: str = "sans"):
         self.size = size
-        self.main = _load_font(size)
+        self.main = _load_font(size, font_id)
         self.alt = _load_fallback(size)
         try:
             self.ascent, self.descent = self.main.getmetrics()
@@ -190,11 +252,11 @@ class Fonts:
     def width(self, draw, text: str) -> float:
         return sum(draw.textlength(t, font=self.main if my else self.alt) for t, my in _runs(text))
 
-    def draw(self, draw, x: float, baseline: float, text: str):
+    def draw(self, draw, x: float, baseline: float, text: str, fill=(255, 235, 59, 255), stroke=(0, 0, 0, 255)):
         for t, my in _runs(text):
             font = self.main if my else self.alt
-            draw.text((x, baseline), t, font=font, anchor="ls", fill=(255, 235, 59, 255),
-                      stroke_width=1, stroke_fill=(0, 0, 0, 255))
+            draw.text((x, baseline), t, font=font, anchor="ls", fill=fill,
+                      **({"stroke_width": max(1, self.size // 22), "stroke_fill": stroke} if stroke else {}))
             x += draw.textlength(t, font=font)
 
 
@@ -202,8 +264,9 @@ def burmese_font_available() -> bool:
     return any(path and os.path.isfile(path) for path, _ in FONT_CANDIDATES)
 
 
-def _load_font(size: int):
-    for path, index in FONT_CANDIDATES:
+def _load_font(size: int, font_id: str = "sans"):
+    chosen = [(os.path.join(_FONT_DIR, CAPTION_FONTS[font_id]), 0)] if font_id != "sans" and font_id in CAPTION_FONTS else []
+    for path, index in chosen + FONT_CANDIDATES:
         if path and os.path.isfile(path):
             try:
                 return ImageFont.truetype(path, size, index=index, layout_engine=ImageFont.Layout.RAQM)
@@ -246,27 +309,31 @@ def _wrap(draw, text: str, fonts: "Fonts", max_w: int) -> list[str]:
     return lines
 
 
-def render_caption(text: str, path: str, width: int, height: int, max_lines: int = 3, size_px: int | None = None):
+def render_caption(text: str, path: str, width: int, height: int, max_lines: int = 3, size_px: int | None = None,
+                   style: dict | None = None, valign: str = "bottom"):
+    st = caption_style(style)
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    size = max(int(width * 0.05), 18)
-    if size_px:  # match the original subtitle (slightly bigger), within sane bounds
-        size = int(min(max(size_px, width * 0.035), width * 0.075))
+    size = caption_font_px(width, size_px, st)
     max_w = int(width * 0.88)
+    fill, stroke = (*_rgb(st["color"]), 255), ((*_rgb(st["outline"]), 255) if st["outline"] else None)
+    box = (*_rgb(st["bg"]), int(round(st["bg_opacity"] * 255)))
     while True:
-        fonts = Fonts(size)
+        fonts = Fonts(size, st["font"])
         lines = _wrap(draw, text, fonts, max_w)
         line_h = int((fonts.ascent + fonts.descent) * 1.12) + 6
         if (len(lines) <= max_lines and len(lines) * line_h <= height - 16) or size <= 16:
             break
         size -= 2
     total_h = len(lines) * line_h
-    y = height - total_h - 8
+    y = 8 if valign == "top" else ((height - total_h) // 2 if valign == "middle" else height - total_h - 8)
+    y = max(y, 0)
     for line in lines:
         tw = fonts.width(draw, line)
         x = (width - tw) / 2
-        draw.rounded_rectangle([x - 14, y + 2, x + tw + 14, y + line_h - 2], radius=8, fill=(0, 0, 0, 150))
-        fonts.draw(draw, x, y + 3 + fonts.ascent * 1.06, line)
+        if box[3]:
+            draw.rounded_rectangle([x - 14, y + 2, x + tw + 14, y + line_h - 2], radius=8, fill=box)
+        fonts.draw(draw, x, y + 3 + fonts.ascent * 1.06, line, fill=fill, stroke=stroke)
         y += line_h
     img.save(path)
 
@@ -316,7 +383,7 @@ def write_srt(cues, path: str):
 
 
 def build_caption_track(cues, total_len: float, work_dir: str, tag: str, width: int, height: int,
-                        size_px: int | None = None) -> str:
+                        size_px: int | None = None, style: dict | None = None, valign: str = "bottom") -> str:
     """One concat-demuxer playlist of caption PNGs, so FFmpeg needs a single overlay input."""
     blank = os.path.join(work_dir, f"{tag}_blank.png")
     Image.new("RGBA", (width, height), (0, 0, 0, 0)).save(blank)
@@ -328,7 +395,7 @@ def build_caption_track(cues, total_len: float, work_dir: str, tag: str, width: 
         if a - t > 0.001:
             lines += [f"file '{blank}'", f"duration {a - t:.3f}"]
         png = os.path.join(work_dir, f"{tag}_cap_{n}.png")
-        render_caption(text, png, width, height, size_px=size_px)
+        render_caption(text, png, width, height, size_px=size_px, style=style, valign=valign)
         files.append(png)
         lines += [f"file '{png}'", f"duration {b - a:.3f}"]
         t = b
@@ -476,6 +543,28 @@ def build_voice_track(segments: list[dict], scenes: list[Scene], work_dir: str, 
     return path, offsets
 
 
+def _retime_chain(src: str, scenes: list, fps: float) -> str:
+    """The picture of all scenes as ONE linear filter chain -> [vcat]: frames outside the scenes are dropped, every kept frame gets
+    its output time (scene start in the output + position inside the scene / video speed), and `fps` repeats the last frame
+    through a freeze. Replaces one `trim` branch per scene joined by `concat`: with that layout ffmpeg 6 on a many-core machine
+    decoded far ahead of the encoder and kept every frame (2.6 GB per 60 s segment at 720p, 20+ GB with the caption overlay:
+    killed by the kernel on the 8-core server). This chain holds a few frames only (281 MB for the same segment)."""
+    keep, when, out = [], [], 0.0
+    for sc in scenes:
+        a, b = sc.src_start, sc.src_end
+        if keep and abs(keep[-1][1] - a) < 0.0005:
+            keep[-1][1] = b          # scenes that touch in the source: one range
+        else:
+            keep.append([a, b])
+        last = max(sc.out_len - 0.5 / fps, 0.0)   # never run into the next scene's time
+        when.append(f"gte(T,{a:.5f})*lt(T,{b:.5f})*({out:.5f}+min((T-{a:.5f})/{sc.video_speed:.5f},{last:.5f}))")
+        out += sc.out_len
+    sel = "+".join(f"gte(t,{a:.5f})*lt(t,{b:.5f})" for a, b in keep)
+    tail = max(scenes[-1].freeze, 0.0) + 1.0   # the last scene's freeze has no later frame to wait for; the output -t cuts the rest
+    return (f"[{src}]trim=end={scenes[-1].src_end + 0.5 / fps:.5f},select='{sel}',setpts='({'+'.join(when)})/TB',fps={fps:.3f}:start_time=0,"
+            f"tpad=stop_mode=clone:stop_duration={tail:.3f}[vcat]")
+
+
 def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], fx: EffectOptions,
                    output_path: str, work_dir: str, tag: str, timeout: int = 1800,
                    src_offset: float = 0.0, threads: int | None = None, audio_only: bool = False,
@@ -518,11 +607,12 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
     cue_list = caption_cues(scenes, speed)
     cap_idx, cap_files = None, []
     if fx.captions and cue_list and not audio_only:
-        cap_h = int(H * 0.22)
+        cap_h, cap_top, cap_valign = caption_box(fx, W, H, reframed)
         cap_px = fx.caption_px
         if cap_px and reframed:   # the picture is scaled by this factor, so the caption keeps its size relative to it
             cap_px = max(12, int(cap_px * (max if fx.fit_mode == "crop" else min)(W / SW, H / SH)))
-        playlist, cap_files = build_caption_track(cue_list, total_len, work_dir, tag, W, cap_h, cap_px)
+        playlist, cap_files = build_caption_track(cue_list, total_len, work_dir, tag, W, cap_h, cap_px,
+                                                  style=fx.caption_style, valign=cap_valign)
         cmd += ["-f", "concat", "-safe", "0", "-i", playlist]
         cap_idx = nxt
         nxt += 1
@@ -536,14 +626,9 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
     if pre_blur:
         local = [(max(a - src_offset, 0.0), b - src_offset) for a, b in fx.subtitle_windows if b - src_offset > 0]
         f.append(_blur_region(fx.subtitle_rect, "0:v", "bs", local))
-        f.append(f"[bs_o]split={len(scenes)}" + "".join(f"[sv{n}]" for n in range(len(scenes))) if len(scenes) > 1
-                 else "[bs_o]null[sv0]")
+    if not audio_only:
+        f.append(_retime_chain("bs_o" if pre_blur else "0:v", scenes, fps))
     for n, sc in enumerate(scenes):
-        v = f"[{'sv' + str(n) if pre_blur else '0:v'}]trim=start={sc.src_start:.3f}:end={sc.src_end:.3f},setpts=(PTS-STARTPTS)/{sc.video_speed:.5f},fps={fps:.3f}"
-        if sc.freeze > 0.001:
-            v += f",tpad=stop_mode=clone:stop_duration={sc.freeze:.3f}"
-        if not audio_only:
-            f.append(f"{v}[v{n}]")
         if fx.source_audio:   # subtitles only: the picture and its own sound stay in sync, untouched
             a = (f"[0:a]atrim=start={sc.src_start:.3f}:end={sc.src_end:.3f},asetpts=PTS-STARTPTS,aresample=44100,"
                  f"{afmt},apad=whole_dur={sc.out_len:.3f},atrim=end={sc.out_len:.3f}")
@@ -556,7 +641,7 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
                 a += f",atempo={sc.tempo:.4f}"
             a += f",{afmt},apad=whole_dur={sc.out_len:.3f},atrim=end={sc.out_len:.3f}"
         f.append(f"{a},{afmt},asetpts=PTS-STARTPTS[a{n}]")
-        labels.append(f"[a{n}]" if audio_only else f"[v{n}][a{n}]")
+        labels.append(f"[a{n}]")
         if bg_idx is not None:
             b = (f"[{bg_idx}:a]atrim=start={sc.src_start:.3f}:end={sc.src_end:.3f},asetpts=PTS-STARTPTS")
             if sc.video_speed < 0.999:
@@ -564,10 +649,7 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
             b += (f",aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,"
                   f"apad=whole_dur={sc.out_len:.3f},atrim=end={sc.out_len:.3f},asetpts=PTS-STARTPTS[b{n}]")
             f.append(b)
-    if audio_only:
-        f.append(f"{''.join(labels)}concat=n={len(scenes)}:v=0:a=1[acat]")
-    else:
-        f.append(f"{''.join(labels)}concat=n={len(scenes)}:v=1:a=1[vcat][acat]")
+    f.append(f"{''.join(labels)}concat=n={len(scenes)}:v=0:a=1[acat]")
     acat = "acat"
     if bg_idx is not None:
         f.append(f"{''.join(f'[b{n}]' for n in range(len(scenes)))}concat=n={len(scenes)}:v=0:a=1[bgcat]")
@@ -598,7 +680,8 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
         with open(script, "w") as fh:
             fh.write(";\n".join(f))
         try:
-            res = subprocess.run(cmd + [*filter_script_args(script), "-map", f"[{acur}]", "-vn", "-c:a", "aac", "-b:a", "128k",
+            codec = ["-c:a", "pcm_s16le", "-ar", "44100"] if output_path.endswith(".wav") else ["-c:a", "aac", "-b:a", "128k"]
+            res = subprocess.run(cmd + [*filter_script_args(script), "-map", f"[{acur}]", "-vn", *codec,
                                         "-t", f"{total_len:.3f}", output_path], capture_output=True, timeout=timeout)
         finally:
             if os.path.exists(script):
@@ -650,12 +733,7 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
         cur = "wl"
     if cap_idx is not None:
         f.append(f"[{cap_idx}:v]format=rgba[cp]")
-        if fx.subtitle_rect and not reframed:  # sit exactly where the blurred source subtitles were
-            cy = min(fx.subtitle_rect[1] + fx.subtitle_rect[3] + int(H * 0.01), H)
-            cap_y = f"{max(0, min(cy - cap_h, H - cap_h))}"
-        else:
-            cap_y = f"H-h-{int(H * 0.04)}"
-        f.append(f"[{cur}][cp]overlay=0:{cap_y}:eof_action=pass:format=auto[wc]")
+        f.append(f"[{cur}][cp]overlay=0:{cap_top}:eof_action=pass:format=auto[wc]")
         cur = "wc"
     acur = acat
     if speed != 1.0:
@@ -694,18 +772,12 @@ def device_plan(info: dict, scenes: list[Scene], fx: EffectOptions, cues: list, 
     blur_rects = []
     if fx.blur_watermark:
         blur_rects = [norm(r) for r in fx.watermark_rects] + [[0.75, 0.88, 0.25, 0.12]]
-    cap_h = int(H * 0.22)
+    st = caption_style(fx.caption_style)
+    cap_h, cap_y, cap_valign = caption_box(fx, W, H, reframed)
     cap_px = fx.caption_px
     if cap_px and reframed:
         cap_px = max(12, int(cap_px * (max if fx.fit_mode == "crop" else min)(W / SW, H / SH)))
-    size = max(int(W * 0.05), 18)
-    if cap_px:
-        size = int(min(max(cap_px, W * 0.035), W * 0.075))
-    if fx.subtitle_rect and not reframed:
-        cy = min(fx.subtitle_rect[1] + fx.subtitle_rect[3] + int(H * 0.01), H)
-        cap_y = max(0, min(cy - cap_h, H - cap_h))
-    else:
-        cap_y = H - cap_h - int(H * 0.04)
+    size = caption_font_px(W, cap_px, st)
     return {
         "version": 1, "duration": total_len, "fps": min(max(info["fps"], 1), 30),
         "out": [W, H], "source": [SW, SH], "fit_mode": fx.fit_mode, "pan": [fx.pan_x, fx.pan_y],
@@ -717,7 +789,9 @@ def device_plan(info: dict, scenes: list[Scene], fx: EffectOptions, cues: list, 
                       "windows": [list(w) for w in fx.subtitle_windows] if fx.subtitle_windows is not None else None}
                      if fx.blur_subtitles and fx.subtitle_rect else None),
         "manual_blurs": [list(r) for r in fx.extra_blur_rects],
-        "caption": {"size": size, "bottom": cap_y + cap_h - 8, "max_w": int(W * 0.88)},
+        "caption": {"size": size, "bottom": cap_y + cap_h - 8, "max_w": int(W * 0.88),   # `bottom` kept for older app builds
+                    "top": cap_y, "height": cap_h, "valign": cap_valign,
+                    "style": {k: st[k] for k in ("font", "color", "outline", "bg", "bg_opacity")}},
         "cues": [[round(a, 3), round(b, 3), t] for a, b, t in cues],
         "logo": ({"pos": fx.logo_position, "xy": list(fx.logo_xy) if fx.logo_xy else None, "width": fx.logo_width_frac}
                  if fx.logo_path else None),
@@ -749,8 +823,67 @@ def _split_scenes(scenes: list[Scene], max_seconds: float, max_scenes: int) -> l
     return groups
 
 
+AUDIO_WORKERS = int(os.getenv("RENDER_AUDIO_WORKERS", "4"))   # sound segments built at the same time (each is one light ffmpeg)
+
+
+def render_audio(video_path: str, segments: list[dict], scenes: list[Scene], fx: EffectOptions,
+                 output_path: str, work_dir: str, tag: str, timeout: int = 1800, on_progress=None) -> dict:
+    """The final sound only (on-device render), built in short scene groups like the picture, then joined and encoded once.
+    One ffmpeg for a whole 10-minute film had 400+ `atrim` branches (voice + background per scene), each reading the whole
+    track: 1.6x real time (6 minutes) and 1.8 GB on a real 204-scene film. The groups are written as WAV (exact lengths, so the
+    joins cannot drift the way separately encoded AAC pieces would) and the result is encoded to AAC in one pass."""
+    speed = min(max(fx.speed, 0.5), 2.0)
+    total_len = sum(s.out_len for s in scenes) / speed
+    groups = _split_scenes(scenes, SEGMENT_SECONDS * speed, SEGMENT_MAX_SCENES)
+    if len(groups) < 2:
+        return _render_single(video_path, segments, scenes, fx, output_path, work_dir, tag, timeout, audio_only=True)
+
+    work_dir = os.path.abspath(work_dir)
+    parts = [os.path.join(work_dir, f"{tag}_a{k}.wav") for k in range(len(groups))]
+    track = None if fx.source_audio else build_voice_track(segments, scenes, work_dir, tag)
+    tick = _ticker(on_progress, len(groups))
+
+    def job(k: int):
+        group = groups[k]
+        offset, out0 = group[0].src_start, group[0].out_start
+        local = [replace(sc, src_start=sc.src_start - offset, src_end=sc.src_end - offset,
+                         out_start=sc.out_start - out0) for sc in group]
+        _render_single(video_path, segments, local, fx, parts[k], work_dir, f"{tag}_a{k}", timeout,
+                       src_offset=offset, audio_only=True, voice_track=track or ())
+        tick()
+
+    playlist = os.path.join(work_dir, f"{tag}_aparts.txt")
+    try:
+        with ThreadPoolExecutor(max_workers=max(1, min(AUDIO_WORKERS, len(groups)))) as pool:
+            list(pool.map(job, range(len(groups))))
+        with open(playlist, "w") as fh:
+            fh.write("\n".join(f"file '{p}'" for p in parts))
+        res = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", playlist, "-vn", "-c:a", "aac", "-b:a", "128k",
+                              "-t", f"{total_len:.3f}", output_path], capture_output=True, timeout=timeout)
+        if res.returncode != 0:
+            raise RuntimeError(ffmpeg_error(res.stderr))
+    finally:
+        for p in parts + [playlist] + ([track[0]] if track else []):
+            if os.path.exists(p):
+                os.remove(p)
+    return {"duration": total_len, "cues": caption_cues(scenes, speed)}
+
+
+def _ticker(on_progress, total: int):
+    """Call after each finished segment: reports (done, total) to `on_progress` (job progress; it may raise to cancel the render)."""
+    done, lock = [0], threading.Lock()
+
+    def tick():
+        with lock:
+            done[0] += 1
+            n = done[0]
+        if on_progress:
+            on_progress(n, total)
+    return tick
+
+
 def render(video_path: str, segments: list[dict], scenes: list[Scene], fx: EffectOptions,
-           output_path: str, work_dir: str, tag: str, timeout: int = 1800) -> dict:
+           output_path: str, work_dir: str, tag: str, timeout: int = 1800, on_progress=None) -> dict:
     """Render the dub. A long result is cut into short scene groups (segments), each rendered by its own ffmpeg, then joined."""
     speed = min(max(fx.speed, 0.5), 2.0)
     total_len = sum(s.out_len for s in scenes) / speed
@@ -763,14 +896,17 @@ def render(video_path: str, segments: list[dict], scenes: list[Scene], fx: Effec
     threads = max(2, (os.cpu_count() or 2) // workers)
     chunk_paths = [os.path.join(work_dir, f"{tag}_c{k}.mp4") for k in range(len(groups))]
     track = None if fx.source_audio else build_voice_track(segments, scenes, work_dir, tag)   # ONE voice file shared by all segments
+    tick = _ticker(on_progress, len(groups))
 
     def job(k: int):
         group = groups[k]
         offset, out0 = group[0].src_start, group[0].out_start
         local = [replace(sc, src_start=sc.src_start - offset, src_end=sc.src_end - offset,
                          out_start=sc.out_start - out0) for sc in group]
-        return _render_single(video_path, segments, local, fx, chunk_paths[k], work_dir, f"{tag}_c{k}",
-                              timeout, src_offset=offset, threads=threads, voice_track=track or ())
+        res = _render_single(video_path, segments, local, fx, chunk_paths[k], work_dir, f"{tag}_c{k}",
+                             timeout, src_offset=offset, threads=threads, voice_track=track or ())
+        tick()
+        return res
 
     playlist = os.path.join(work_dir, f"{tag}_chunks.txt")
     try:

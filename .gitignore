@@ -17,3 +17,10 @@ backend/samples/*
 !backend/samples/README.md
 character_samples/
 admin/dist/
+
+# on-device speech removal test (/separate-test.html): runtime copied by scripts/copy-ort.mjs, model downloaded by hand (see CLAUDE.md)
+frontend/public/ort/
+frontend/public/models/
+
+# speech-removal models (downloaded by hand, see backend/spleeter_separate.py)
+backend/models/

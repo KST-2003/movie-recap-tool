@@ -4,6 +4,7 @@ from config import (ALLOW_SIGNUP, CORS_ORIGINS, DEFAULT_DAILY_MINUTES,
                     OUTPUT_DIR, SIGNED_URL_SECONDS, UPLOAD_DIR)
 
 import os
+import subprocess
 import re
 import threading
 import time
@@ -21,6 +22,8 @@ import alerts
 import auth
 from admin import router as admin_router, settings as runtime_settings
 import capacity
+import eta
+import recap_engine
 import usage as usage_log   # (main.py has an endpoint function called usage)
 import jobs_queue
 import looks
@@ -300,6 +303,26 @@ def save_upload(upload: UploadFile, directory: str, max_mb: int) -> str:
     return path
 
 
+def keep_first_seconds(path: str, limit: float) -> float:
+    """Cut an upload down to its first `limit` seconds IN PLACE (stream copy: fast, no quality loss). Returns the new length.
+    Only the first picture and sound track are kept (phone clips carry data tracks the copy cannot always write)."""
+    root, ext = os.path.splitext(path)
+    tmp = f"{root}_cut{ext or '.mp4'}"
+    try:
+        res = subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", path, "-t", f"{limit:.3f}", "-map", "0:v:0", "-map", "0:a:0?",
+                              "-c", "copy", "-avoid_negative_ts", "make_zero", tmp], capture_output=True, text=True, timeout=600)
+        if res.returncode != 0 or not os.path.isfile(tmp):
+            raise RuntimeError(res.stderr.strip()[-300:] or "ffmpeg wrote nothing")
+        seconds = media_duration(tmp)
+        if not 1 <= seconds <= limit + 5:
+            raise RuntimeError(f"unexpected length after the cut: {seconds:.1f}s")
+        os.replace(tmp, path)
+        return seconds
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
 def _clean_blurs(raw: str) -> list:
     """Parse the preview's blur boxes; keep at most 6 sane [x, y, w, h] fractions."""
     try:
@@ -404,8 +427,14 @@ def create_job(
             seconds = media_duration(video_path)
         except Exception:
             raise HTTPException(status_code=400, detail="That file doesn't look like a valid video.")
-        if seconds > MAX_VIDEO_MINUTES * 60:
-            raise HTTPException(status_code=413, detail=f"Videos can be at most {MAX_VIDEO_MINUTES:g} minutes long.")
+        if seconds > MAX_VIDEO_MINUTES * 60 + 1:   # longer than allowed: keep the first minutes instead of refusing (the result says so)
+            full = seconds
+            try:
+                seconds = keep_first_seconds(video_path, MAX_VIDEO_MINUTES * 60)
+            except Exception as exc:
+                print(f"  could not shorten a {full:.0f}s upload: {exc}", flush=True)
+                raise HTTPException(status_code=413, detail=f"Videos can be at most {MAX_VIDEO_MINUTES:g} minutes long.")
+            params = {**params, "trimmed_from": round(full, 1), "trimmed_to": round(seconds, 1)}
         job_id = uuid.uuid4().hex[:12]
         with Session() as s:
             month_used, used = used_seconds_month(s, user.id), used_seconds_today(s, user.id)
@@ -502,6 +531,28 @@ def friendly_error(raw: str | None) -> str | None:
     return FRIENDLY_BUSY if any(w in low for w in _BUSY_WORDS) else FRIENDLY_FAILED
 
 
+_eta_history = {"at": 0.0, "rows": []}
+
+
+def _time_left(job: Job) -> dict:
+    """Rough time left for a running video (`eta.py`): {"eta_seconds", "eta_over"} or nothing when it cannot be said yet."""
+    now = time.time()
+    if now - _eta_history["at"] > 30:   # recent finished videos, re-read at most every 30 s (this view is polled every 1.5 s)
+        with Session() as s:
+            done = s.execute(select(Job).where(Job.status == "done").order_by(Job.finished_at.desc()).limit(30)).scalars().all()
+        _eta_history.update(at=now, rows=[
+            {"kind": eta.kind_of(j.params or {}), "seconds": (j.charged_seconds or 0) + (j.credit_seconds or 0),
+             "run_seconds": (j.data or {}).get("run_seconds"), "started_at": (j.data or {}).get("started_at"),
+             "stages": (j.data or {}).get("stages")} for j in done])
+    data = job.data or {}
+    try:
+        est = eta.estimate(job.params or {}, (job.charged_seconds or 0) + (job.credit_seconds or 0), data.get("started_at"),
+                           job.progress or 0, data.get("stages"), _eta_history["rows"], now)
+    except Exception:   # an estimate must never break the job view
+        est = None
+    return {"eta_seconds": est["eta_seconds"], "eta_over": est["over"]} if est else {}
+
+
 _ADMIN_ONLY = ("result", "started_at", "run_seconds", "error_detail", "log", "stages", "failed_stage", "usage", "device_render")
 
 
@@ -511,6 +562,8 @@ def _job_view(job: Job) -> dict:
             **{k: v for k, v in (job.data or {}).items() if k not in _ADMIN_ONLY}}
     if job.status == "queued":
         view.update(_queue_info(job))
+    elif job.status == "running":
+        view.update(_time_left(job))
     result = (job.data or {}).get("result")
     if result:
         result = dict(result)
@@ -654,6 +707,17 @@ class EditLine(BaseModel):
     tempo: float | None = Field(None, ge=0.7, le=1.6)  # fixed voice speed for this line (None = automatic)
 
 
+class CaptionStyle(BaseModel):
+    """Subtitle look chosen in the editor; every field optional (missing = the default look). Checked again by recap_engine.caption_style."""
+    font: str | None = Field(default=None, max_length=20)
+    size: float | None = Field(default=None, ge=0.6, le=1.8)            # x the automatic size
+    color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    outline: str | None = Field(default=None, pattern=r"^(#[0-9a-fA-F]{6})?$")   # "" = no outline
+    bg: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    bg_opacity: float | None = Field(default=None, ge=0.0, le=1.0)      # 0 = no box
+    position: str | None = Field(default=None, max_length=10)           # auto | bottom | middle | top
+
+
 class RerenderBody(BaseModel):
     segments: list[EditLine] = Field(min_length=1, max_length=600)
     voice_type: str | None = None
@@ -665,6 +729,7 @@ class RerenderBody(BaseModel):
     enable_flip: bool | None = None
     device_render: bool | None = None                # True: the phone draws the picture again; False: the server renders (fallback)
     bg_volume: float | None = Field(default=None, ge=0.0, le=1.5)   # level of the film's own music/effects under the voice
+    caption_style: CaptionStyle | None = None        # subtitle font / size / colours / position; None = keep
     blur_windows: list[list[float]] | None = Field(default=None, max_length=400)   # [[start, end]] SOURCE seconds when the subtitle blur is ON (the editor's blur track); [] = never
 
 
@@ -700,6 +765,8 @@ def rerender(job_id: str, body: RerenderBody, user: User = Depends(auth.current_
     for key in ("blur_subtitles", "enable_subtitles", "remove_watermark", "enable_flip", "bg_volume", "device_render"):
         if getattr(body, key) is not None:
             params[key] = getattr(body, key)
+    if body.caption_style is not None:
+        params["caption_style"] = recap_engine.caption_style({**(params.get("caption_style") or {}), **{k: v for k, v in body.caption_style.model_dump().items() if v is not None}})
     params.pop("reserved_model", None); params.pop("reserved_requests", None)   # the first run's voice reservation is not this job's
     params["bg_source_job"] = params.get("bg_source_job") or job_id   # re-renders reuse this video's separated background
     old = {sg["id"]: sg for sg in project["segments"]}

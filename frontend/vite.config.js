@@ -6,8 +6,10 @@ export default defineConfig({
   server: {
     port: 3000
   },
+  // `npm run preview` only: makes /separate-test.html cross-origin isolated so WebAssembly threads work (Nginx does this on the server)
+  preview: { headers: { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' } },
   build: {
-    // second page: /device-test.html = proof of concept for rendering on the user's device (not linked from the app)
-    rollupOptions: { input: { main: 'index.html', deviceTest: 'device-test.html' } },
+    // extra pages, not linked from the app: /device-test.html (render on the user's device), /separate-test.html (remove speech on the user's device)
+    rollupOptions: { input: { main: 'index.html', deviceTest: 'device-test.html', separateTest: 'separate-test.html' } },
   },
 })

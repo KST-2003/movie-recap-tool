@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>Speech removal test</title>
+    <style>
+      body { font-family: system-ui, sans-serif; background: #0b1020; color: #e2e8f0; margin: 0 auto; padding: 16px; max-width: 560px; }
+      button, input, select { font: inherit; } button { padding: 10px 14px; border-radius: 10px; border: 0; background: #7c3aed; color: #fff; margin: 6px 6px 6px 0; }
+      button:disabled { opacity: .5; } select { padding: 8px; border-radius: 8px; }
+      pre { background: #111827; padding: 10px; border-radius: 10px; white-space: pre-wrap; word-break: break-word; font-size: 13px; }
+      audio { width: 100%; margin-top: 4px; } label { display: block; margin-top: 10px; font-size: 14px; color: #94a3b8; }
+      a { color: #a78bfa; } p { line-height: 1.45; }
+    </style>
+  </head>
+  <body>
+    <h2>Remove original speech on my device: test</h2>
+    <p>Pick a video with speech and music. This phone or computer removes the speech itself. Nothing is uploaded. The first run downloads the model once (use Wi-Fi). Keep this screen open. If the page reloads by itself, the device ran out of memory: open it again and it will say where it stopped.</p>
+    <button id="info">1. Check this device</button>
+    <div><input id="file" type="file" accept="video/*,audio/*" /></div>
+    <label>Model <select id="model"><option value="light">Light (39 MB x 2, fast, for phones)</option><option value="heavy">Heavy (67 MB, best quality, needs a lot of memory)</option></select></label>
+    <label>How much of the video <select id="secs"><option value="30">first 30 s</option><option value="60">first 60 s</option><option value="180">first 3 min</option><option value="0">all of it</option></select></label>
+    <button id="gpu">2. Remove speech with the GPU</button>
+    <button id="cpu">3. Remove speech with the CPU</button>
+    <progress id="bar" value="0" max="1" style="width:100%"></progress>
+    <pre id="out">Ready.</pre>
+    <label id="l1" hidden>Original sound</label><audio id="a1" controls hidden></audio>
+    <label id="l2" hidden>Speech removed (music + effects)</label><audio id="a2" controls hidden></audio>
+    <a id="dl" hidden download="speech-removed.wav">Download result</a>
+    <script type="module" src="/src/separateTest.js"></script>
+  </body>
+</html>

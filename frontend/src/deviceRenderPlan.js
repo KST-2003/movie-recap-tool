@@ -2,6 +2,7 @@
 // finished sound (voice-over + background, an AAC file made by the server with the same filter graph as a full render) as it is.
 // WebCodecs through Mediabunny; WebGL does reframe / blurs / flip / grading, a 2D canvas draws captions + logo as one overlay texture.
 // Any failure throws: the caller falls back to the server render (and reports it).
+import { DEFAULT_CAPTION_STYLE, loadCaptionFont, rgba } from './captionFonts.js';
 import {
   ALL_FORMATS, BlobSource, BufferTarget, CanvasSource, EncodedAudioPacketSource, EncodedPacketSink, Input, Mp4OutputFormat, Output,
   VideoSampleSink, canEncodeVideo,
@@ -170,13 +171,24 @@ function makeCompositor(plan) {
 }
 
 const FONT = '"Noto Sans Myanmar", "Myanmar Sangam MN", "Myanmar Text", Padauk, sans-serif';
+let captionFamily = FONT;   // set by renderFromPlan from the plan's subtitle style (the same font file the server draws with)
 
 function wrapText(ctx, text, maxW) {
   let tokens;
   try { tokens = [...new Intl.Segmenter('my', { granularity: 'word' }).segment(text)].map((s) => s.segment); } catch (e) { tokens = text.split(/(\s+)/); }
   const lines = [];
   let cur = '';
+  // A piece that is wider than the line on its own (some browsers return a whole Burmese phrase as one "word") is cut into
+  // letters (grapheme clusters, so stacked consonants and vowel signs stay together): otherwise the line runs off the picture.
+  const pieces = [];
   for (const tok of tokens) {
+    if (tok.trim() && ctx.measureText(tok).width > maxW) {
+      let letters;
+      try { letters = [...new Intl.Segmenter('my', { granularity: 'grapheme' }).segment(tok)].map((g) => g.segment); } catch (e) { letters = Array.from(tok); }
+      pieces.push(...letters);
+    } else pieces.push(tok);
+  }
+  for (const tok of pieces) {
     const next = cur + tok;
     if (cur && ctx.measureText(next).width > maxW) { lines.push(cur.trim()); cur = tok.trimStart(); } else cur = next;
   }
@@ -198,22 +210,36 @@ function drawOverlay(comp, plan, text, logo) {
     ctx.drawImage(logo, x, y, lw, lh);
   }
   if (text) {
-    let size = plan.caption.size;
+    const cap = plan.caption, st = { ...DEFAULT_CAPTION_STYLE, ...(cap.style || {}) };
+    let size = cap.size;
     let lines;
     for (;;) {
-      ctx.font = `700 ${size}px ${FONT}`;
+      ctx.font = `${st.font === 'sans-regular' ? 400 : 700} ${size}px ${captionFamily}`;
       lines = wrapText(ctx, text, plan.caption.max_w);
       if (lines.length <= 3 || size <= 16) break;
       size -= 2;
     }
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     const lh = Math.round(size * 1.75), pad = Math.round(size * 0.3);
-    let y = plan.caption.bottom - lines.length * lh;
+    let y = cap.bottom - lines.length * lh;   // plans from before subtitle styles: bottom-aligned
+    if (cap.height) {
+      const total = lines.length * lh;
+      y = cap.valign === 'top' ? cap.top + 8 : cap.valign === 'middle' ? cap.top + (cap.height - total) / 2 : cap.top + cap.height - 8 - total;
+    }
+    y = Math.max(0, Math.round(y));
+    const limit = W * 0.95 - pad * 2;
     for (const line of lines) {
-      const tw = Math.min(ctx.measureText(line).width, W * 0.95);
-      ctx.fillStyle = 'rgba(0,0,0,0.59)';
-      ctx.beginPath(); ctx.roundRect((W - tw) / 2 - pad, y + 2, tw + pad * 2, lh - 4, 8); ctx.fill();
-      ctx.fillStyle = '#fff'; ctx.fillText(line, W / 2, y + lh / 2, W * 0.95);
+      const full = ctx.measureText(line).width;
+      const squeeze = full > limit ? limit / full : 1;   // still too wide: narrow it ourselves (fillText's maxWidth is not reliable for Burmese in every browser)
+      const tw = full * squeeze;
+      if (st.bg_opacity > 0) {
+        ctx.fillStyle = rgba(st.bg, st.bg_opacity);
+        ctx.beginPath(); ctx.roundRect((W - tw) / 2 - pad, y + 2, tw + pad * 2, lh - 4, 8); ctx.fill();
+      }
+      ctx.save(); ctx.translate(W / 2, y + lh / 2); ctx.scale(squeeze, 1);
+      if (st.outline) { ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(2, Math.round(size / 11)); ctx.strokeStyle = st.outline; ctx.strokeText(line, 0, 0); }
+      ctx.fillStyle = st.color; ctx.fillText(line, 0, 0);
+      ctx.restore();
       y += lh;
     }
   }
@@ -236,6 +262,7 @@ function makeMapper(plan) {
  * logoFile = optional logo image. opts: onProgress(0..1, text), signal {aborted}. Returns { blob, stats }.
  */
 export async function renderFromPlan(file, plan, audioBlob, logoFile, { onProgress = () => {}, signal = { aborted: false } } = {}) {
+  captionFamily = await loadCaptionFont(plan.caption?.style?.font || 'sans');
   const started = performance.now();
   const [W, H] = plan.out;
   if (!(await canEncodeVideo('avc', { width: W, height: H, bitrate: Math.round(W * H * 3.2) }))) throw new Error('This device cannot encode H.264 video');

@@ -119,6 +119,13 @@ function ProcessingPanel({ upload, progress, elapsed, subsOnly }) {
         <span>{tr('Working on your video')}</span>
         <span className="font-mono">{mmss(elapsed)}</span>
       </div>
+      {!uploading && progress.eta != null && (
+        <div className="mb-2 text-purple-200">
+          {progress.over ? tr('Almost done: this one is taking a little longer than usual')
+            : progress.eta < 60 ? tr('Less than a minute left')
+              : tr('About {m} min left', { m: Math.ceil(progress.eta / 60) })}
+        </div>
+      )}
       <ol className="space-y-1.5">
         {STEPS.map((st, i) => (subsOnly && i >= 3 && i <= 5 ? null : (st && { st, i }))).filter(Boolean).map(({ st, i }) => {
           const done = i === 0 ? !uploading : pct >= st.to;
@@ -461,7 +468,7 @@ function App() {
           ? tr('Waiting in line: you are #{n}, about {m} min', { n: job.queue_position, m: Math.max(1, Math.ceil(job.eta_seconds / 60)) })
           : tr('Waiting in line: you are #{n}, starting soon', { n: job.queue_position }))
         : job.stage;
-      setProgress({ pct: job.progress, stage: waiting });
+      setProgress({ pct: job.progress, stage: waiting, eta: job.status === 'running' && Number.isFinite(job.eta_seconds) ? job.eta_seconds : null, over: !!job.eta_over });
     } while (job.status === 'running' || job.status === 'queued');
 
     if (job.status === 'cancelled') throw stopped();
@@ -492,14 +499,14 @@ function App() {
     );
   };
 
-  const applyEdits = async (lines, speakerVoices, blurWindows) => {
+  const applyEdits = async (lines, speakerVoices, blurWindows, captionStyle) => {
     cancelled.current = false;
     activeJob.current = '';
     setLoading(true);
     setErrorMessage('');
     setNotes('');
     try {
-      const { data } = await axios.post(`${API_BASE}/api/jobs/${jobId}/rerender`, { segments: lines, speaker_voices: speakerVoices || undefined, blur_windows: blurWindows || undefined, ...finish, device_render: lastDevice.current && !!videoFile });
+      const { data } = await axios.post(`${API_BASE}/api/jobs/${jobId}/rerender`, { segments: lines, speaker_voices: speakerVoices || undefined, blur_windows: blurWindows || undefined, caption_style: captionStyle || undefined, ...finish, device_render: lastDevice.current && !!videoFile });
       setProgress({ pct: 0, stage: tr('Queued') });
       await followJob(data.job_id);
     } catch (error) {

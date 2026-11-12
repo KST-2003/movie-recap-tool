@@ -20,7 +20,7 @@ QUEUE_MODE = os.getenv("QUEUE_MODE", "rq" if REDIS_URL else "inline")  # inline 
 ALLOW_SIGNUP = os.getenv("ALLOW_SIGNUP", "false").lower() == "true"   # accounts are made by the admin; true only for open sign-up
 DEFAULT_DAILY_MINUTES = int(os.getenv("DEFAULT_DAILY_MINUTES", "100"))   # per user, per UTC day
 DEFAULT_MONTHLY_MINUTES = int(os.getenv("DEFAULT_MONTHLY_MINUTES", "2000"))   # per user, per UTC calendar month
-MAX_VIDEO_MINUTES = float(os.getenv("MAX_VIDEO_MINUTES", "15"))         # per single upload
+MAX_VIDEO_MINUTES = float(os.getenv("MAX_VIDEO_MINUTES", "10"))         # per video: a longer upload is cut to its first minutes (main.keep_first_seconds)
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "1024"))
 MAX_ACTIVE_JOBS_PER_USER = int(os.getenv("MAX_ACTIVE_JOBS_PER_USER", "2"))
 GLOBAL_DAILY_MINUTES = float(os.getenv("GLOBAL_DAILY_MINUTES", "0"))    # 0 = unlimited; protects the API bill
