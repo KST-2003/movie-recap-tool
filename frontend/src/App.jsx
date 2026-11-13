@@ -190,7 +190,7 @@ function App() {
 
   // Form State
   const [videoFile, setVideoFile] = useState(null);
-  // Video from a RedNote share link instead of a file: the server fetches it, this page downloads that copy for the preview and
+  // Video from a RedNote / YouTube / TikTok link instead of a file: the server fetches it, this page downloads that copy for the preview and
   // the on-device render, and "Generate" sends link_id instead of uploading the file again.
   const [linkText, setLinkText] = useState('');
   const [linkBusy, setLinkBusy] = useState('');     // '' | status text while fetching
@@ -198,16 +198,16 @@ function App() {
   const fetchLink = async () => {
     if (!linkText.trim() || linkBusy) return;
     setErrorMessage('');
-    setLinkBusy(tr('Getting the video from RedNote…'));
+    setLinkBusy(tr('Getting the video… (a long video can take a minute)'));
     try {
       const { data } = await axios.post(`${API_BASE}/api/link/fetch`, { url: linkText.trim() });
       const res = await axios.get(`${API_BASE}/api/link/${data.id}/file`, {
         responseType: 'blob',
         onDownloadProgress: (e) => setLinkBusy(`${tr('Loading the video')} ${Math.round((100 * e.loaded) / (e.total || data.size || 1))}%`),
       });
-      const name = `${(data.title || 'rednote').replace(/[\\/:*?"<>|]/g, ' ').slice(0, 60)}.mp4`;
+      const name = `${(data.title || 'video').replace(/[\\/:*?"<>|]/g, ' ').slice(0, 60)}.mp4`;
       const file = new File([res.data], name, { type: 'video/mp4' });
-      setLinkInfo({ id: data.id, title: data.title || '', file });
+      setLinkInfo({ id: data.id, title: data.title || '', site: data.site || 'RedNote', file });
       setVideoFile(file);
       setLinkText('');
     } catch (error) {
@@ -353,6 +353,45 @@ function App() {
     const id = setInterval(() => setElapsed(Math.floor((Date.now() - t0) / 1000)), 1000);
     return () => clearInterval(id);
   }, [loading]);
+
+  // Drag a video file from the computer and drop it anywhere on the Create page (same as choosing it with the button).
+  const videoInputRef = useRef(null);
+  const [dragOver, setDragOver] = useState(false);
+  useEffect(() => {
+    if (!token || view !== 'create') return undefined;
+    const hasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
+    const onFileInput = (e) => e.target?.tagName === 'INPUT' && e.target.type === 'file';   // the browser handles those itself
+    let depth = 0;
+    const enter = (e) => { if (!hasFiles(e)) return; depth += 1; setDragOver(true); };
+    const leave = (e) => { if (!hasFiles(e)) return; depth = Math.max(0, depth - 1); if (!depth) setDragOver(false); };
+    const over = (e) => {
+      if (!hasFiles(e) || onFileInput(e)) return;
+      e.preventDefault();                       // without this the browser opens the file instead of giving it to us
+      e.dataTransfer.dropEffect = loading ? 'none' : 'copy';
+    };
+    const drop = (e) => {
+      if (!hasFiles(e)) return;
+      depth = 0; setDragOver(false);
+      if (onFileInput(e)) return;
+      e.preventDefault();
+      if (loading) return;
+      const file = Array.from(e.dataTransfer.files || []).find((f) => f.type.startsWith('video/') || /\.(mp4|mov|m4v|mkv|webm|avi|flv|wmv|ts|3gp)$/i.test(f.name));
+      if (!file) { setErrorMessage(tr('That is not a video file. Please drop a video.')); return; }
+      setErrorMessage('');
+      setVideoFile(file);
+      try {                                     // show the dropped file's name in the "Upload video" field too
+        const dt = new DataTransfer(); dt.items.add(file);
+        if (videoInputRef.current) videoInputRef.current.files = dt.files;
+      } catch { /* older browsers: the preview still shows the video */ }
+    };
+    window.addEventListener('dragenter', enter); window.addEventListener('dragleave', leave);
+    window.addEventListener('dragover', over); window.addEventListener('drop', drop);
+    return () => {
+      window.removeEventListener('dragenter', enter); window.removeEventListener('dragleave', leave);
+      window.removeEventListener('dragover', over); window.removeEventListener('drop', drop);
+      setDragOver(false);
+    };
+  }, [token, view, loading]);
 
   // Handle Form Submission
   const handleGenerateRecap = async (e) => {
@@ -584,6 +623,14 @@ function App() {
 
   return (
     <Shell view={view} setView={setView} account={account} onLogout={() => logout()}>
+      {dragOver && view === 'create' && (
+        <div className="fixed inset-0 z-50 pointer-events-none flex items-center justify-center bg-slate-950/80 p-6">
+          <div className="rounded-3xl border-4 border-dashed border-purple-400 bg-purple-500/10 px-8 py-10 text-center">
+            <div className="text-4xl mb-3" aria-hidden="true">🎬</div>
+            <p className="text-lg font-semibold text-white">{loading ? tr('A video is being made. Please wait until it is finished.') : tr('Drop the video here')}</p>
+          </div>
+        </div>
+      )}
       {showLibrary && (
         <VoiceLibrary voices={voices} looks={looks} selected={voiceType} playing={playing} onPlay={playSample}
           onSelect={(v) => { setVoiceType(v.name); setVoiceGender(v.gender); }} onClose={() => setShowLibrary(false)} apiBase={API_BASE} />
@@ -683,24 +730,26 @@ function App() {
                 {tr('Upload video')}
               </label>
               <input
+                ref={videoInputRef}
                 type="file"
                 accept="video/*"
                 onChange={(e) => setVideoFile(e.target.files[0])}
                 className="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-purple-600 file:text-white hover:file:bg-purple-500 cursor-pointer"
               />
+              <p className="hidden md:block mt-1 text-xs text-slate-500">{tr('You can also drag a video file and drop it anywhere on this page.')}</p>
               <div className="mt-3">
-                <label className="block text-xs text-slate-400 mb-1">{tr('Or paste a RedNote link')}</label>
+                <label className="block text-xs text-slate-400 mb-1">{tr('Or paste a RedNote, YouTube or TikTok link')}</label>
                 <div className="flex gap-2">
                   <input type="text" inputMode="url" value={linkText} onChange={(e) => setLinkText(e.target.value)} disabled={!!linkBusy || loading}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); fetchLink(); } }}
-                    placeholder="http://xhslink.com/…"
+                    placeholder="https://…"
                     className="min-w-0 flex-1 rounded-xl bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-white outline-none focus:border-purple-500" />
                   <button type="button" onClick={fetchLink} disabled={!linkText.trim() || !!linkBusy || loading}
                     className="shrink-0 px-3 py-2 rounded-xl bg-purple-600 text-white text-sm font-semibold disabled:opacity-40">{tr('Get video')}</button>
                 </div>
                 {linkBusy && <p className="mt-1 text-xs text-purple-300">{linkBusy}</p>}
                 {!linkBusy && linkInfo && linkInfo.file === videoFile && (
-                  <p className="mt-1 text-xs text-emerald-300 break-words">{tr('From RedNote: {title}', { title: linkInfo.title || tr('video') })}</p>
+                  <p className="mt-1 text-xs text-emerald-300 break-words">{tr('From {site}: {title}', { site: linkInfo.site, title: linkInfo.title || tr('video') })}</p>
                 )}
               </div>
             </div>

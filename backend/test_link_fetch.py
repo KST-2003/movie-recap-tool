@@ -81,4 +81,41 @@ ok(job["status"] == "done" and (job["result"].get("video_url") or job["result"].
 ok(c.get(f"/api/link/{lid}/file", headers=H).status_code == 200, "the fetched file is still kept (another try needs no new fetch)")
 codes = [c.post("/api/link/fetch", json={"url": "http://xhslink.com/o/photo"}, headers=H).status_code for _ in range(5)]
 ok(429 in codes, f"too many links in a minute are slowed down ({codes})")
+
+# ---- YouTube / TikTok (yt-dlp replaced by a fake) ----
+ok([lf.site_of(u) for u in ("https://youtu.be/abc", "https://www.youtube.com/shorts/abc", "https://vm.tiktok.com/ZS1/", "https://www.tiktok.com/@a/video/1",
+                            "http://xhslink.com/o/good", "https://youtube.com.evil.io/watch", "https://example.com/tiktok.com")]
+   == ["YouTube", "YouTube", "TikTok", "TikTok", "RedNote", "", ""], "YouTube, TikTok and RedNote addresses are told apart; look-alikes refused")
+calls = []
+class FakeYDL:
+    info = {"title": "A clip", "duration": 6}
+    def __init__(self, opts): self.opts = opts; calls.append(opts)
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def extract_info(self, url, download=False):
+        if "boom" in url: raise RuntimeError("ERROR: Sign in to confirm you're not a bot")
+        return dict(self.info, **({"_type": "playlist", "entries": [1]} if "list" in url else {}), **({"is_live": True} if "live" in url else {}))
+    def process_ie_result(self, info, download=True):
+        open(self.opts["outtmpl"].replace("%(ext)s", "mp4"), "wb").write(DATA)
+class FakeYT:
+    YoutubeDL = FakeYDL
+    class utils:
+        download_range_func = staticmethod(lambda chapters, ranges: ("ranges", ranges))
+lf._yt_dlp = lambda: FakeYT
+g = lf.fetch("watch this https://youtu.be/abc ok", f"{tmp}/up", 7, 50, 600)
+ok(g["site"] == "YouTube" and g["title"] == "A clip" and os.path.getsize(g["path"]) == len(DATA) and lf.path_of(f"{tmp}/up", 7, g["id"]) == g["path"], "a YouTube link is fetched to the owner's file")
+ok(calls[-1]["allowed_extractors"] == lf.SITE_EXTRACTORS and calls[-1]["noplaylist"] and "download_ranges" not in calls[-1], "only the single-video extractors are allowed; a short video is fetched whole")
+FakeYDL.info = {"title": "Long", "duration": 3600}
+g = lf.fetch("https://www.tiktok.com/@a/video/1", f"{tmp}/up", 7, 50, 600)
+ok(calls[-1].get("download_ranges") == ("ranges", [(0, 602)]) and g["site"] == "TikTok", "a video longer than the limit is fetched only up to the limit")
+before = sorted(os.listdir(f"{tmp}/up"))
+for url, word in (("https://youtu.be/list", "ONE YouTube video"), ("https://youtu.be/live", "Live"), ("https://youtu.be/boom", "did not allow")):
+    try: lf.fetch(url, f"{tmp}/up", 7, 50, 600); ok(False, url)
+    except lf.LinkError as e: ok(word in str(e), f"refused with a clear message: {e}")
+try: lf.fetch("https://youtu.be/abc", f"{tmp}/up", 7, 0, 600); ok(False, "size cap")
+except lf.LinkError as e: ok("larger than" in str(e), "too big a YouTube video is refused")
+ok(sorted(os.listdir(f"{tmp}/up")) == before, "refused links leave nothing on disk")
+FakeYDL.info = {"title": "A clip", "duration": 6}
+r = c.post("/api/link/fetch", json={"url": "https://www.youtube.com/watch?v=abc"}, headers=H2)
+ok(r.status_code == 200 and r.json()["site"] == "YouTube" and abs(r.json()["seconds"] - 6) < 0.3, f"API fetches a YouTube link ({r.text[:100]})")
 print("ALL OK")

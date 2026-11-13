@@ -19,3 +19,4 @@ boto3>=1.34
 psycopg[binary]>=3.1   # Postgres driver (DATABASE_URL=postgresql+psycopg://...)
 # NOT here: httpx<0.28 (starlette TestClient, tests only). It conflicts with google-genai (needs httpx>=0.28.1) and made
 # "pip install -r" fail on a fresh server (2026-11-12). For tests on a server: pip install --target <tmp> "httpx<0.28" + PYTHONPATH.
+yt-dlp>=2026.10   # YouTube / TikTok links (link_fetch.py); update often: both sites change

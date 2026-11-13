@@ -361,7 +361,7 @@ LINK_FETCHES_PER_MINUTE = int(os.getenv("LINK_FETCHES_PER_MINUTE", "6"))
 
 @app.post("/api/link/fetch")
 def link_fetch_video(body: LinkBody, user: User = Depends(auth.current_user)):
-    """Fetch the video of a RedNote share link to the server (instead of the user uploading the file). The browser then downloads
+    """Fetch the video of a RedNote / YouTube / TikTok link to the server (instead of the user uploading the file). The browser then downloads
     it for the preview / on-device render and sends `link_id` with POST /api/jobs."""
     if runtime_settings.maintenance():
         raise HTTPException(status_code=503, detail="We're temporarily not accepting new videos. Please try again later.")
@@ -372,7 +372,7 @@ def link_fetch_video(body: LinkBody, user: User = Depends(auth.current_user)):
     _link_calls[user.id] = calls + [now]
     link_fetch.sweep(UPLOAD_DIR)
     try:
-        got = link_fetch.fetch(body.url, UPLOAD_DIR, user.id, MAX_UPLOAD_MB)
+        got = link_fetch.fetch(body.url, UPLOAD_DIR, user.id, MAX_UPLOAD_MB, MAX_VIDEO_MINUTES * 60)
     except link_fetch.LinkError as exc:
         print(f"[link] user {user.id}: refused ({exc})", flush=True)
         raise HTTPException(status_code=400, detail=str(exc))
@@ -380,9 +380,9 @@ def link_fetch_video(body: LinkBody, user: User = Depends(auth.current_user)):
         seconds = media_duration(got["path"])
     except Exception:
         os.remove(got["path"])
-        raise HTTPException(status_code=400, detail="RedNote did not give a playable video. Please upload the video file instead.")
-    print(f"[link] user {user.id}: fetched {got['size'] / 1e6:.1f} MB, {seconds:.0f}s", flush=True)
-    return {"id": got["id"], "seconds": seconds, "size": got["size"], "title": got["title"]}
+        raise HTTPException(status_code=400, detail=f"{got['site']} did not give a playable video. Please upload the video file instead.")
+    print(f"[link] user {user.id}: fetched from {got['site']} {got['size'] / 1e6:.1f} MB, {seconds:.0f}s", flush=True)
+    return {"id": got["id"], "seconds": seconds, "size": got["size"], "title": got["title"], "site": got["site"]}
 
 
 @app.get("/api/link/{link_id}/file")
@@ -399,7 +399,7 @@ def create_job(
     user: User = Depends(auth.current_user),
     video_file: UploadFile = File(None),
     link_title: str = Form(""),           # the post's title, shown in "My videos"
-    link_id: str = Form(""),              # instead of a file: a video fetched from a RedNote link (POST /api/link/fetch)
+    link_id: str = Form(""),              # instead of a file: a video fetched from a RedNote / YouTube / TikTok link (POST /api/link/fetch)
     custom_logo: UploadFile = File(None),
     voice_type: str = Form("su"),
     target_language: str = Form("my"),
@@ -478,7 +478,7 @@ def create_job(
               "logo_x": logo_x, "logo_y": logo_y, "manual_blurs": _clean_blurs(manual_blurs),
               "caption_style": _clean_caption_style(caption_style),
               "device_render": device_render, "resolution": resolution, "aspect": aspect, "fit_mode": fit_mode, "pan_x": pan_x, "pan_y": pan_y,
-              "filename": (os.path.basename(video_file.filename or "") if video_file else (link_title.strip() or "RedNote video"))[:120],
+              "filename": (os.path.basename(video_file.filename or "") if video_file else (link_title.strip() or "Video from a link"))[:120],
               "from_link": bool(linked and not video_file)}   # shown in "My videos"
 
     with Session() as s:

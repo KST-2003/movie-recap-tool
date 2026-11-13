@@ -1,4 +1,9 @@
-"""Get a video from a RedNote (Xiaohongshu) share link instead of an upload.
+"""Get a video from a RedNote (Xiaohongshu), YouTube or TikTok link instead of an upload.
+
+RedNote = our own code below (the first part of this text). YouTube and TikTok = the yt-dlp library (`_site_fetch`, 2026-11-14):
+only the single-video extractors are loaded, so channels, playlists, searches and every other site are refused; a video longer
+than the limit is fetched only up to the limit; H.264 + AAC in MP4, at most 1080p. Both sites change often and block servers
+(YouTube: "Sign in to confirm you're not a bot" on data-centre addresses): keep yt-dlp up to date, upload stays the fallback.
 
 The share link (xhslink.com/...) redirects to the note's page; the page carries the video file's address (og:video and the
 note's JSON), its length and size. Checked from the server on 2026-11-13 with one real link: no login, no block, 13.7 MB in 0.4 s;
@@ -22,6 +27,10 @@ VIDEO_HOSTS = ("rednotecdn.com", "xhscdn.com", "xiaohongshu.com", "rednote.com")
 UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 KEEP_SECONDS = int(os.getenv("LINK_KEEP_SECONDS", "7200"))      # a fetched file waits this long for "Generate"
 MAX_HOPS = 6
+SITE_HOSTS = {"YouTube": ("youtube.com", "youtu.be"), "TikTok": ("tiktok.com",)}      # fetched with yt-dlp
+SITE_EXTRACTORS = ["youtube", "tiktok", r"vm\.tiktok"]     # yt-dlp extractor names (single videos only, nothing else is loaded)
+SITE_FORMAT = ("bv*[vcodec^=avc1][height<=1080]+ba[ext=m4a]/b[vcodec^=avc1][height<=1080]/b[vcodec^=h264][height<=1080]/"
+               "b[ext=mp4][height<=1080]/b[height<=1080]/b")     # H.264 first: every browser and phone decodes it
 
 
 class LinkError(Exception):
@@ -35,12 +44,82 @@ def _host_ok(url: str, hosts: tuple) -> bool:
 
 
 def find_link(text: str) -> str:
-    """The share text copied from the app is a sentence with the link inside: take the first RedNote address."""
+    """The share text copied from the app is a sentence with the link inside: take the first address of a site we support."""
     for m in re.finditer(r"https?://[^\s　，。！]+", text or ""):
         url = m.group(0).rstrip(".,;:!?)\"'")
-        if _host_ok(url, PAGE_HOSTS):
+        if site_of(url):
             return url
-    raise LinkError("Paste a RedNote (Xiaohongshu) share link.")
+    raise LinkError("Paste a RedNote, YouTube or TikTok link.")
+
+
+def site_of(url: str) -> str:
+    """'RedNote' | 'YouTube' | 'TikTok' | '' (not a site we fetch from)."""
+    if _host_ok(url, PAGE_HOSTS):
+        return "RedNote"
+    return next((site for site, hosts in SITE_HOSTS.items() if _host_ok(url, hosts)), "")
+
+
+def _yt_dlp():
+    import yt_dlp
+    return yt_dlp
+
+
+def _site_fetch(url: str, site: str, base: str, max_mb: int, max_seconds: float) -> dict:
+    """YouTube / TikTok through yt-dlp -> {path (base + '.mp4'), duration, size, title}."""
+    try:
+        yt_dlp = _yt_dlp()
+    except ImportError as exc:
+        raise LinkError(f"{site} links are not available right now. Please upload the video file instead.") from exc
+    limit = max_mb * 1024 * 1024
+    class Quiet:      # yt-dlp prints its errors itself: we log one line in the except block instead
+        debug = warning = error = staticmethod(lambda *a, **k: None)
+    opts = {"quiet": True, "no_warnings": True, "noprogress": True, "noplaylist": True, "cachedir": False, "logger": Quiet,
+            "allowed_extractors": SITE_EXTRACTORS, "format": SITE_FORMAT, "merge_output_format": "mp4",
+            "outtmpl": base + ".%(ext)s", "socket_timeout": 25, "retries": 2, "fragment_retries": 2, "max_filesize": limit}
+    made = lambda: [os.path.join(os.path.dirname(base), n) for n in os.listdir(os.path.dirname(base))
+                    if n.startswith(os.path.basename(base) + ".")]
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+        if not info or info.get("_type") in ("playlist", "multi_video") or info.get("entries"):
+            raise LinkError(f"Paste the link of ONE {site} video (not a channel or a playlist).")
+        if info.get("is_live") or info.get("live_status") in ("is_live", "is_upcoming"):
+            raise LinkError(f"Live {site} videos cannot be fetched. Please upload the video file instead.")
+        duration = float(info.get("duration") or 0)
+        cut = bool(max_seconds and duration > max_seconds + 5)
+        if cut:      # a long video: fetch only the part we will use (the upload rule keeps the first minutes anyway)
+            opts["download_ranges"] = yt_dlp.utils.download_range_func(None, [(0, max_seconds + 2)])
+        else:
+            size = info.get("filesize") or info.get("filesize_approx") or 0
+            if size > limit:
+                raise LinkError(f"This video is larger than {max_mb} MB.")
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.process_ie_result(info, download=True)
+        files = [p for p in made() if not p.endswith((".part", ".ytdl"))]
+        if not files or os.path.getsize(files[0]) < 10_000:
+            raise LinkError(f"{site} did not give the video file. Please upload the video file instead.")
+        size = os.path.getsize(files[0])
+        if size > limit:
+            raise LinkError(f"This video is larger than {max_mb} MB.")
+        os.replace(files[0], base + ".mp4")
+        return {"path": base + ".mp4", "duration": min(duration, max_seconds + 2) if cut else (duration or None), "size": size,
+                "title": str(info.get("title") or "").strip()[:100]}
+    except LinkError:
+        for p in made():
+            os.remove(p)
+        raise
+    except Exception as exc:      # yt-dlp raises many kinds (DownloadError, ExtractorError, ...): none may crash the request
+        for p in made():
+            os.remove(p)
+        print(f"[link] {site}: {str(exc)[:300]}", flush=True)
+        text = str(exc).lower()
+        if "no suitable extractor" in text or "unsupported url" in text:
+            raise LinkError(f"Paste the link of ONE {site} video (not a channel or a playlist).") from exc
+        if "sign in" in text or "not a bot" in text or "login" in text or "blocked" in text:
+            raise LinkError(f"{site} did not allow our server to get this video. Please upload the video file instead.") from exc
+        if "private" in text or "unavailable" in text or "removed" in text or "not available" in text:
+            raise LinkError(f"{site} did not give this video (it may be private, removed or not available in our region). Please upload the video file instead.") from exc
+        raise LinkError(f"{site} did not give the video. Please upload the video file instead.") from exc
 
 
 def _page(url: str, client: httpx.Client) -> str:
@@ -106,9 +185,15 @@ def parse_page(page: str) -> dict:
     return info
 
 
-def fetch(text: str, directory: str, owner: int, max_mb: int) -> dict:
-    """Resolve the link and download the video into `directory`. -> {id, path, duration, size, title}."""
+def fetch(text: str, directory: str, owner: int, max_mb: int, max_seconds: float = 0) -> dict:
+    """Resolve the link and download the video into `directory`. -> {id, path, duration, size, title, site}.
+    `max_seconds`: a longer YouTube / TikTok video is fetched only up to there (0 = whole video)."""
     url = find_link(text)
+    site = site_of(url)
+    if site != "RedNote":
+        link_id = uuid.uuid4().hex
+        got = _site_fetch(url, site, os.path.join(directory, f"link_{owner}_{link_id}"), max_mb, max_seconds)
+        return {"id": link_id, "site": site, **got}
     try:
         with httpx.Client(headers={"User-Agent": UA, "Accept-Language": "en,zh;q=0.8"}, timeout=25, follow_redirects=False) as client:
             info = parse_page(_page(url, client))
@@ -152,7 +237,7 @@ def fetch(text: str, directory: str, owner: int, max_mb: int) -> dict:
         raise
     except httpx.HTTPError as exc:
         raise LinkError("RedNote could not be reached. Please try again, or upload the video file instead.") from exc
-    return {"id": link_id, "path": path, "duration": info["duration"], "size": size, "title": info["title"]}
+    return {"id": link_id, "path": path, "duration": info["duration"], "size": size, "title": info["title"], "site": "RedNote"}
 
 
 def path_of(directory: str, owner: int, link_id: str) -> str | None:
