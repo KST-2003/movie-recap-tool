@@ -177,7 +177,7 @@ function EditSheet({ user, me, superadmin, onClose, onSaved, onCredentials }) {
               </li>
             ))}
           </ul>
-          <p className="mt-2 text-[11px] text-slate-500">{tr('A website cannot read the real device name, so the browser and system are shown. Removing a device signs it out and frees its place.')}</p>
+          <p className="mt-2 text-[11px] text-slate-500">{tr('A website cannot read the real device name, so the browser and system are shown. When the login is at its device limit, a new login signs out the device used longest ago. Removing a device signs it out.')}</p>
         </div>
 
         <div className="rounded-xl border border-slate-800 p-3">

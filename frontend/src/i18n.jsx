@@ -303,6 +303,7 @@ const SERVER = [
   [/^Your account is deactivated\. Please contact the admin\.$/, "သင့်အကောင့်ကို ပိတ်ထားပါသည်။ အက်မင်ကို ဆက်သွယ်ပါ။"],
   [/^Your account has been banned\. Please contact the admin\.$/, "သင့်အကောင့်ကို ပိတ်ပင်ထားပါသည်။ အက်မင်ကို ဆက်သွယ်ပါ။"],
   [/^This login is already in use on another device\. Ask the admin to reset it\.$/, "ဤအကောင့်ကို အခြားစက်တစ်ခုတွင် အသုံးပြုနေပါသည်။ ပြန်လည်သတ်မှတ်ရန် အက်မင်ကို မေးပါ။"],
+  [/^You were signed out because this login was used on another device\. Please log in again\.$/, "ဤအကောင့်ကို အခြားစက်တစ်ခုတွင် ဝင်ရောက်အသုံးပြုသောကြောင့် ဤစက်မှ ထွက်သွားပါပြီ။ ပြန်လည်ဝင်ရောက်ပါ။"],
   [/^This device was signed out by the admin\. Please log in again\.$/, "ဤစက်ကို အက်မင်က ထွက်စေခဲ့ပါသည်။ ပြန်လည်ဝင်ရောက်ပါ။"],
   [/^Your password was changed\. Please log in again\.$/, "သင့်စကားဝှက် ပြောင်းလဲသွားပါသည်။ ပြန်လည်ဝင်ရောက်ပါ။"],
   [/^The source video was removed after its keeping time, so it can't be edited any more\. Upload it again\.$/, "ထိန်းသိမ်းချိန်ကုန်၍ မူရင်းဗီဒီယိုကို ဖယ်ရှားပြီးဖြစ်သဖြင့် ထပ်မံတည်းဖြတ်၍မရပါ။ ပြန်တင်ပါ။"],

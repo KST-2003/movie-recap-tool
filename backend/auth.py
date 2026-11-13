@@ -93,18 +93,24 @@ STATUS_MESSAGES = {
     "banned": "Your account has been banned. Please contact the admin.",
 }
 DEVICE_FULL = "This login is already in use on another device. Ask the admin to reset it."
-DEVICE_REMOVED = "This device was signed out by the admin. Please log in again."
+DEVICE_REMOVED = "You were signed out because this login was used on another device. Please log in again."   # also shown after an admin removes the device
 
 
 def register_device(s, user: User, device_id: str, request: Request) -> None:
-    """Called at login. A known device just updates its details; a new one needs a free slot (device_limit 0 = unlimited)."""
+    """Called at login. A known device just updates its details; a new one takes a slot, signing out the least recently used device when the login is at its limit (device_limit 0 = unlimited)."""
     ip = client_ip(request)
     browser, os_name = parse_ua(request.headers.get("user-agent", ""))
     row = s.execute(select(UserDevice).where(UserDevice.user_id == user.id, UserDevice.device_id == device_id)).scalar_one_or_none()
     if row is None:
         count = len(s.execute(select(UserDevice.id).where(UserDevice.user_id == user.id)).all())
         if user.device_limit and count >= user.device_limit:
-            raise HTTPException(status_code=403, detail=DEVICE_FULL)
+            # Newest login wins (owner's rule, 2026-11-13): the device(s) used longest ago are signed out to make room, so a login
+            # limited to ONE device works on one device AT A TIME and nobody has to ask the admin after changing phones.
+            # (Before: the new device was refused with DEVICE_FULL until the admin freed the slot.)
+            old = s.execute(select(UserDevice).where(UserDevice.user_id == user.id)
+                            .order_by(UserDevice.last_seen.asc(), UserDevice.id.asc())).scalars().all()
+            for gone in old[: count - user.device_limit + 1]:
+                s.delete(gone)
         row = UserDevice(user_id=user.id, device_id=device_id, first_ip=ip)
         s.add(row)
     row.name, row.browser, row.os, row.ip, row.last_seen = f"{browser} on {os_name}", browser, os_name, ip, utcnow()

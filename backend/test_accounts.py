@@ -62,10 +62,19 @@ d1 = login(uname, upw, "device-aaaaaaaa", CHROME_WIN, "10.0.0.1")
 ok(d1.status_code == 200 and d1.json()["device_id"] == "device-aaaaaaaa", "first device logs in")
 t1 = d1.json()["token"]
 ok(login(uname, upw, "device-aaaaaaaa").status_code == 200, "the SAME device can log in again")
-bad = login(uname, upw, "device-bbbbbbbb", SAFARI_IPHONE, "10.0.0.2")
-ok(bad.status_code == 403 and bad.json()["detail"] == auth.DEVICE_FULL, "a second device is refused")
-ok(login(uname, "wrongpass", "device-bbbbbbbb").status_code == 401, "wrong password is 401 (not 403)")
-ok(c.get("/api/auth/me", headers={**H(t1), "x-forwarded-for": "10.0.0.1"}).status_code == 200, "the first device keeps working")
+ok(login(uname, "wrongpass", "device-bbbbbbbb").status_code == 401, "wrong password is 401")
+ok(c.get("/api/auth/me", headers=H(t1)).status_code == 200, "a wrong-password try from another device does not sign the first one out")
+# newest login wins: the second device gets in, the first one is signed out (one device AT A TIME)
+d2 = login(uname, upw, "device-bbbbbbbb", SAFARI_IPHONE, "10.0.0.2")
+ok(d2.status_code == 200, "a second device can log in")
+gone = c.get("/api/auth/me", headers=H(t1))
+ok(gone.status_code == 401 and gone.json()["detail"] == auth.DEVICE_REMOVED, "the first device is signed out with a clear message")
+ok(c.get("/api/auth/me", headers=H(d2.json()["token"])).status_code == 200, "the second device works")
+ok(len(c.get(f"/api/admin/users/{uid}/devices", headers=A).json()["items"]) == 1, "still exactly one device on the login")
+d1 = login(uname, upw, "device-aaaaaaaa", CHROME_WIN, "10.0.0.1")   # and back again: the phone is signed out now
+t1 = d1.json()["token"]
+ok(d1.status_code == 200 and c.get("/api/auth/me", headers=H(d2.json()["token"])).status_code == 401, "logging in on the first device again signs the second one out")
+ok(c.get("/api/auth/me", headers={**H(t1), "x-forwarded-for": "10.0.0.1"}).status_code == 200, "the first device works again")
 
 # ---- admin sees device, browser, IP ----
 row = next(u for u in c.get("/api/admin/users", headers=A).json()["items"] if u["id"] == uid)

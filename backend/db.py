@@ -50,7 +50,7 @@ def set_status(user: "User", status: str, reason: str | None = None):
 
 
 class UserDevice(Base):
-    """A browser/phone that signed in with a login. With device_limit = N, a login can have at most N of these; only the admin frees a slot."""
+    """A browser/phone that signed in with a login. With device_limit = N, a login can have at most N of these; a new login signs out the least recently used one (the admin can also remove them)."""
     __tablename__ = "user_devices"
     __table_args__ = (UniqueConstraint("user_id", "device_id", name="uq_user_device"),)
     id = Column(Integer, primary_key=True)

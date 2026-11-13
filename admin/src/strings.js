@@ -177,6 +177,7 @@ export const ADMIN_MY = {
   "Unknown device": "မသိသောစက်",
   "first": "ပထမ",
   "last": "နောက်ဆုံး",
+  "A website cannot read the real device name, so the browser and system are shown. When the login is at its device limit, a new login signs out the device used longest ago. Removing a device signs it out.": "ဝဘ်ဆိုက်သည် စက်အမည်အစစ်ကို မဖတ်နိုင်သဖြင့် ဘရောက်ဇာနှင့် စနစ်ကို ပြထားသည်။ စက်အရေအတွက် ကန့်သတ်ချက် ပြည့်နေလျှင် အသစ်ဝင်ရောက်သည့်စက်က အသုံးမပြုသည်မှာ အကြာဆုံးစက်ကို ထွက်စေမည်။ စက်ကို ဖယ်ရှားလျှင် ထိုစက်မှ ထွက်သွားမည်။",
   "A website cannot read the real device name, so the browser and system are shown. Removing a device signs it out and frees its place.": "ဝက်ဘ်ဆိုက်က စက်၏ အမည်အစစ်ကို မဖတ်နိုင်သဖြင့် ဘရောက်ဇာနှင့် စနစ်ကို ပြထားသည်။ စက်တစ်လုံးကို ဖယ်ရှားပါက ထွက်သွားပြီး နေရာလွတ်လာမည်။",
   "Make a new password": "စကားဝှက်အသစ်ပြုလုပ်မည်",
   "Make a new password? The old one stops working and the user is signed out everywhere.": "စကားဝှက်အသစ်ပြုလုပ်မလား? အဟောင်းသုံးမရတော့ဘဲ အသုံးပြုသူကို နေရာအားလုံးမှ ထွက်စေမည်။",

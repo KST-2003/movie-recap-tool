@@ -382,6 +382,9 @@ Owner: generating, then styling, then rendering again was one step too many. The
 Editor on a phone (owner's screenshot): the selected line's header (line info, character chips, "Hear" button, fit note, +-0.1 s) was one non-wrapping row, squeezed the text into a column and pushed the button off screen. It now wraps (info on its own row, chips wrap, button never breaks).
 NOT verified in a browser / on a phone: both changes are build-checked only (`cqw` needs Safari 16+ / Chrome 105+).
 
+### Device limit: the newest login wins (2026-11-13)
+Owner's rule: "one device only" = one device AT A TIME. Before, a second device was refused (403 "already in use on another device. Ask the admin to reset it") until the admin removed the first. Now `auth.register_device` signs out the least recently used device(s) when the login is at its `device_limit` and lets the new one in (works for limits 2, 3 too); the old device gets 401 "You were signed out because this login was used on another device. Please log in again." on its next request (`auth.DEVICE_REMOVED`, also shown after an admin removes a device; Burmese in `i18n.jsx`). A wrong password from another device signs nobody out. A video already running keeps running and is in "My videos" on the new device. `auth.DEVICE_FULL` is no longer raised. Trade-off (accepted): two people sharing one login can keep using it, only not at the same moment (they sign each other out); the admin device list / audit shows the swapping. Test: `test_accounts.py`. Not verified in a browser.
+
 ### Render capacity options (decided 2026-11-11: NOT built, ideas in order of effort)
 Rendering (x264, subtitle OCR, scene cuts) runs on the droplet's CPU, capped to 1 CPU / 1 video at a time. Steps, cheapest first:
 1. **Done:** 720p default (`resolution`, about half the render time), 1080p cap for 4K clips, keyframe scans. Subtitle OCR cost does not depend on the output size.
@@ -564,3 +567,4 @@ Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user 
 - 2026-11-13: subtitle window scan 88 s -> 35 s for a 10-min film (tiled detector input, two layouts, threads); server render workers 3, transcription workers 10; time breakdown + optimisation list written down.
 - 2026-11-13: voice pool order changed to 3.8 Flash first (clearer Burmese in heard-back checks, cheaper); emotional lines allowed up to 2x pitch; emotion test clips in backend/emotion_test.
 - 2026-11-13: subtitle style can be chosen in the upload form with a live sample in the preview (sent as caption_style with the upload); editor selected-line header wraps on phones.
+- 2026-11-13: device limit: a new login signs out the least recently used device instead of being refused.
