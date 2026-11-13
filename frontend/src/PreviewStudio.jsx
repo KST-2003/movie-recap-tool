@@ -223,16 +223,9 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
               className={`absolute inset-0 w-full h-full pointer-events-none ${cropFit ? 'object-cover' : 'object-contain'}`}
             />
           </div>
-          {cap && (   /* sample subtitle in the chosen style; same rules as the render: 5% of the width x size, strip at top / middle / bottom */
-            <div className="absolute inset-x-0 flex justify-center px-[6%] pointer-events-none"
-              style={cap.position === 'top' ? { top: '5%' } : cap.position === 'middle' ? { top: '50%', transform: 'translateY(-50%)' } : { bottom: '4%' }}>
-              <span style={{
-                fontFamily: capFamily, fontWeight: cap.font === 'sans-regular' ? 400 : 700, fontSize: `${(5 * cap.size).toFixed(2)}cqw`, lineHeight: 1.75,
-                color: cap.color, background: cap.bg_opacity > 0 ? rgba(cap.bg, cap.bg_opacity) : 'transparent', borderRadius: '0.4em', padding: '0 0.5em',
-                WebkitTextStroke: cap.outline ? `${(5 * cap.size / 11).toFixed(2)}cqw ${cap.outline}` : '0', paintOrder: 'stroke fill', textAlign: 'center',
-              }}>{SAMPLE}</span>
-            </div>
-          )}
+          {/* Drawn in the SAME order as the finished video: blur boxes at the bottom, then the logo, the subtitle always on top
+              (recap_engine: manual blur -> logo -> captions). The sample subtitle was once drawn UNDER the blur boxes here, which
+              made it look as if a blur box would cover the subtitle: it never does. */}
           {fx.blurBoxes.map((b, i) => (
             <div
               key={i}
@@ -268,6 +261,16 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
               <div onPointerDown={resizeLogo} className="absolute -bottom-2 -right-2 w-5 h-5 rounded-full bg-purple-500 border-2 border-white cursor-nwse-resize" />
               <button type="button" aria-label={tr('Remove logo')} onPointerDown={(e) => e.stopPropagation()} onClick={() => onChange({ removeLogo: true })}
                 className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 border-2 border-white text-white text-xs leading-none flex items-center justify-center">×</button>
+            </div>
+          )}
+          {cap && (   /* sample subtitle in the chosen style; same rules as the render: 5% of the width x size, strip at top / middle / bottom */
+            <div className="absolute inset-x-0 flex justify-center px-[6%] pointer-events-none"
+              style={cap.position === 'top' ? { top: '5%' } : cap.position === 'middle' ? { top: '50%', transform: 'translateY(-50%)' } : { bottom: '4%' }}>
+              <span style={{
+                fontFamily: capFamily, fontWeight: cap.font === 'sans-regular' ? 400 : 700, fontSize: `${(5 * cap.size).toFixed(2)}cqw`, lineHeight: 1.75,
+                color: cap.color, background: cap.bg_opacity > 0 ? rgba(cap.bg, cap.bg_opacity) : 'transparent', borderRadius: '0.4em', padding: '0 0.5em',
+                WebkitTextStroke: cap.outline ? `${(5 * cap.size / 11).toFixed(2)}cqw ${cap.outline}` : '0', paintOrder: 'stroke fill', textAlign: 'center',
+              }}>{SAMPLE}</span>
             </div>
           )}
         </div>
