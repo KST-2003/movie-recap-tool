@@ -197,7 +197,7 @@ function App() {
   const [looks, setLooks] = useState([]);
   const [showLibrary, setShowLibrary] = useState(false);
   const [voiceGender, setVoiceGender] = useState('female');
-  const [voiceQuality, setVoiceQuality] = useState('premium'); // 'premium' = Gemini (30 voices, emotion) | 'standard' = Azure (2 voices, cheaper, more usage)
+  const [voiceQuality, setVoiceQuality] = useState('standard'); // default Standard when the server offers it (owner's rule 2026-11-13; without Azure `standard` below is false = High quality). 'premium' = Gemini (30 voices, emotion) | 'standard' = Azure (2 voices, cheaper, more usage)
   const [standardOk, setStandardOk] = useState(false);
   const [separationOk, setSeparationOk] = useState(true);   // can the server remove the original speech (Demucs)? the small server cannot
   const standard = voiceQuality === 'standard' && standardOk;
@@ -259,7 +259,7 @@ function App() {
   const [logoOnTop, setLogoOnTop] = useState(false);   // layer order: logo over the subtitle (default: subtitle over the logo)
   const [captionStyle, setCaptionStyle] = useState({ ...DEFAULT_CAPTION_STYLE });   // subtitle look chosen BEFORE generating
   const [deviceCap, setDeviceCap] = useState(null);     // can this phone/browser draw the video itself? (WebCodecs + WebGL + speed test)
-  const [useDevice, setUseDevice] = useState(false);     // "Render on my device (faster, beta)"
+  const [useDevice, setUseDevice] = useState(true);      // on by default; only shown / sent when this device passes the capability test. "Render on my device (faster, beta)"
   const [queue, setQueue] = useState(null);              // server queue: { busy, wait_seconds }
   const lastDevice = useRef(false);                      // the shown result was drawn on this device (re-renders then do the same)
   useEffect(() => { deviceCapability().then(setDeviceCap).catch(() => {}); }, []);
@@ -687,8 +687,8 @@ function App() {
             <div className="rounded-xl border border-slate-800 bg-slate-800/30 p-4 space-y-2">
               <label className="block text-sm font-medium text-slate-300">{tr('Voice quality')}</label>
               <div className="grid gap-2 sm:grid-cols-2">
-                {[['premium', 'High quality', '30 voices to choose from, with emotion. Uses more of your allowance.'],
-                  ['standard', 'Standard', 'Two clear Burmese voices (female / male), no emotion. Cheaper and almost always available.']].map(([q, title, text]) => (
+                {[['standard', 'Standard', 'Two clear Burmese voices (female / male), no emotion. Cheaper and almost always available.'],
+                  ['premium', 'High quality', '30 voices to choose from, with emotion. Uses more of your allowance.']].map(([q, title, text]) => (
                   <button key={q} type="button" onClick={() => { setVoiceQuality(q); if (q === 'standard') { setVoiceType(voiceGender === 'male' ? 'Charon' : 'Kore'); } }}
                     className={`text-left rounded-xl border p-3 ${voiceQuality === q ? 'border-purple-500 bg-purple-950/40' : 'border-slate-700 bg-slate-800/50 hover:bg-slate-800'}`}>
                     <span className="block text-sm font-semibold">{tr(title)}</span>
