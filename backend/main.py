@@ -1,4 +1,5 @@
 import json
+import shutil
 from config import (ALLOW_SIGNUP, CORS_ORIGINS, DEFAULT_DAILY_MINUTES,
                     LOGOS_DIR, MAX_ACTIVE_JOBS_PER_USER, MAX_UPLOAD_MB, MAX_VIDEO_MINUTES,
                     OUTPUT_DIR, SIGNED_URL_SECONDS, UPLOAD_DIR)
@@ -23,6 +24,7 @@ import auth
 from admin import router as admin_router, settings as runtime_settings
 import capacity
 import eta
+import link_fetch
 import recap_engine
 import usage as usage_log   # (main.py has an endpoint function called usage)
 import jobs_queue
@@ -349,10 +351,55 @@ def _clean_blurs(raw: str) -> list:
         raise HTTPException(status_code=400, detail="Invalid blur boxes.")
 
 
+class LinkBody(BaseModel):
+    url: str = Field(..., min_length=8, max_length=2000)
+
+
+_link_calls: dict[int, list] = {}
+LINK_FETCHES_PER_MINUTE = int(os.getenv("LINK_FETCHES_PER_MINUTE", "6"))
+
+
+@app.post("/api/link/fetch")
+def link_fetch_video(body: LinkBody, user: User = Depends(auth.current_user)):
+    """Fetch the video of a RedNote share link to the server (instead of the user uploading the file). The browser then downloads
+    it for the preview / on-device render and sends `link_id` with POST /api/jobs."""
+    if runtime_settings.maintenance():
+        raise HTTPException(status_code=503, detail="We're temporarily not accepting new videos. Please try again later.")
+    now = time.time()
+    calls = [t for t in _link_calls.get(user.id, []) if now - t < 60]
+    if len(calls) >= LINK_FETCHES_PER_MINUTE:
+        raise HTTPException(status_code=429, detail="Too many links in a short time. Please wait a minute.")
+    _link_calls[user.id] = calls + [now]
+    link_fetch.sweep(UPLOAD_DIR)
+    try:
+        got = link_fetch.fetch(body.url, UPLOAD_DIR, user.id, MAX_UPLOAD_MB)
+    except link_fetch.LinkError as exc:
+        print(f"[link] user {user.id}: refused ({exc})", flush=True)
+        raise HTTPException(status_code=400, detail=str(exc))
+    try:
+        seconds = media_duration(got["path"])
+    except Exception:
+        os.remove(got["path"])
+        raise HTTPException(status_code=400, detail="RedNote did not give a playable video. Please upload the video file instead.")
+    print(f"[link] user {user.id}: fetched {got['size'] / 1e6:.1f} MB, {seconds:.0f}s", flush=True)
+    return {"id": got["id"], "seconds": seconds, "size": got["size"], "title": got["title"]}
+
+
+@app.get("/api/link/{link_id}/file")
+def link_file(link_id: str, user: User = Depends(auth.current_user)):
+    """The fetched video itself, for the user who fetched it (preview and on-device render need the file in the browser)."""
+    path = link_fetch.path_of(UPLOAD_DIR, user.id, link_id)
+    if not path:
+        raise HTTPException(status_code=404, detail="The video from the link is no longer kept. Please paste the link again.")
+    return FileResponse(path, media_type="video/mp4")
+
+
 @app.post("/api/jobs")
 def create_job(
     user: User = Depends(auth.current_user),
     video_file: UploadFile = File(None),
+    link_title: str = Form(""),           # the post's title, shown in "My videos"
+    link_id: str = Form(""),              # instead of a file: a video fetched from a RedNote link (POST /api/link/fetch)
     custom_logo: UploadFile = File(None),
     voice_type: str = Form("su"),
     target_language: str = Form("my"),
@@ -395,7 +442,10 @@ def create_job(
 ):
     if runtime_settings.maintenance():
         raise HTTPException(status_code=503, detail="We're temporarily not accepting new videos. Please try again later.")
-    if not video_file:
+    linked = link_fetch.path_of(UPLOAD_DIR, user.id, link_id) if link_id else None
+    if link_id and not linked:
+        raise HTTPException(status_code=400, detail="The video from the link is no longer kept. Please paste the link again.")
+    if not video_file and not linked:
         raise HTTPException(status_code=400, detail="No video file provided.")
     if mode not in ("recap", "full") or output not in ("dub", "subtitles") or background not in ("", "original", "separate", "off"):
         raise HTTPException(status_code=400, detail="Unknown mode, output or background option.")
@@ -428,14 +478,19 @@ def create_job(
               "logo_x": logo_x, "logo_y": logo_y, "manual_blurs": _clean_blurs(manual_blurs),
               "caption_style": _clean_caption_style(caption_style),
               "device_render": device_render, "resolution": resolution, "aspect": aspect, "fit_mode": fit_mode, "pan_x": pan_x, "pan_y": pan_y,
-              "filename": os.path.basename(video_file.filename or "")[:120]}   # shown in "My videos"
+              "filename": (os.path.basename(video_file.filename or "") if video_file else (link_title.strip() or "RedNote video"))[:120],
+              "from_link": bool(linked and not video_file)}   # shown in "My videos"
 
     with Session() as s:
         _refuse_if_failing(s, user)
         if active_jobs(s, user.id) >= MAX_ACTIVE_JOBS_PER_USER:
             raise HTTPException(status_code=429, detail="You already have videos processing. Wait for one to finish.")
 
-    video_path = save_upload(video_file, UPLOAD_DIR, MAX_UPLOAD_MB)
+    if video_file:
+        video_path = save_upload(video_file, UPLOAD_DIR, MAX_UPLOAD_MB)
+    else:   # a copy: the fetched file stays for the keeping time (a refused upload can be tried again without fetching)
+        video_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}.mp4")
+        shutil.copyfile(linked, video_path)
     logo_path = save_upload(custom_logo, LOGOS_DIR, 20) if custom_logo else None
     try:
         try:

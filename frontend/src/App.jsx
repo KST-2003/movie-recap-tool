@@ -190,6 +190,34 @@ function App() {
 
   // Form State
   const [videoFile, setVideoFile] = useState(null);
+  // Video from a RedNote share link instead of a file: the server fetches it, this page downloads that copy for the preview and
+  // the on-device render, and "Generate" sends link_id instead of uploading the file again.
+  const [linkText, setLinkText] = useState('');
+  const [linkBusy, setLinkBusy] = useState('');     // '' | status text while fetching
+  const [linkInfo, setLinkInfo] = useState(null);   // { id, title, file }
+  const fetchLink = async () => {
+    if (!linkText.trim() || linkBusy) return;
+    setErrorMessage('');
+    setLinkBusy(tr('Getting the video from RedNote…'));
+    try {
+      const { data } = await axios.post(`${API_BASE}/api/link/fetch`, { url: linkText.trim() });
+      const res = await axios.get(`${API_BASE}/api/link/${data.id}/file`, {
+        responseType: 'blob',
+        onDownloadProgress: (e) => setLinkBusy(`${tr('Loading the video')} ${Math.round((100 * e.loaded) / (e.total || data.size || 1))}%`),
+      });
+      const name = `${(data.title || 'rednote').replace(/[\\/:*?"<>|]/g, ' ').slice(0, 60)}.mp4`;
+      const file = new File([res.data], name, { type: 'video/mp4' });
+      setLinkInfo({ id: data.id, title: data.title || '', file });
+      setVideoFile(file);
+      setLinkText('');
+    } catch (error) {
+      const detail = error.response?.data?.detail;
+      setErrorMessage(typeof detail === 'string' && [400, 404, 429, 503].includes(error.response?.status) ? trs(detail)
+        : tr('The video could not be fetched from this link. Please upload the video file instead.'));
+    } finally {
+      setLinkBusy('');
+    }
+  };
   const [customLogo, setCustomLogo] = useState(null);
   const [logoInputKey, setLogoInputKey] = useState(0); // changing it empties the file input (a chosen file cannot be cleared otherwise)
   const [voiceType, setVoiceType] = useState('Kore');
@@ -343,7 +371,12 @@ function App() {
     setProject(null);
 
     const formData = new FormData();
-    formData.append('video_file', videoFile);
+    if (linkInfo && linkInfo.file === videoFile) {   // fetched from a link: the server already has it
+      formData.append('link_id', linkInfo.id);
+      formData.append('link_title', linkInfo.title);
+    } else {
+      formData.append('video_file', videoFile);
+    }
     if (customLogo) formData.append('custom_logo', customLogo);
     formData.append('voice_type', voiceType);
     formData.append('voice_quality', standard ? 'standard' : 'premium');
@@ -654,6 +687,21 @@ function App() {
                 onChange={(e) => setVideoFile(e.target.files[0])}
                 className="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-purple-600 file:text-white hover:file:bg-purple-500 cursor-pointer"
               />
+              <div className="mt-3">
+                <label className="block text-xs text-slate-400 mb-1">{tr('Or paste a RedNote link')}</label>
+                <div className="flex gap-2">
+                  <input type="text" inputMode="url" value={linkText} onChange={(e) => setLinkText(e.target.value)} disabled={!!linkBusy || loading}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); fetchLink(); } }}
+                    placeholder="http://xhslink.com/…"
+                    className="min-w-0 flex-1 rounded-xl bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-white outline-none focus:border-purple-500" />
+                  <button type="button" onClick={fetchLink} disabled={!linkText.trim() || !!linkBusy || loading}
+                    className="shrink-0 px-3 py-2 rounded-xl bg-purple-600 text-white text-sm font-semibold disabled:opacity-40">{tr('Get video')}</button>
+                </div>
+                {linkBusy && <p className="mt-1 text-xs text-purple-300">{linkBusy}</p>}
+                {!linkBusy && linkInfo && linkInfo.file === videoFile && (
+                  <p className="mt-1 text-xs text-emerald-300 break-words">{tr('From RedNote: {title}', { title: linkInfo.title || tr('video') })}</p>
+                )}
+              </div>
             </div>
 
             <div>

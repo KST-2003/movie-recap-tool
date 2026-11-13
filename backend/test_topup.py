@@ -98,7 +98,7 @@ ok(credit() == 30, "...only once")
 for _ in range(3):
     video()
 r5 = video()
-ok(r5.status_code == 402 and "Top up" in r5.json()["detail"], f"out of bought minutes: {r5.json()['detail'][:60]}...")
+ok(r5.status_code == 402 and "top up" in r5.json()["detail"].lower(), f"out of bought minutes: {r5.json()['detail'][:60]}...")
 
 # ---- manual credit ----
 ok(c.post(f"/api/admin/users/{uid}/credit", headers=A, json={"minutes": 100, "note": "cash"}).json()["credit_minutes"] > 100, "admin adds minutes by hand")
