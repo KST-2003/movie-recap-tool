@@ -201,49 +201,55 @@ function drawOverlay(comp, plan, text, logo) {
   const [W, H] = plan.out;
   const ctx = comp.octx;
   ctx.clearRect(0, 0, W, H);
-  if (logo) {
-    const lw = Math.round(W * plan.logo.width), lh = Math.round(lw * logo.height / logo.width);
-    let x = W - lw - 30, y = 30;
-    const pos = plan.logo.pos;
-    if (plan.logo.xy) { x = plan.logo.xy[0] * W; y = plan.logo.xy[1] * H; }
-    else if (pos === 'top-left') { x = 30; y = 30; } else if (pos === 'bottom-right') { y = H - lh - 30; }
-    else if (pos === 'bottom-left') { x = 30; y = H - lh - 30; } else if (pos === 'center') { x = (W - lw) / 2; y = (H - lh) / 2; }
-    ctx.drawImage(logo, x, y, lw, lh);
-  }
-  if (text) {
-    const cap = plan.caption, st = { ...DEFAULT_CAPTION_STYLE, ...(cap.style || {}) };
-    let size = cap.size;
-    let lines;
-    for (;;) {
-      ctx.font = `${st.font === 'sans-regular' ? 400 : 700} ${size}px ${captionFamily}`;
-      lines = wrapText(ctx, text, plan.caption.max_w);
-      if (lines.length <= 3 || size <= 16) break;
-      size -= 2;
+  const drawLogo = () => {
+    if (logo) {
+      const lw = Math.round(W * plan.logo.width), lh = Math.round(lw * logo.height / logo.width);
+      let x = W - lw - 30, y = 30;
+      const pos = plan.logo.pos;
+      if (plan.logo.xy) { x = plan.logo.xy[0] * W; y = plan.logo.xy[1] * H; }
+      else if (pos === 'top-left') { x = 30; y = 30; } else if (pos === 'bottom-right') { y = H - lh - 30; }
+      else if (pos === 'bottom-left') { x = 30; y = H - lh - 30; } else if (pos === 'center') { x = (W - lw) / 2; y = (H - lh) / 2; }
+      ctx.drawImage(logo, x, y, lw, lh);
     }
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    const lh = Math.round(size * 1.75), pad = Math.round(size * 0.3);
-    let y = cap.bottom - lines.length * lh;   // plans from before subtitle styles: bottom-aligned
-    if (cap.height) {
-      const total = lines.length * lh;
-      y = cap.valign === 'top' ? cap.top + 8 : cap.valign === 'middle' ? cap.top + (cap.height - total) / 2 : cap.top + cap.height - 8 - total;
-    }
-    y = Math.max(0, Math.round(y));
-    const limit = W * 0.95 - pad * 2;
-    for (const line of lines) {
-      const full = ctx.measureText(line).width;
-      const squeeze = full > limit ? limit / full : 1;   // still too wide: narrow it ourselves (fillText's maxWidth is not reliable for Burmese in every browser)
-      const tw = full * squeeze;
-      if (st.bg_opacity > 0) {
-        ctx.fillStyle = rgba(st.bg, st.bg_opacity);
-        ctx.beginPath(); ctx.roundRect((W - tw) / 2 - pad, y + 2, tw + pad * 2, lh - 4, 8); ctx.fill();
+  };
+  const drawText = () => {
+    if (text) {
+      const cap = plan.caption, st = { ...DEFAULT_CAPTION_STYLE, ...(cap.style || {}) };
+      let size = cap.size;
+      let lines;
+      for (;;) {
+        ctx.font = `${st.font === 'sans-regular' ? 400 : 700} ${size}px ${captionFamily}`;
+        lines = wrapText(ctx, text, plan.caption.max_w);
+        if (lines.length <= 3 || size <= 16) break;
+        size -= 2;
       }
-      ctx.save(); ctx.translate(W / 2, y + lh / 2); ctx.scale(squeeze, 1);
-      if (st.outline) { ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(2, Math.round(size / 11)); ctx.strokeStyle = st.outline; ctx.strokeText(line, 0, 0); }
-      ctx.fillStyle = st.color; ctx.fillText(line, 0, 0);
-      ctx.restore();
-      y += lh;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const lh = Math.round(size * 1.75), pad = Math.round(size * 0.3);
+      let y = cap.bottom - lines.length * lh;   // plans from before subtitle styles: bottom-aligned
+      if (cap.height) {
+        const total = lines.length * lh;
+        y = cap.valign === 'top' ? cap.top + 8 : cap.valign === 'middle' ? cap.top + (cap.height - total) / 2 : cap.top + cap.height - 8 - total;
+      }
+      y = Math.max(0, Math.round(y));
+      const limit = W * 0.95 - pad * 2;
+      for (const line of lines) {
+        const full = ctx.measureText(line).width;
+        const squeeze = full > limit ? limit / full : 1;   // still too wide: narrow it ourselves (fillText's maxWidth is not reliable for Burmese in every browser)
+        const tw = full * squeeze;
+        if (st.bg_opacity > 0) {
+          ctx.fillStyle = rgba(st.bg, st.bg_opacity);
+          ctx.beginPath(); ctx.roundRect((W - tw) / 2 - pad, y + 2, tw + pad * 2, lh - 4, 8); ctx.fill();
+        }
+        ctx.save(); ctx.translate(W / 2, y + lh / 2); ctx.scale(squeeze, 1);
+        if (st.outline) { ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(2, Math.round(size / 11)); ctx.strokeStyle = st.outline; ctx.strokeText(line, 0, 0); }
+        ctx.fillStyle = st.color; ctx.fillText(line, 0, 0);
+        ctx.restore();
+        y += lh;
+      }
     }
-  }
+  };
+  // subtitle on top of the logo unless the user swapped the two layers (plan.logo.above)
+  if (plan.logo?.above) { drawText(); drawLogo(); } else { drawLogo(); drawText(); }
   comp.uploadOverlay();
 }
 

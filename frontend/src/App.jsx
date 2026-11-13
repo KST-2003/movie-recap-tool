@@ -256,6 +256,7 @@ function App() {
   const [logoSize, setLogoSize] = useState(0.15);
   const [logoXY, setLogoXY] = useState(null); // dragged position in the preview (fractions of the frame); null = use logoPosition
   const [blurBoxes, setBlurBoxes] = useState([]); // user blur boxes, DISPLAYED coordinates (fractions)
+  const [logoOnTop, setLogoOnTop] = useState(false);   // layer order: logo over the subtitle (default: subtitle over the logo)
   const [captionStyle, setCaptionStyle] = useState({ ...DEFAULT_CAPTION_STYLE });   // subtitle look chosen BEFORE generating
   const [deviceCap, setDeviceCap] = useState(null);     // can this phone/browser draw the video itself? (WebCodecs + WebGL + speed test)
   const [useDevice, setUseDevice] = useState(false);     // "Render on my device (faster, beta)"
@@ -273,13 +274,13 @@ function App() {
   const [aspect, setAspect] = useState('original'); // output format, chosen BEFORE uploading (like CapCut)
   const [fitMode, setFitMode] = useState('blur');     // 'blur' = whole picture over a blurred copy | 'crop' = fill the frame
   const [pan, setPan] = useState({ x: 0.5, y: 0.5 });  // crop mode: which part of the picture stays
-  const previewFx = { videoSpeed, brightness, contrast, saturation, logoSize, logoPosition, logoXY, blurBoxes, flip: false,
+  const previewFx = { videoSpeed, brightness, contrast, saturation, logoSize, logoPosition, logoXY, blurBoxes, logoOnTop, flip: false,
     aspect, fitMode, panX: pan.x, panY: pan.y };
   const removeLogo = () => { setCustomLogo(null); setLogoXY(null); setLogoInputKey((k) => k + 1); };
   const changePreviewFx = (patch) => {
     if (patch.removeLogo) { removeLogo(); return; }
     const set = { videoSpeed: setVideoSpeed, brightness: setBrightness, contrast: setContrast, saturation: setSaturation,
-      logoSize: setLogoSize, logoPosition: setLogoPosition, logoXY: setLogoXY, blurBoxes: setBlurBoxes };
+      logoSize: setLogoSize, logoPosition: setLogoPosition, logoXY: setLogoXY, blurBoxes: setBlurBoxes, logoOnTop: setLogoOnTop };
     if ('panX' in patch) setPan((p) => ({ ...p, x: patch.panX }));
     if ('panY' in patch) setPan((p) => ({ ...p, y: patch.panY }));
     Object.entries(patch).forEach(([k, v]) => set[k]?.(v));
@@ -359,6 +360,7 @@ function App() {
     formData.append('saturation', saturation);
     formData.append('logo_position', logoPosition);
     formData.append('logo_size', logoSize);
+    formData.append('logo_above_subtitle', logoOnTop ? 'true' : 'false');
     if (customLogo && logoXY) {
       formData.append('logo_x', logoXY[0]);
       formData.append('logo_y', logoXY[1]);

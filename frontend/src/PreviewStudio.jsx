@@ -41,6 +41,7 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [looping, setLooping] = useState(false);
+  const [layersOpen, setLayersOpen] = useState(false);
   const loopStart = useRef(0);
   const scrubbing = useRef(false); // finger/mouse is on the seek bar: ignore playback time updates
   // Dragging the bar fires dozens of seeks a second. Safari on a Mac copes, a phone's decoder does not (every new seek cancels the
@@ -248,7 +249,7 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
           {logoUrl && (
             <div
               onPointerDown={dragLogo}
-              style={{ left: `${lx * 100}%`, top: `${ly * 100}%`, width: `${lw * 100}%` }}
+              style={{ left: `${lx * 100}%`, top: `${ly * 100}%`, width: `${lw * 100}%`, zIndex: fx.logoOnTop ? 2 : undefined }}
               className="absolute cursor-move ring-1 ring-purple-300/70"
             >
               <img
@@ -302,6 +303,32 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
           onClick={() => onChange({ blurBoxes: [...fx.blurBoxes, { x: 0.1, y: 0.75, w: 0.8, h: 0.12 }] })}
           className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm text-slate-200 disabled:opacity-40"
         >{tr('+ Blur box')}</button>
+        <div className="relative">
+          <button type="button" onClick={() => setLayersOpen((o) => !o)} aria-expanded={layersOpen} title={tr('Layers')}
+            className={`px-3 py-1.5 rounded-lg text-sm flex items-center gap-1.5 ${layersOpen ? 'bg-purple-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-slate-200'}`}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 3 2 8l10 5 10-5-10-5Z" /><path d="m2 12 10 5 10-5" /><path d="m2 16 10 5 10-5" />
+            </svg>
+            {tr('Layers')}
+          </button>
+          {layersOpen && (
+            <div className="absolute z-20 left-0 bottom-full mb-2 w-64 max-w-[80vw] rounded-xl border border-slate-700 bg-slate-900 p-3 shadow-xl text-xs text-slate-300 space-y-2">
+              <p className="text-slate-400">{tr('Top to bottom, as in the finished video')}</p>
+              <ol className="space-y-1">
+                {(fx.logoOnTop ? ['Logo', 'Subtitle'] : ['Subtitle', 'Logo']).concat(['Blur boxes', 'Video']).map((name, i) => (
+                  <li key={name} className="flex items-center gap-2 rounded-lg bg-slate-800 px-2 py-1.5">
+                    <span className="w-4 text-slate-500">{i + 1}</span><span className="text-slate-100">{tr(name)}</span>
+                  </li>
+                ))}
+              </ol>
+              <label className={`flex items-center gap-2 pt-1 ${logoUrl ? 'cursor-pointer' : 'opacity-50'}`}>
+                <input type="checkbox" disabled={!logoUrl} checked={!!fx.logoOnTop} onChange={(e) => onChange({ logoOnTop: e.target.checked })} className="w-4 h-4 accent-purple-500" />
+                {tr('Logo above subtitle')}
+              </label>
+              {!logoUrl && <p className="text-slate-500">{tr('Upload a logo to change this.')}</p>}
+            </div>
+          )}
+        </div>
         {fx.logoXY && (
           <button type="button" onClick={() => onChange({ logoXY: null })} className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm text-slate-200">
             {tr('Reset logo position')}

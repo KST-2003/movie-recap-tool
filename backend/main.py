@@ -381,6 +381,7 @@ def create_job(
     saturation: float = Form(1.0),
     logo_position: str = Form("top-right"),
     logo_size: float = Form(0.15),
+    logo_above_subtitle: bool = Form(False),   # layer order: the logo is drawn over the subtitle where they overlap (default: subtitle on top)
     logo_x: float = Form(-1.0),           # dragged logo position: left edge as a fraction of video width (-1 = use logo_position)
     logo_y: float = Form(-1.0),           # top edge as a fraction of video height
     device_render: bool = Form(False),    # the phone draws the picture (WebCodecs); the server only returns a plan + the sound
@@ -423,7 +424,7 @@ def create_job(
               "enable_subtitles": enable_subtitles, "remove_watermark": remove_watermark,
               "enable_flip": enable_flip, "flip_vertical": flip_vertical, "video_speed": video_speed,
               "brightness": brightness, "contrast": contrast, "saturation": saturation,
-              "logo_position": logo_position, "logo_size": logo_size,
+              "logo_position": logo_position, "logo_size": logo_size, "logo_above_subtitle": logo_above_subtitle,
               "logo_x": logo_x, "logo_y": logo_y, "manual_blurs": _clean_blurs(manual_blurs),
               "caption_style": _clean_caption_style(caption_style),
               "device_render": device_render, "resolution": resolution, "aspect": aspect, "fit_mode": fit_mode, "pan_x": pan_x, "pan_y": pan_y,

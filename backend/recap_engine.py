@@ -111,6 +111,7 @@ class EffectOptions:
     logo_path: str | None = None
     logo_width_frac: float = 0.15
     logo_position: str = "top-right"
+    logo_above_captions: bool = False  # layer order: False = subtitle on top of the logo (default), True = logo on top of the subtitle
     logo_xy: tuple | None = None  # dragged position (left, top) as fractions of the frame; overrides logo_position
     extra_blur_rects: list = field(default_factory=list)  # user-drawn boxes, pixel rects IN THE OUTPUT FRAME, blurred the whole video
     out_size: tuple | None = None  # (width, height) of the final frame; None = same as the source
@@ -783,17 +784,28 @@ def _render_single(video_path: str, segments: list[dict], scenes: list[Scene], f
         chain(f"eq=brightness={fx.brightness:.3f}:contrast={fx.contrast:.3f}:saturation={fx.saturation:.3f}", "gr")
     if speed != 1.0:
         chain(f"setpts=PTS/{speed:.4f}", "sp")
-    if logo_idx is not None:
+    def draw_logo():
+        nonlocal cur
+        if logo_idx is None:
+            return
         pos = _LOGO_POS.get(fx.logo_position, _LOGO_POS["top-right"])
         if fx.logo_xy:
             pos = f"{fx.logo_xy[0] * W:.0f}:{fx.logo_xy[1] * H:.0f}"
         f.append(f"[{logo_idx}:v]scale=trunc({W}*{fx.logo_width_frac:.3f}/2)*2:-2[lg]")
         f.append(f"[{cur}][lg]overlay={pos}[wl]")
         cur = "wl"
-    if cap_idx is not None:
+
+    def draw_captions():
+        nonlocal cur
+        if cap_idx is None:
+            return
         f.append(f"[{cap_idx}:v]format=rgba[cp]")
         f.append(f"[{cur}][cp]overlay=0:{cap_top}:eof_action=pass:format=auto[wc]")
         cur = "wc"
+
+    # Layers, bottom to top: picture, hand-drawn blur boxes, then logo and subtitle (subtitle on top unless the user swapped them).
+    for step in ((draw_captions, draw_logo) if fx.logo_above_captions else (draw_logo, draw_captions)):
+        step()
     acur = acat
     if speed != 1.0:
         f.append(f"[{acat}]atempo={speed:.4f}[asp]")
@@ -853,7 +865,8 @@ def device_plan(info: dict, scenes: list[Scene], fx: EffectOptions, cues: list, 
                     "top": cap_y, "height": cap_h, "valign": cap_valign,
                     "style": {k: st[k] for k in ("font", "color", "outline", "bg", "bg_opacity")}},
         "cues": [[round(a, 3), round(b, 3), t] for a, b, t in cues],
-        "logo": ({"pos": fx.logo_position, "xy": list(fx.logo_xy) if fx.logo_xy else None, "width": fx.logo_width_frac}
+        "logo": ({"pos": fx.logo_position, "xy": list(fx.logo_xy) if fx.logo_xy else None, "width": fx.logo_width_frac,
+                  "above": bool(fx.logo_above_captions)}
                  if fx.logo_path else None),
     }
 

@@ -883,6 +883,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
             logo_path=logo_path,
             logo_width_frac=min(max(p["logo_size"], 0.05), 0.5),
             logo_position=p["logo_position"],
+            logo_above_captions=bool(p.get("logo_above_subtitle")),
             logo_xy=((p["logo_x"], p["logo_y"]) if p.get("logo_x", -1) >= 0 and p.get("logo_y", -1) >= 0 else None),
             extra_blur_rects=_manual_blur_pixels(p.get("manual_blurs"), out_size or (info["width"], info["height"])),
             out_size=out_size, fit_mode=p.get("fit_mode", "blur"),
