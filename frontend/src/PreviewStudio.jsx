@@ -144,6 +144,12 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
     window.addEventListener('pointerup', up);
   };
 
+  // Drag the sample subtitle up / down: the style becomes "custom" with y = height of the subtitle's middle (fraction of the frame).
+  const dragCaption = (e) => {
+    const stage = stageRef.current.getBoundingClientRect(), box = e.currentTarget.getBoundingClientRect();
+    const y0 = (box.top + box.height / 2 - stage.top) / stage.height;
+    drag(e, (dx, dy) => onChange({ captionStyle: { ...cap, position: 'custom', y: Math.round(clamp(y0 + dy, 0.05, 0.95) * 1000) / 1000 } }));
+  };
   const dragLogo = (e) => {
     const [x0, y0] = [lx, ly];
     drag(e, (dx, dy) => onChange({ logoXY: [clamp(x0 + dx, 0, 1 - lw), clamp(y0 + dy, 0, 1 - lh)] }));
@@ -266,8 +272,9 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
           )}
           {cap && (   /* sample subtitle in the chosen style; same rules as the render: 5% of the width x size, strip at top / middle / bottom */
             <div className="absolute inset-x-0 flex justify-center px-[6%] pointer-events-none"
-              style={cap.position === 'top' ? { top: '5%' } : cap.position === 'middle' ? { top: '50%', transform: 'translateY(-50%)' } : { bottom: '4%' }}>
-              <span style={{
+              style={cap.position === 'custom' ? { top: `${cap.y * 100}%`, transform: 'translateY(-50%)' }
+                : cap.position === 'top' ? { top: '5%' } : cap.position === 'middle' ? { top: '50%', transform: 'translateY(-50%)' } : { bottom: '4%' }}>
+              <span onPointerDown={dragCaption} title={tr('Drag up or down to place the subtitle')} className="pointer-events-auto cursor-grab active:cursor-grabbing touch-none" style={{
                 fontFamily: capFamily, fontWeight: cap.font === 'sans-regular' ? 400 : 700, fontSize: `${(5 * cap.size).toFixed(2)}cqw`, lineHeight: 1.75,
                 color: cap.color, background: cap.bg_opacity > 0 ? rgba(cap.bg, cap.bg_opacity) : 'transparent', borderRadius: '0.4em', padding: '0 0.5em',
                 WebkitTextStroke: cap.outline ? `${(5 * cap.size / 11).toFixed(2)}cqw ${cap.outline}` : '0', paintOrder: 'stroke fill', textAlign: 'center',

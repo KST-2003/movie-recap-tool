@@ -308,7 +308,7 @@ function App() {
   const changePreviewFx = (patch) => {
     if (patch.removeLogo) { removeLogo(); return; }
     const set = { videoSpeed: setVideoSpeed, brightness: setBrightness, contrast: setContrast, saturation: setSaturation,
-      logoSize: setLogoSize, logoPosition: setLogoPosition, logoXY: setLogoXY, blurBoxes: setBlurBoxes, logoOnTop: setLogoOnTop };
+      logoSize: setLogoSize, logoPosition: setLogoPosition, logoXY: setLogoXY, blurBoxes: setBlurBoxes, logoOnTop: setLogoOnTop, captionStyle: setCaptionStyle };
     if ('panX' in patch) setPan((p) => ({ ...p, x: patch.panX }));
     if ('panY' in patch) setPan((p) => ({ ...p, y: patch.panY }));
     Object.entries(patch).forEach(([k, v]) => set[k]?.(v));
@@ -316,7 +316,8 @@ function App() {
   const [fitTranslation, setFitTranslation] = useState(true);
   const [keepBackground, setKeepBackground] = useState(false);
   const [filmMode, setFilmMode] = useState('recap'); // 'recap' = one narrator voice | 'full' = characters with their own voices
-  const [outputKind, setOutputKind] = useState('dub'); // 'dub' = Burmese voice-over | 'subtitles' = keep original sound, subtitles only
+  const setOutputKind = (kind) => { setOutputKindRaw(kind); setFinish((f) => ({ ...f, enable_subtitles: kind !== 'voice' })); };
+  const [outputKind, setOutputKindRaw] = useState('dub'); // 'voice' = Burmese voice-over WITHOUT our subtitles (sent as output=dub + enable_subtitles=false) | 'dub' = Burmese voice-over | 'subtitles' = keep original sound, subtitles only
   const [bgMode, setBgMode] = useState('separate'); // full mode: the film's own sounds ('separate' = effects kept, speech removed | 'original' = all lowered | 'off')
   const [emotionOn, setEmotionOn] = useState(true);
   const [softMusic, setSoftMusic] = useState(false);
@@ -410,7 +411,7 @@ function App() {
     formData.append('fit_translation', fitTranslation);
     formData.append('keep_background', keepBackground);
     formData.append('mode', filmMode);
-    formData.append('output', outputKind);
+    formData.append('output', outputKind === 'subtitles' ? 'subtitles' : 'dub');
     if (filmMode === 'full') formData.append('background', bgMode);
     formData.append('emotion', emotionOn);
     formData.append('soft_music', softMusic);
@@ -532,7 +533,7 @@ function App() {
     setNotes(
       [
         result.subtitles_detected ? tr('Source subtitles detected and blurred.') : tr('No source subtitles found, nothing blurred.'),
-        keepBackground && outputKind === 'dub' && !result.background_kept ? tr('Background music separation failed; voice-only audio.') : '',
+        keepBackground && outputKind !== 'subtitles' && !result.background_kept ? tr('Background music separation failed; voice-only audio.') : '',
         ...(result.warnings || []).map(trs),
       ].filter(Boolean).join(' ')
     );
@@ -725,9 +726,9 @@ function App() {
 
           {sourceUrl && !loading && !resultVideoUrl && (
             <>
-              <PreviewStudio src={sourceUrl} logoFile={customLogo} fx={{ ...previewFx, captionStyle }} onChange={changePreviewFx} />
-              <CaptionStyleControls cap={captionStyle} onChange={setCaptionStyle} showSample={false} />
-              <p className="text-xs text-slate-500 -mt-2">{tr('The sample line in the preview shows the subtitle style. "Automatic" puts subtitles over the original ones when they are found.')}</p>
+              <PreviewStudio src={sourceUrl} logoFile={customLogo} fx={{ ...previewFx, captionStyle: outputKind === 'voice' ? null : captionStyle }} onChange={changePreviewFx} />
+              {outputKind !== 'voice' && <CaptionStyleControls cap={captionStyle} onChange={setCaptionStyle} showSample={false} />}
+              {outputKind !== 'voice' && <p className="text-xs text-slate-500 -mt-2">{tr('The sample line in the preview shows the subtitle style. Drag it up or down to place it. "Automatic" puts subtitles over the original ones when they are found.')}</p>}
             </>
           )}
 
@@ -846,6 +847,10 @@ function App() {
                     {tr('Burmese voice-over + subtitles')}
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="outputKind" checked={outputKind === 'voice'} onChange={() => setOutputKind('voice')} className="accent-purple-500" />
+                    {tr('Burmese voice-over only (no subtitles)')}
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
                     <input type="radio" name="outputKind" checked={outputKind === 'subtitles'} onChange={() => setOutputKind('subtitles')} className="accent-purple-500" />
                     {tr('Burmese subtitles only (original sound stays)')}
                   </label>
@@ -853,7 +858,7 @@ function App() {
             </div>
             {filmMode === 'full' && (
               <div className="space-y-3 text-sm text-slate-300">
-                {outputKind === 'dub' && (
+                {outputKind !== 'subtitles' && (
                   <>
                     <label className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                       <span>{tr('Original music & sounds')}</span>
@@ -889,7 +894,7 @@ function App() {
                 {tr('Tighten long translations to fit each scene')}
               </span>
             </label>
-            {filmMode === 'recap' && outputKind === 'dub' && <label className="flex items-center space-x-3 cursor-pointer">
+            {filmMode === 'recap' && outputKind !== 'subtitles' && <label className="flex items-center space-x-3 cursor-pointer">
               <input
                 type="checkbox"
                 checked={keepBackground}

@@ -785,7 +785,8 @@ class CaptionStyle(BaseModel):
     outline: str | None = Field(default=None, pattern=r"^(#[0-9a-fA-F]{6})?$")   # "" = no outline
     bg: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     bg_opacity: float | None = Field(default=None, ge=0.0, le=1.0)      # 0 = no box
-    position: str | None = Field(default=None, max_length=10)           # auto | bottom | middle | top
+    position: str | None = Field(default=None, max_length=10)           # auto | bottom | middle | top | custom
+    y: float | None = Field(default=None, ge=0.0, le=1.0)               # custom: height of the subtitle's middle (0 = top of the frame)
 
 
 class RerenderBody(BaseModel):

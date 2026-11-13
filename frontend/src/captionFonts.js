@@ -6,7 +6,7 @@ export const CAPTION_FONTS = [
   { id: 'serif', label: 'Noto Serif (bold)', file: 'NotoSerifMyanmar-Bold.ttf', family: 'RecapCaptionSerif' },
   { id: 'padauk', label: 'Padauk (bold)', file: 'Padauk-Bold.ttf', family: 'RecapCaptionPadauk' },
 ];
-export const DEFAULT_CAPTION_STYLE = { font: 'sans', size: 1.0, color: '#FFEB3B', outline: '#000000', bg: '#000000', bg_opacity: 0.59, position: 'auto' };
+export const DEFAULT_CAPTION_STYLE = { font: 'sans', size: 1.0, color: '#FFEB3B', outline: '#000000', bg: '#000000', bg_opacity: 0.59, position: 'auto', y: 0.85 };
 export const CAPTION_PRESETS = [
   { label: 'Yellow on dark', style: { color: '#FFEB3B', outline: '#000000', bg: '#000000', bg_opacity: 0.59 } },
   { label: 'White on dark', style: { color: '#FFFFFF', outline: '#000000', bg: '#000000', bg_opacity: 0.59 } },

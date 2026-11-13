@@ -53,8 +53,14 @@ export default function CaptionStyleControls({ cap, onChange, sampleText, showSa
                     <option value="bottom">{tr('Bottom')}</option>
                     <option value="middle">{tr('Middle')}</option>
                     <option value="top">{tr('Top')}</option>
+                    <option value="custom">{tr('Custom (drag the subtitle)')}</option>
                   </select>
                 </label>
+                {cap.position === 'custom' && (
+                  <label className="block sm:col-span-2">{tr('Height on the screen')}: <span className="text-slate-200">{Math.round((1 - cap.y) * 100)}%</span>
+                    <input type="range" min={0.05} max={0.95} step={0.01} value={1 - cap.y} onChange={(e) => set({ y: Math.round((1 - Number(e.target.value)) * 100) / 100 })} className="w-full accent-purple-500" />
+                  </label>
+                )}
                 <label className="block">{tr('Size')}: <span className="text-slate-200">{Math.round(cap.size * 100)}%</span>
                   <input type="range" min={0.6} max={1.8} step={0.05} value={cap.size} onChange={(e) => set({ size: Number(e.target.value) })} className="w-full accent-purple-500" />
                 </label>

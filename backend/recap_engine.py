@@ -36,9 +36,9 @@ _FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
 # (frontend/public/fonts) so the on-device render and the editor's sample use the same letters. "sans" = the look before styles existed.
 CAPTION_FONTS = {"sans": "NotoSansMyanmar-Bold.ttf", "sans-regular": "NotoSansMyanmar-Regular.ttf",
                  "serif": "NotoSerifMyanmar-Bold.ttf", "padauk": "Padauk-Bold.ttf"}
-CAPTION_POSITIONS = ("auto", "bottom", "middle", "top")   # auto = where the original subtitle was (or near the bottom)
+CAPTION_POSITIONS = ("auto", "bottom", "middle", "top", "custom")   # custom = dragged: `y` is the height of the subtitle's middle; auto = where the original subtitle was (or near the bottom)
 DEFAULT_CAPTION_STYLE = {"font": "sans", "size": 1.0, "color": "#FFEB3B", "outline": "#000000",
-                         "bg": "#000000", "bg_opacity": 0.59, "position": "auto"}
+                         "bg": "#000000", "bg_opacity": 0.59, "position": "auto", "y": 0.85}
 _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
@@ -60,6 +60,8 @@ def caption_style(raw: dict | None) -> dict:
             st["size"] = round(min(max(float(raw["size"]), 0.6), 1.8), 2)
         if raw.get("bg_opacity") is not None:
             st["bg_opacity"] = round(min(max(float(raw["bg_opacity"]), 0.0), 1.0), 2)
+        if raw.get("y") is not None:
+            st["y"] = round(min(max(float(raw["y"]), 0.05), 0.95), 3)
     except (TypeError, ValueError):
         pass
     return st
@@ -85,6 +87,8 @@ def caption_box(fx: "EffectOptions", W: int, H: int, reframed: bool) -> tuple[in
         return cap_h, int(H * 0.05), "top"
     if st["position"] == "middle":
         return cap_h, (H - cap_h) // 2, "middle"
+    if st["position"] == "custom":   # dragged in the preview: the subtitle's middle sits at y (fraction of the height), kept inside the frame
+        return cap_h, max(0, min(int(H * st["y"]) - cap_h // 2, H - cap_h)), "middle"
     if st["position"] == "auto" and fx.subtitle_rect and not reframed:  # sit exactly where the blurred source subtitles were
         cy = min(fx.subtitle_rect[1] + fx.subtitle_rect[3] + int(H * 0.01), H)
         return cap_h, max(0, min(cy - cap_h, H - cap_h)), "bottom"

@@ -64,6 +64,15 @@ ok(r.caption_box(fx, 720, 1280, False)[1:] == (max(0, 900 + 100 + 12 - int(1280 
 for pos, want in (("top", 64), ("middle", (1280 - 281) // 2), ("bottom", 1280 - 281 - 51)):
     fx.caption_style = {"position": pos}
     ok(r.caption_box(fx, 720, 1280, False)[1] == want, f"position {pos}: strip top {want}")
+# dragged position: the subtitle's middle sits at y; kept inside the frame at the edges; broken y falls back
+for y, mid in ((0.3, 384), (0.7, 896)):
+    fx.caption_style = {"position": "custom", "y": y}
+    h, top, va = r.caption_box(fx, 720, 1280, False)
+    ok(va == "middle" and abs(top + h / 2 - mid) <= 1, f"custom position y={y}: middle of the strip at {top + h // 2}px (want {mid})")
+fx.caption_style = {"position": "custom", "y": 5}
+h, top, _ = r.caption_box(fx, 720, 1280, False)
+ok(0 <= top <= 1280 - h, "custom position outside the frame is kept inside")
+ok(r.caption_style({"position": "custom", "y": "x"})["y"] == 0.85, "broken y falls back to the default")
 fx.caption_style = {"size": 1.8, "font": "serif", "color": "#00FF00"}
 plan = r.device_plan({"width": 720, "height": 1280, "fps": 30}, [r.Scene(0, 2, out_len=2)], fx, [(0, 2, TEXT)], 2)
 cap = plan["caption"]
@@ -102,7 +111,7 @@ bad = c.post(f"/api/jobs/{first['id']}/rerender", headers=H_, json={"segments": 
 ok(bad.status_code == 422, "a broken colour is refused")
 style = {"font": "padauk", "size": 1.4, "color": "#FF00FF", "outline": "", "bg": "#FFFFFF", "bg_opacity": 0.0, "position": "top"}
 second = wait(c.post(f"/api/jobs/{first['id']}/rerender", headers=H_, json={"segments": lines, "caption_style": style}).json()["job_id"])
-ok(second["status"] == "done" and second["result"]["project"]["fx"]["caption_style"] == style, "the re-render stores the chosen style")
+ok(second["status"] == "done" and second["result"]["project"]["fx"]["caption_style"] == {**style, "y": 0.85}, "the re-render stores the chosen style")
 out = [p for p in os.listdir(f"{tmp}/out") if p.endswith(".mp4") and second["id"] in p][0]
 subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-ss", "1.5", "-i", f"{tmp}/out/{out}", "-frames:v", "1", f"{tmp}/f.png"], check=True)
 frame = np.asarray(Image.open(f"{tmp}/f.png").convert("RGB")).astype(int)
@@ -110,14 +119,14 @@ mag = (np.abs(frame - np.array([255, 0, 255])).sum(axis=2) < 140)
 ys = np.where(mag.any(axis=1))[0]
 ok(mag.sum() > 150 and ys.max() < frame.shape[0] * 0.35, f"the video shows magenta letters near the top ({int(mag.sum())} px, rows {ys.min()}-{ys.max()})")
 third = wait(c.post(f"/api/jobs/{second['id']}/rerender", headers=H_, json={"segments": lines, "caption_style": {"size": 1.0}}).json()["job_id"])
-ok(third["result"]["project"]["fx"]["caption_style"] == {**style, "size": 1.0}, "a later edit changes only what it sends")
+ok(third["result"]["project"]["fx"]["caption_style"] == {**style, "size": 1.0, "y": 0.85}, "a later edit changes only what it sends")
 # --- the style can be chosen BEFORE generating (upload form field) ---
 import json as _json
 pre = {"font": "serif", "size": 1.3, "color": "#00FFFF", "outline": "#000000", "bg": "#000000", "bg_opacity": 0.2, "position": "middle"}
 with open(video, "rb") as f:
     up = wait(c.post("/api/jobs", headers=H_, files={"video_file": ("in.mp4", f, "video/mp4")},
                      data={"voice_type": "su", "fit_translation": "false", "caption_style": _json.dumps(pre)}).json()["job_id"])
-ok(up["status"] == "done" and up["result"]["project"]["fx"]["caption_style"] == pre, "a style sent with the upload is used for the FIRST render")
+ok(up["status"] == "done" and up["result"]["project"]["fx"]["caption_style"] == {**pre, "y": 0.85}, "a style sent with the upload is used for the FIRST render")
 with open(video, "rb") as f:
     broken = wait(c.post("/api/jobs", headers=H_, files={"video_file": ("in.mp4", f, "video/mp4")},
                          data={"voice_type": "su", "fit_translation": "false", "caption_style": '{"color": "red"'}).json()["job_id"])
