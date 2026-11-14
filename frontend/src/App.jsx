@@ -64,6 +64,8 @@ function MovieIcon() {   // film reel on a base
   );
 }
 
+const STEP_NAMES = ['Video', 'Look', 'Voice', 'Finish'];   // phone steps of the Create form
+
 function AuthScreen({ onAuth, notice }) {
   const { tr, trs } = useI18n();
   const [username, setUsername] = useState('');
@@ -406,10 +408,21 @@ function App() {
     };
   }, [token, view, loading]);
 
+  // Phones: the Create form is shown one step at a time (the user can go back / forward or tap a step at any time; nothing is
+  // unmounted, hidden steps keep their values). Wide screens (lg+) show the whole form and ignore `step`.
+  const [step, setStep] = useState(1);
+  const formRef = useRef(null);
+  const stepCls = (n) => (step === n ? 'contents' : 'max-lg:hidden lg:contents');
+  const goStep = (n) => {
+    setStep(Math.min(STEP_NAMES.length, Math.max(1, n)));
+    if (window.matchMedia?.('(max-width: 1023px)').matches) requestAnimationFrame(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  };
+
   // Handle Form Submission
   const handleGenerateRecap = async (e) => {
     e.preventDefault();
     if (!videoFile) {
+      setStep(1);
       alert(tr('Please select a video file.'));
       return;
     }
@@ -651,11 +664,11 @@ function App() {
       )}
       <div className={view === 'create' ? '' : 'hidden'}>
       {/* hero banner */}
-      <div className="relative max-w-3xl mx-auto mb-5 overflow-hidden rounded-[2rem] bg-gradient-to-br from-violet-500 via-purple-400 to-pink-300 p-6 pr-32 sm:pr-44 text-white shadow-pop animate-rise">
+      <div className={`relative max-w-3xl mx-auto mb-5 overflow-hidden rounded-[2rem] bg-gradient-to-br from-violet-500 via-purple-400 to-pink-300 p-6 pr-32 sm:pr-44 text-white shadow-pop animate-rise ${step > 1 ? 'max-lg:hidden' : ''}`}>
         <div aria-hidden="true" className="pointer-events-none absolute -right-10 -top-16 h-56 w-56 rounded-full border border-white/20" />
         <div aria-hidden="true" className="pointer-events-none absolute -right-24 -top-28 h-80 w-80 rounded-full border border-white/15" />
         <div aria-hidden="true" className="pointer-events-none absolute left-1/3 -bottom-8 h-20 w-40 rounded-full bg-white/15 blur-xl animate-drift" />
-        <span className="inline-block rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-violet-600">{tr('Recap studio')}</span>
+        <span className="inline-block rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-violet-600">Recat Studio</span>
         <h1 className="mt-3 text-2xl sm:text-3xl font-bold leading-tight">{tr('What are we recapping today?')}</h1>
         <p className="mt-1 text-sm text-white/85">{tr('Drop in a video and Recat turns it into Burmese.')}</p>
         <Mascot className="absolute right-3 sm:right-8 bottom-1 h-28 w-28 sm:h-36 sm:w-36 drop-shadow-xl" />
@@ -671,8 +684,24 @@ function App() {
             </div>
           </div>
         )}
-        <form onSubmit={handleGenerateRecap} className="space-y-6">
+        <form ref={formRef} onSubmit={handleGenerateRecap} className="flex flex-col gap-6 scroll-mt-20">
+          {/* Phones: the form is split into 4 steps (one on screen at a time, free to jump); wide screens show everything */}
+          <ol className="lg:hidden flex items-center gap-1.5" aria-label={tr('Steps')}>
+            {STEP_NAMES.map((name, i) => {
+              const n = i + 1; const on = step === n; const done = n < step;
+              return (
+                <li key={name} className={on ? 'flex-[2.2] min-w-0' : 'flex-1 min-w-0'}>
+                  <button type="button" onClick={() => goStep(n)} aria-current={on ? 'step' : undefined}
+                    className={`w-full flex items-center justify-center gap-1.5 rounded-full px-2 py-2 text-xs font-semibold transition-all duration-300 ${on ? 'bg-violet-500 text-white shadow-pop' : done ? 'bg-violet-100 text-violet-600' : 'bg-page text-ink-faint border border-violet-100'}`}>
+                    <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] ${on ? 'bg-white/25' : done ? 'bg-violet-500 text-white' : 'bg-violet-100 text-ink-soft'}`}>{done ? '✓' : n}</span>
+                    {on && <span className="truncate">{tr(name)}</span>}
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
           
+          <div className={stepCls(1)}>
           {/* Format first, then the video (like CapCut) */}
           <div className="rounded-2xl border border-violet-100 bg-violet-50/30 p-4 space-y-3">
             <label className="block text-sm font-medium text-ink-soft">{tr('Video format')}</label>
@@ -712,7 +741,9 @@ function App() {
               </div>
             )}
           </div>
+          </div>
 
+          <div className={stepCls(4)}>
           <div>
             <label className="block text-sm font-medium text-ink-soft mb-2">{tr('Video quality (size)')}</label>
             <Select value={resolution} onChange={setResolution} options={[
@@ -746,7 +777,9 @@ function App() {
               )}
             </div>
           )}
+          </div>
 
+          <div className={stepCls(1)}>
           {/* File Upload Section */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -796,7 +829,9 @@ function App() {
               )}
             </div>
           </div>
+          </div>
 
+          <div className={stepCls(2)}>
           {sourceUrl && !loading && !resultVideoUrl && (
             <>
               <PreviewStudio src={sourceUrl} logoFile={customLogo} fx={{ ...previewFx, captionStyle: outputKind === 'voice' ? null : captionStyle }} onChange={changePreviewFx} />
@@ -804,7 +839,14 @@ function App() {
               {outputKind !== 'voice' && <p className="text-xs text-ink-faint -mt-2">{tr('The sample line in the preview shows the subtitle style. Drag it up or down to place it. "Automatic" puts subtitles over the original ones when they are found.')}</p>}
             </>
           )}
+          {!(sourceUrl && !loading && !resultVideoUrl) && (
+            <p className="lg:hidden rounded-2xl border border-dashed border-violet-200 bg-page p-6 text-center text-sm text-ink-soft">
+              {!sourceUrl ? tr('Choose a video in step 1 first. Then you can set the look here.') : tr('The look is set while the video is being made. Change it in the editor below the result.')}
+            </p>
+          )}
+          </div>
 
+          <div className={stepCls(3)}>
           {standardOk && (
             <div className="rounded-2xl border border-violet-100 bg-violet-50/30 p-4 space-y-2">
               <label className="block text-sm font-medium text-ink-soft">{tr('Voice quality')}</label>
@@ -953,7 +995,9 @@ function App() {
               {tr('Add a soft background tone (optional)')}
             </label>
           </div>
+          </div>
 
+          <div className={stepCls(4)}>
           {/* Sync policy + editing tools */}
           <div className="rounded-2xl border border-violet-100 bg-violet-50/30 p-4 space-y-4">
             <label className="flex items-center space-x-3 cursor-pointer">
@@ -997,6 +1041,11 @@ function App() {
           >
             {loading ? tr('⚡ Processing…') : tr('✨ Generate video')}
           </button>
+          </div>
+          <div className="lg:hidden flex items-center gap-3">
+            {step > 1 && <button type="button" onClick={() => goStep(step - 1)} className="flex-1 rounded-2xl border border-violet-200 bg-white py-3 text-sm font-semibold text-ink-soft">← {tr('Back')}</button>}
+            {step < STEP_NAMES.length && <button type="button" onClick={() => goStep(step + 1)} className="flex-[2] rounded-2xl bg-violet-500 py-3 text-sm font-semibold text-white shadow-pop">{tr('Next')} →</button>}
+          </div>
         </form>
 
         {loading && (
