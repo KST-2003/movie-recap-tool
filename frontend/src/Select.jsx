@@ -65,13 +65,13 @@ export default function Select({ value, onChange, options, size = 'md', classNam
         ref={btn} type="button" disabled={disabled} title={title} aria-haspopup="listbox" aria-expanded={open}
         onClick={() => (open ? setOpen(false) : openMenu())} onKeyDown={onKey}
         className={`group flex items-center justify-between gap-2 text-left border transition-all duration-200 ease-out outline-none
-          focus-visible:ring-2 focus-visible:ring-purple-400/70 disabled:opacity-50 disabled:cursor-not-allowed
-          ${small ? 'rounded-lg px-2 py-1 text-xs' : 'rounded-xl px-3 py-2.5 text-sm'}
-          ${open ? 'border-purple-400 bg-slate-800 shadow-[0_0_0_3px_rgba(168,85,247,0.18)]' : 'border-slate-700 bg-slate-800/80 hover:border-slate-500'}
+          focus-visible:ring-2 focus-visible:ring-violet-400/70 disabled:opacity-50 disabled:cursor-not-allowed
+          ${small ? 'rounded-lg px-2 py-1 text-xs' : 'rounded-2xl px-3 py-2.5 text-sm'}
+          ${open ? 'border-violet-400 bg-violet-50 shadow-[0_0_0_3px_rgba(168,85,247,0.18)]' : 'border-violet-200 bg-violet-50/80 hover:border-violet-300'}
           ${className || 'w-full'}`}
       >
-        <span className={`min-w-0 truncate ${selected ? 'text-slate-100' : 'text-slate-400'}`}>{selected ? selected.label : placeholder}</span>
-        <svg viewBox="0 0 20 20" className={`shrink-0 ${small ? 'h-3.5 w-3.5' : 'h-4 w-4'} text-slate-400 transition-transform duration-200 ${open ? 'rotate-180 text-purple-300' : ''}`} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <span className={`min-w-0 truncate ${selected ? 'text-ink' : 'text-ink-soft'}`}>{selected ? selected.label : placeholder}</span>
+        <svg viewBox="0 0 20 20" className={`shrink-0 ${small ? 'h-3.5 w-3.5' : 'h-4 w-4'} text-ink-soft transition-transform duration-200 ${open ? 'rotate-180 text-violet-600' : ''}`} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M5 8l5 5 5-5" />
         </svg>
       </button>
@@ -79,20 +79,20 @@ export default function Select({ value, onChange, options, size = 'md', classNam
         <div
           ref={menu} role="listbox"
           style={{ position: 'fixed', left: pos.left, width: pos.width, top: pos.top, bottom: pos.bottom, maxHeight: pos.maxH, zIndex: 1000 }}
-          className="overflow-y-auto overscroll-contain rounded-xl border border-slate-600 bg-slate-900/95 backdrop-blur p-1 shadow-2xl shadow-black/60 animate-[selectIn_140ms_ease-out]"
+          className="overflow-y-auto overscroll-contain rounded-2xl border border-violet-300 bg-white/95 backdrop-blur p-1 shadow-card shadow-violet-300/60 animate-[selectIn_140ms_ease-out]"
         >
           {flat.map((row, n) => (row.heading
-            ? <div key={`h${n}`} className="px-2.5 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">{row.heading}</div>
+            ? <div key={`h${n}`} className="px-2.5 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{row.heading}</div>
             : (
               <div
                 key={row.index} data-i={row.index} role="option" aria-selected={row.value === value}
                 onPointerEnter={() => setActive(row.index)} onClick={() => pick(row)}
                 className={`flex items-center gap-2 cursor-pointer rounded-lg px-2.5 ${small ? 'py-1.5 text-xs' : 'py-2 text-sm'} transition-colors duration-100
-                  ${row.index === active ? 'bg-purple-600/30 text-white' : 'text-slate-200'} ${row.value === value ? 'font-semibold' : ''}`}
+                  ${row.index === active ? 'bg-violet-500/30 text-ink' : 'text-ink'} ${row.value === value ? 'font-semibold' : ''}`}
               >
                 <span className="min-w-0 flex-1">{row.label}</span>
                 {row.value === value && (
-                  <svg viewBox="0 0 20 20" className="h-4 w-4 shrink-0 text-purple-300" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 10.5l4 4 8-9" /></svg>
+                  <svg viewBox="0 0 20 20" className="h-4 w-4 shrink-0 text-violet-600" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 10.5l4 4 8-9" /></svg>
                 )}
               </div>
             )))}

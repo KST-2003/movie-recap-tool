@@ -185,17 +185,17 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
   const portraitish = fh >= fw;
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-800/30 p-4 space-y-3">
+    <div className="rounded-2xl border border-violet-100 bg-violet-50/30 p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-200">{tr('Preview before generating')}</h3>
-        <span className="text-xs text-slate-500">{fx.aspect === 'original' ? '' : `${fx.aspect} · ${fw}×${fh} · `}{tr('Colours are approximate')}</span>
+        <h3 className="text-sm font-semibold text-ink">{tr('Preview before generating')}</h3>
+        <span className="text-xs text-ink-faint">{fx.aspect === 'original' ? '' : `${fx.aspect} · ${fw}×${fh} · `}{tr('Colours are approximate')}</span>
       </div>
 
       <div className="flex justify-center">
         <div
           ref={stageRef}
           style={{ aspectRatio: `${fw} / ${fh}`, width: portraitish ? `min(100%, calc(70vh * ${fw / fh}))` : '100%', containerType: 'inline-size' }}
-          className="relative max-w-3xl select-none touch-none overflow-hidden rounded-xl border border-slate-800 bg-black"
+          className="relative max-w-3xl select-none touch-none overflow-hidden rounded-2xl border border-violet-100 bg-black text-white"
         >
           <div
             onPointerDown={dragPan}
@@ -241,7 +241,7 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
                 left: `${b.x * 100}%`, top: `${b.y * 100}%`, width: `${b.w * 100}%`, height: `${b.h * 100}%`,
                 backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
               }}
-              className="absolute border border-dashed border-purple-300 cursor-move"
+              className="absolute border border-dashed border-violet-300 cursor-move"
             >
               <button
                 type="button"
@@ -249,14 +249,14 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
                 onClick={() => onChange({ blurBoxes: fx.blurBoxes.filter((_, k) => k !== i) })}
                 className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-600 text-white text-xs leading-5"
               >×</button>
-              <div onPointerDown={(e) => resizeBox(e, i)} className="absolute -bottom-2 -right-2 w-5 h-5 rounded-full bg-purple-500 border-2 border-white cursor-nwse-resize" />
+              <div onPointerDown={(e) => resizeBox(e, i)} className="absolute -bottom-2 -right-2 w-5 h-5 rounded-full bg-violet-500 border-2 border-white cursor-nwse-resize text-white" />
             </div>
           ))}
           {logoUrl && (
             <div
               onPointerDown={dragLogo}
               style={{ left: `${lx * 100}%`, top: `${ly * 100}%`, width: `${lw * 100}%`, zIndex: fx.logoOnTop ? 2 : undefined }}
-              className="absolute cursor-move ring-1 ring-purple-300/70"
+              className="absolute cursor-move ring-1 ring-violet-300/70"
             >
               <img
                 src={logoUrl}
@@ -265,7 +265,7 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
                 onLoad={(e) => setLogoAspect((e.target.naturalHeight || 1) / (e.target.naturalWidth || 1))}
                 className="w-full block pointer-events-none"
               />
-              <div onPointerDown={resizeLogo} className="absolute -bottom-2 -right-2 w-5 h-5 rounded-full bg-purple-500 border-2 border-white cursor-nwse-resize" />
+              <div onPointerDown={resizeLogo} className="absolute -bottom-2 -right-2 w-5 h-5 rounded-full bg-violet-500 border-2 border-white cursor-nwse-resize text-white" />
               <button type="button" aria-label={tr('Remove logo')} onPointerDown={(e) => e.stopPropagation()} onClick={() => onChange({ removeLogo: true })}
                 className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 border-2 border-white text-white text-xs leading-none flex items-center justify-center">×</button>
             </div>
@@ -296,69 +296,69 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
             seekTo(t);
             setTime(t);
           }}
-          className="flex-1 accent-purple-500"
+          className="flex-1 accent-violet-500"
         />
-        <span className="text-xs text-slate-400 shrink-0 min-w-[6.5rem] whitespace-nowrap tabular-nums text-right">{time.toFixed(1)} / {duration.toFixed(0)}s</span>
+        <span className="text-xs text-ink-soft shrink-0 min-w-[6.5rem] whitespace-nowrap tabular-nums text-right">{time.toFixed(1)} / {duration.toFixed(0)}s</span>
       </div>
       <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={looping ? stop : playWindow} className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-sm text-white">
+        <button type="button" onClick={looping ? stop : playWindow} className="px-3 py-1.5 rounded-lg bg-violet-500 hover:bg-violet-600 text-sm text-white">
           {looping ? tr('■ Stop') : tr('▶ Play 5 s (loop)')}
         </button>
         <button
           type="button"
           disabled={fx.blurBoxes.length >= 6}
           onClick={() => onChange({ blurBoxes: [...fx.blurBoxes, { x: 0.1, y: 0.75, w: 0.8, h: 0.12 }] })}
-          className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm text-slate-200 disabled:opacity-40"
+          className="px-3 py-1.5 rounded-lg bg-violet-100 hover:bg-violet-200 text-sm text-ink disabled:opacity-40"
         >{tr('+ Blur box')}</button>
         <div className="relative">
           <button type="button" onClick={() => setLayersOpen((o) => !o)} aria-expanded={layersOpen} title={tr('Layers')}
-            className={`px-3 py-1.5 rounded-lg text-sm flex items-center gap-1.5 ${layersOpen ? 'bg-purple-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-slate-200'}`}>
+            className={`px-3 py-1.5 rounded-lg text-sm flex items-center gap-1.5 ${layersOpen ? 'bg-violet-500 text-white' : 'bg-violet-100 hover:bg-violet-200 text-ink'}`}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M12 3 2 8l10 5 10-5-10-5Z" /><path d="m2 12 10 5 10-5" /><path d="m2 16 10 5 10-5" />
             </svg>
             {tr('Layers')}
           </button>
           {layersOpen && (
-            <div className="absolute z-20 left-0 bottom-full mb-2 w-64 max-w-[80vw] rounded-xl border border-slate-700 bg-slate-900 p-3 shadow-xl text-xs text-slate-300 space-y-2">
-              <p className="text-slate-400">{tr('Top to bottom, as in the finished video')}</p>
+            <div className="absolute z-20 left-0 bottom-full mb-2 w-64 max-w-[80vw] rounded-2xl border border-violet-200 bg-white p-3 shadow-xl text-xs text-ink-soft space-y-2">
+              <p className="text-ink-soft">{tr('Top to bottom, as in the finished video')}</p>
               <ol className="space-y-1">
                 {(fx.logoOnTop ? ['Logo', 'Subtitle'] : ['Subtitle', 'Logo']).concat(['Blur boxes', 'Video']).map((name, i) => (
-                  <li key={name} className="flex items-center gap-2 rounded-lg bg-slate-800 px-2 py-1.5">
-                    <span className="w-4 text-slate-500">{i + 1}</span><span className="text-slate-100">{tr(name)}</span>
+                  <li key={name} className="flex items-center gap-2 rounded-lg bg-violet-50 px-2 py-1.5">
+                    <span className="w-4 text-ink-faint">{i + 1}</span><span className="text-ink">{tr(name)}</span>
                   </li>
                 ))}
               </ol>
               <label className={`flex items-center gap-2 pt-1 ${logoUrl ? 'cursor-pointer' : 'opacity-50'}`}>
-                <input type="checkbox" disabled={!logoUrl} checked={!!fx.logoOnTop} onChange={(e) => onChange({ logoOnTop: e.target.checked })} className="w-4 h-4 accent-purple-500" />
+                <input type="checkbox" disabled={!logoUrl} checked={!!fx.logoOnTop} onChange={(e) => onChange({ logoOnTop: e.target.checked })} className="w-4 h-4 accent-violet-500" />
                 {tr('Logo above subtitle')}
               </label>
-              {!logoUrl && <p className="text-slate-500">{tr('Upload a logo to change this.')}</p>}
+              {!logoUrl && <p className="text-ink-faint">{tr('Upload a logo to change this.')}</p>}
             </div>
           )}
         </div>
         {fx.logoXY && (
-          <button type="button" onClick={() => onChange({ logoXY: null })} className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm text-slate-200">
+          <button type="button" onClick={() => onChange({ logoXY: null })} className="px-3 py-1.5 rounded-lg bg-violet-100 hover:bg-violet-200 text-sm text-ink">
             {tr('Reset logo position')}
           </button>
         )}
       </div>
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-ink-faint">
         {tr('Drag the logo or a blur box to move it; drag its round corner (or use the Logo size slider) to resize. Automatic blur of the original subtitles and watermark is still added when you generate.')}
         {cropFit && ` ${tr('Drag the picture to choose which part stays in the frame.')}`}
       </p>
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         {SLIDERS.map(([label, key, min, max, step]) => (
-          <label key={key} className="text-xs text-slate-400">
-            {tr(label)}: <span className="text-slate-200">{Number(fx[key]).toFixed(2)}</span>
+          <label key={key} className="text-xs text-ink-soft">
+            {tr(label)}: <span className="text-ink">{Number(fx[key]).toFixed(2)}</span>
             <input
               type="range" min={min} max={max} step={step} value={fx[key]}
               onChange={(e) => onChange({ [key]: Number(e.target.value) })}
-              className="w-full accent-purple-500"
+              className="w-full accent-violet-500"
             />
           </label>
         ))}
-        <label className="text-xs text-slate-400">
+        <label className="text-xs text-ink-soft">
           {tr('Logo position')}
           <Select size="sm" className="mt-1 w-full" value={fx.logoPosition} onChange={(v) => onChange({ logoPosition: v, logoXY: null })}
             options={['top-right', 'top-left', 'bottom-right', 'bottom-left', 'center'].map((p) => ({ value: p, label: tr(p) }))} />

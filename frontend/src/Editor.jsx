@@ -248,7 +248,7 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
   const selSlot = sel ? slotOf(index) : 0;
   const selVoice = sel ? voiceLen(sel, index) : 0;
   const fitRatio = selVoice / Math.max(selSlot - 0.1, 0.2);
-  const tone = fitRatio > 1.35 ? 'text-red-400' : fitRatio > 1.02 ? 'text-amber-400' : fitRatio < 0.8 ? 'text-sky-400' : 'text-emerald-400';
+  const tone = fitRatio > 1.35 ? 'text-rose-500' : fitRatio > 1.02 ? 'text-amber-600' : fitRatio < 0.8 ? 'text-sky-600' : 'text-emerald-600';
   const fitNote = fitRatio > 1.35 ? tr('too long: voice rushes or the video slows')
     : fitRatio > 1.02 ? tr('slightly long: small speed-up')
     : fitRatio < 0.8 ? tr('{s}s of silence: add words or shorten the scene', { s: (selSlot - 0.1 - selVoice).toFixed(1) })
@@ -258,25 +258,25 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
   return (
     <fieldset
       disabled={busy}
-      className={`w-full mt-6 border-0 border-t border-slate-800 pt-4 select-none min-w-0 transition-opacity ${busy ? 'opacity-40 pointer-events-none' : ''}`}
+      className={`w-full mt-6 border-0 border-t border-violet-100 pt-4 select-none min-w-0 transition-opacity ${busy ? 'opacity-40 pointer-events-none' : ''}`}
     >
       {/* toolbar */}
       <div className="flex items-center gap-2 mb-2 text-sm">
-        <button type="button" onClick={togglePlay} className="w-9 h-9 rounded-full bg-white text-slate-900 font-bold">{playing ? '❚❚' : '▶'}</button>
-        <span className="font-mono text-xs text-slate-300">{fmt(srcT)} / {fmt(duration)}</span>
-        <span className="ml-auto flex items-center gap-1 text-xs text-slate-400">
-          −<input type="range" min="12" max="160" value={pps} onChange={(e) => setPps(Number(e.target.value))} className="w-24 accent-purple-500" />+
+        <button type="button" onClick={togglePlay} className="w-9 h-9 rounded-full bg-white text-ink font-bold">{playing ? '❚❚' : '▶'}</button>
+        <span className="font-mono text-xs text-ink-soft">{fmt(srcT)} / {fmt(duration)}</span>
+        <span className="ml-auto flex items-center gap-1 text-xs text-ink-soft">
+          −<input type="range" min="12" max="160" value={pps} onChange={(e) => setPps(Number(e.target.value))} className="w-24 accent-violet-500" />+
         </span>
       </div>
 
       {/* timeline */}
-      <div className="rounded-xl bg-slate-900 border border-slate-800 overflow-hidden">
+      <div className="rounded-2xl bg-white border border-violet-100 overflow-hidden">
         <div ref={scroller} className="overflow-x-auto relative" style={{ touchAction: 'pan-x' }}>
           <div className="relative" style={{ width, minWidth: '100%' }} onClick={(e) => seekSrc(timeFromEvent(e))}>
             {/* ruler + scene cuts */}
-            <div className="h-6 relative border-b border-slate-800 cursor-pointer">
+            <div className="h-6 relative border-b border-violet-100 cursor-pointer">
               {ticks.map((t) => (
-                <div key={t} className="absolute top-0 text-[10px] text-slate-500 pl-1 border-l border-slate-700 h-full" style={{ left: t * pps }}>{t}s</div>
+                <div key={t} className="absolute top-0 text-[10px] text-ink-faint pl-1 border-l border-violet-200 h-full" style={{ left: t * pps }}>{t}s</div>
               ))}
               {cuts.map((c) => (
                 <div key={c} className="absolute bottom-0 w-px h-2 bg-cyan-400/70" style={{ left: c * pps }} />
@@ -292,7 +292,7 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
                     key={l.key}
                     onClick={(e) => { e.stopPropagation(); setSelected(l.key); seekSrc(timeFromEvent(e)); }}
                     className={`absolute top-0 h-12 rounded-lg overflow-hidden px-2 text-xs leading-tight pt-1 cursor-pointer border-2 text-white ${
-                      on ? 'border-white' : l.key === activeKey ? 'border-white/60' : 'border-transparent'
+                      on ? 'border-ink shadow-pop' : l.key === activeKey ? 'border-ink/40' : 'border-transparent'
                     }`}
                     style={{ left: l.start * pps + 1, width: Math.max(slot * pps - 2, 6), backgroundColor: colorOf(l.speaker), opacity: on || l.key === activeKey ? 1 : 0.8 }}
                     title={l.text}
@@ -315,7 +315,7 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
                 return (
                   <div
                     key={l.key}
-                    className={`absolute top-0 h-6 rounded-md text-[10px] px-1 flex items-center ${over ? 'bg-red-500/70 text-white' : 'bg-emerald-600/70 text-white'}`}
+                    className={`absolute top-0 h-6 rounded-md text-[10px] px-1 flex items-center ${over ? 'bg-red-500/70 text-ink' : 'bg-emerald-600/70 text-ink'}`}
                     style={{ left: l.start * pps + 1, width: Math.max(len * pps - 2, 4), opacity: l.key === selected ? 1 : 0.7 }}
                     title={over ? tr('Voice is longer than its scene: it will speed up or the video will slow down') : tr('Voice fits its scene')}
                   >
@@ -325,19 +325,19 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
               })}
             </div>}
             {/* blur track: WHERE in time the original subtitle is blurred */}
-            {showBlur && <div className="relative h-7 mb-2 rounded-md bg-slate-800/60" title={tr('Blur track')}>
+            {showBlur && <div className="relative h-7 mb-2 rounded-md bg-violet-50/60" title={tr('Blur track')}>
               {blurs.map((b) => {
                 const on = b.key === blurSel;
                 return (
                   <div key={b.key} onClick={(e) => { e.stopPropagation(); setBlurSel(b.key); seekSrc(timeFromEvent(e)); }}
-                    className={`absolute top-0 h-7 rounded-md text-[10px] px-3 flex items-center text-slate-900 font-medium cursor-pointer border-2 ${on ? 'border-white bg-amber-300' : 'border-transparent bg-amber-400/80'}`}
+                    className={`absolute top-0 h-7 rounded-md text-[10px] px-3 flex items-center text-ink font-medium cursor-pointer border-2 ${on ? 'border-ink bg-amber-300' : 'border-transparent bg-amber-400/80'}`}
                     style={{ left: b.start * pps + 1, width: Math.max((b.end - b.start) * pps - 2, 8) }}
                     title={`${tr('Subtitle blur')} ${fmt(b.start)}–${fmt(b.end)}`}>
                     <span className="truncate">▒ {tr('Blur')}</span>
                     <div onPointerDown={(e) => beginBlurDrag(e, b.key, 'l')} onPointerMove={moveBlurDrag} onPointerUp={endBlurDrag} onClick={(e) => e.stopPropagation()}
-                      className="absolute left-0 top-0 h-full w-2.5 cursor-ew-resize bg-slate-900/50 rounded-l-md" style={{ touchAction: 'none' }} />
+                      className="absolute left-0 top-0 h-full w-2.5 cursor-ew-resize bg-white/50 rounded-l-md" style={{ touchAction: 'none' }} />
                     <div onPointerDown={(e) => beginBlurDrag(e, b.key, 'r')} onPointerMove={moveBlurDrag} onPointerUp={endBlurDrag} onClick={(e) => e.stopPropagation()}
-                      className="absolute right-0 top-0 h-full w-2.5 cursor-ew-resize bg-slate-900/50 rounded-r-md" style={{ touchAction: 'none' }} />
+                      className="absolute right-0 top-0 h-full w-2.5 cursor-ew-resize bg-white/50 rounded-r-md" style={{ touchAction: 'none' }} />
                   </div>
                 );
               })}
@@ -348,9 +348,9 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
             </div>
           </div>
         </div>
-        <div className="flex gap-4 px-3 py-1.5 text-[10px] text-slate-500 border-t border-slate-800">
-          <span><i className="inline-block w-2 h-2 bg-purple-600 rounded-sm mr-1" />{tr('subtitle (drag the left edge to move a scene boundary)')}</span>
-          <span><i className="inline-block w-2 h-2 bg-red-500 rounded-sm mr-1" />{tr('voice too long')}</span>
+        <div className="flex gap-4 px-3 py-1.5 text-[10px] text-ink-faint border-t border-violet-100">
+          <span><i className="inline-block w-2 h-2 bg-violet-500 rounded-sm mr-1 text-white" />{tr('subtitle (drag the left edge to move a scene boundary)')}</span>
+          <span><i className="inline-block w-2 h-2 bg-red-500 rounded-sm mr-1 text-white" />{tr('voice too long')}</span>
           <span><i className="inline-block w-2 h-0.5 bg-cyan-400 mr-1" />{tr('scene cut')}</span>
           {showBlur && <span><i className="inline-block w-2 h-2 bg-amber-400 rounded-sm mr-1" />{tr('subtitle blur is on (drag the edges, split, delete)')}</span>}
         </div>
@@ -358,13 +358,13 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
 
       {/* characters (full movie mode): one fixed voice each */}
       {speakerIds.length > 0 && !subsOnly && (
-        <div className="mt-3 rounded-xl bg-slate-800/60 border border-slate-700 p-3">
-          <p className="text-xs text-slate-400 mb-2">{tr("Characters: each keeps one voice for the whole film. Change a voice, then re-render (only that character's lines are re-voiced).")}</p>
+        <div className="mt-3 rounded-2xl bg-violet-50/60 border border-violet-200 p-3">
+          <p className="text-xs text-ink-soft mb-2">{tr("Characters: each keeps one voice for the whole film. Change a voice, then re-render (only that character's lines are re-voiced).")}</p>
           <div className="flex flex-wrap gap-3">
             {speakerIds.map((sid) => (
-              <label key={sid} className={`flex flex-wrap items-center gap-2 text-xs text-slate-300 ${liveCount(sid) === 0 ? 'opacity-50' : ''}`}>
+              <label key={sid} className={`flex flex-wrap items-center gap-2 text-xs text-ink-soft ${liveCount(sid) === 0 ? 'opacity-50' : ''}`}>
                 <span className="px-1.5 py-0.5 rounded text-white font-semibold" style={{ backgroundColor: colorOf(sid) }}>{sid}</span>
-                <span className="text-slate-500">{project.speakers[sid].gender !== 'unknown' ? tr(project.speakers[sid].gender) : ''} · {tr('{n} lines', { n: liveCount(sid) })}</span>
+                <span className="text-ink-faint">{project.speakers[sid].gender !== 'unknown' ? tr(project.speakers[sid].gender) : ''} · {tr('{n} lines', { n: liveCount(sid) })}</span>
                 {(() => {
                   // Standard (Azure): two voices only. A Gemini voice name stands for its gender here (Kore = Nilar, Charon = Thiha).
                   const maleNames = new Set(voices.filter((v) => v.gender === 'male').map((v) => v.name));
@@ -376,7 +376,7 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
                       <Select size="sm" className="w-44" value={cur} onChange={(v) => setSpeakerVoices({ ...speakerVoices, [sid]: v })}
                         options={[{ value: 'Kore', label: `Nilar (${tr('female')})` }, { value: 'Charon', label: `Thiha (${tr('male')})` }]} />
                       <button type="button" onClick={() => onPlaySample({ name: `azure-${g}`, sample_url: `/api/azure-samples/${g}.wav` })} title={tr('Play a sample of this voice')}
-                        className="w-7 h-7 rounded-full bg-slate-700 hover:bg-slate-600 text-white text-xs flex items-center justify-center">
+                        className="w-7 h-7 rounded-full bg-violet-100 hover:bg-violet-200 text-ink text-xs flex items-center justify-center">
                         {playingVoice === `azure-${g}` ? '■' : '🔊'}
                       </button>
                     </>);
@@ -395,7 +395,7 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
                   const vv = lk ? { name: `look:${lk.id}`, sample_url: lk.sample_url } : voices.find((x) => x.name === speakerVoices[sid]);
                   return vv ? (
                     <button type="button" onClick={() => onPlaySample(vv)} title={tr('Play a sample of this voice')}
-                      className="w-7 h-7 rounded-full bg-slate-700 hover:bg-slate-600 text-white text-xs flex items-center justify-center">
+                      className="w-7 h-7 rounded-full bg-violet-100 hover:bg-violet-200 text-ink text-xs flex items-center justify-center">
                       {playingVoice === vv.name ? '■' : '🔊'}
                     </button>
                   ) : null;
@@ -421,17 +421,17 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
       )}
 
       {/* selected line */}
-      <div className="mt-3 rounded-xl bg-slate-800/60 border border-slate-700 p-3">
+      <div className="mt-3 rounded-2xl bg-violet-50/60 border border-violet-200 p-3">
         {sel ? (
           <>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs mb-2">
-              <span className="text-slate-400 w-full sm:w-auto">{tr('Line {n} · {time} · slot {s}s', { n: index + 1, time: fmt(sel.start), s: selSlot.toFixed(1) })}</span>
+              <span className="text-ink-soft w-full sm:w-auto">{tr('Line {n} · {time} · slot {s}s', { n: index + 1, time: fmt(sel.start), s: selSlot.toFixed(1) })}</span>
               {speakerIds.length > 0 && (
                 <span className="flex flex-wrap items-center gap-1" title={tr('Which character says this line')}>
                   {speakerIds.map((sid) => (
                     <button key={sid} type="button" onClick={() => patch(sel.key, { speaker: sid })}
                       title={`${sid}: ${speakerVoices[sid]}`}
-                      className={`w-6 h-6 rounded-md text-[11px] font-semibold text-white ${sel.speaker === sid ? 'ring-2 ring-white' : 'opacity-50 hover:opacity-100'}`}
+                      className={`w-6 h-6 rounded-md text-[11px] font-semibold text-white ${sel.speaker === sid ? 'ring-2 ring-violet-500 ring-offset-1' : 'opacity-50 hover:opacity-100'}`}
                       style={{ backgroundColor: colorOf(sid) }}>{sid}</button>
                   ))}
                 </span>
@@ -439,39 +439,39 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
               {!subsOnly && onPreviewLine && speakerVoices[sel.speaker] && (
                 <button type="button" disabled={previewing != null} title={tr('Hear this line in the chosen character\'s voice (1 voice request, kept for Apply)')}
                   onClick={() => onPreviewLine(sel, speakerVoices[sel.speaker])}
-                  className="px-2 py-0.5 rounded-full bg-purple-600 text-white disabled:opacity-50 whitespace-nowrap">
+                  className="px-2 py-0.5 rounded-full bg-violet-500 text-white disabled:opacity-50 whitespace-nowrap">
                   {previewing === sel.key ? '…' : `▶ ${tr('Hear')} ${isStandard ? (voices.find((x) => x.name === speakerVoices[sel.speaker])?.gender === 'male' || (!voices.some((x) => x.name === speakerVoices[sel.speaker]) && project.speakers[sel.speaker]?.gender === 'male') ? 'Thiha' : 'Nilar') : (looks.find((x) => `look:${x.id}` === speakerVoices[sel.speaker])?.label ?? speakerVoices[sel.speaker])}`}
                 </button>
               )}
-              {meta[sel.key]?.emotion && meta[sel.key].emotion !== 'neutral' && <span className="text-amber-300">{tr(meta[sel.key].emotion)}</span>}
+              {meta[sel.key]?.emotion && meta[sel.key].emotion !== 'neutral' && <span className="text-amber-700">{tr(meta[sel.key].emotion)}</span>}
               {!subsOnly && <span className={`sm:ml-auto ${tone}`} title={tr('Predicted from the text, no voice request needed')}>{tr('≈ {s}s voice · {note}', { s: selVoice.toFixed(1), note: fitNote })}</span>}
-              <button type="button" onClick={() => patch(sel.key, { start: Math.round(clamp(sel.start - 0.1, index > 0 ? lines[index - 1].start + MIN_LEN : 0, duration) * 100) / 100 })} className="px-2 py-0.5 rounded bg-slate-700">−0.1s</button>
-              <button type="button" onClick={() => patch(sel.key, { start: Math.round(clamp(sel.start + 0.1, 0, (index + 1 < lines.length ? lines[index + 1].start : duration) - MIN_LEN) * 100) / 100 })} className="px-2 py-0.5 rounded bg-slate-700">+0.1s</button>
+              <button type="button" onClick={() => patch(sel.key, { start: Math.round(clamp(sel.start - 0.1, index > 0 ? lines[index - 1].start + MIN_LEN : 0, duration) * 100) / 100 })} className="px-2 py-0.5 rounded bg-violet-100">−0.1s</button>
+              <button type="button" onClick={() => patch(sel.key, { start: Math.round(clamp(sel.start + 0.1, 0, (index + 1 < lines.length ? lines[index + 1].start : duration) - MIN_LEN) * 100) / 100 })} className="px-2 py-0.5 rounded bg-violet-100">+0.1s</button>
             </div>
             <textarea
               rows={3} value={sel.text} onChange={(e) => patch(sel.key, { text: e.target.value })} placeholder={tr('Burmese text for this line')}
-              className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2 py-1.5 text-sm text-white outline-none focus:border-purple-500"
+              className="w-full rounded-lg bg-white border border-violet-200 px-2 py-1.5 text-sm text-ink outline-none focus:border-violet-400"
             />
-            {sel.source_text && <p className="text-[11px] text-slate-500 mt-1">{tr('Original: {text}', { text: sel.source_text })}</p>}
+            {sel.source_text && <p className="text-[11px] text-ink-faint mt-1">{tr('Original: {text}', { text: sel.source_text })}</p>}
             <div className="flex flex-wrap items-center gap-1.5 mt-2 text-xs">
-              {!subsOnly && <span className="text-slate-400 mr-1">{tr('Voice speed')}</span>}
+              {!subsOnly && <span className="text-ink-soft mr-1">{tr('Voice speed')}</span>}
               {!subsOnly && TEMPOS.map((t) => (
                 <button
                   key={t ?? 'auto'} type="button" onClick={() => patch(sel.key, { tempo: t })}
-                  className={`px-2 py-1 rounded-full ${sel.tempo === t ? 'bg-purple-600 text-white' : 'bg-slate-700 text-slate-300'}`}
+                  className={`px-2 py-1 rounded-full ${sel.tempo === t ? 'bg-violet-500 text-white' : 'bg-violet-100 text-ink-soft'}`}
                 >{t == null ? tr('Auto') : `${t.toFixed(1)}x`}</button>
               ))}
-              <button type="button" onClick={remove} className="ml-auto px-3 py-1 rounded-full bg-red-900/60 text-red-200 hover:bg-red-800">{tr('Delete line')}</button>
+              <button type="button" onClick={remove} className="ml-auto px-3 py-1 rounded-full bg-rose-100/60 text-rose-600 hover:bg-rose-200">{tr('Delete line')}</button>
             </div>
           </>
         ) : (
-          <p className="text-xs text-slate-400">{tr('Tap a subtitle block on the timeline to edit it, or press Split to add a line at the playhead.')}</p>
+          <p className="text-xs text-ink-soft">{tr('Tap a subtitle block on the timeline to edit it, or press Split to add a line at the playhead.')}</p>
         )}
       </div>
 
       {finish && (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3 mt-3 space-y-2 text-sm text-slate-300">
-          <p className="text-xs font-semibold text-slate-200">{tr('Look & sound (applied when you re-render)')}</p>
+        <div className="rounded-2xl border border-violet-100 bg-white/50 p-3 mt-3 space-y-2 text-sm text-ink-soft">
+          <p className="text-xs font-semibold text-ink">{tr('Look & sound (applied when you re-render)')}</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {[
               ['blur_subtitles', tr('Blur original subtitles')],
@@ -480,7 +480,7 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
               ['enable_flip', tr('Horizontal flip')],
             ].map(([key, label]) => (
               <label key={key} className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={!!finish[key]} onChange={(e) => onFinish({ [key]: e.target.checked })} className="w-4 h-4 accent-purple-500" />
+                <input type="checkbox" checked={!!finish[key]} onChange={(e) => onFinish({ [key]: e.target.checked })} className="w-4 h-4 accent-violet-500" />
                 {label}
               </label>
             ))}
@@ -489,33 +489,33 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
             <CaptionStyleControls cap={cap} onChange={setCap} sampleText={sel?.text?.trim()} />
           )}
           {hasBackground && !subsOnly && (
-            <label className="block text-xs text-slate-400">
-              {tr('Original music & effects volume')}: <span className="text-slate-200">{Math.round((finish.bg_volume ?? project.fx?.bg_volume ?? 0.8) * 100)}%</span>
+            <label className="block text-xs text-ink-soft">
+              {tr('Original music & effects volume')}: <span className="text-ink">{Math.round((finish.bg_volume ?? project.fx?.bg_volume ?? 0.8) * 100)}%</span>
               <input type="range" min={0} max={1.5} step={0.05} value={finish.bg_volume ?? project.fx?.bg_volume ?? 0.8}
-                onChange={(e) => onFinish({ bg_volume: Number(e.target.value) })} className="w-full accent-purple-500" />
+                onChange={(e) => onFinish({ bg_volume: Number(e.target.value) })} className="w-full accent-violet-500" />
             </label>
           )}
         </div>
       )}
 
       <div className="flex flex-wrap gap-2 mt-3">
-        <button type="button" onClick={split} className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm">{tr('✂ Split / add line at playhead')}</button>
+        <button type="button" onClick={split} className="px-3 py-2 rounded-2xl bg-violet-100 hover:bg-violet-200 text-sm">{tr('✂ Split / add line at playhead')}</button>
         {showBlur && (<>
-          <button type="button" onClick={splitBlur} disabled={!blurAt(srcT)} className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-sm disabled:opacity-40">{tr('✂ Split blur')}</button>
-          <button type="button" onClick={deleteBlur} disabled={!blurSel} className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-sm disabled:opacity-40">{tr('Delete blur')}</button>
-          <button type="button" onClick={addBlur} disabled={!!blurAt(srcT)} className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-sm disabled:opacity-40">{tr('+ Blur here')}</button>
-          <button type="button" onClick={() => { setBlurs([{ key: `b${nextBlur.current++}`, start: 0, end: duration }]); setBlurSel(null); }} className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm">{tr('Blur everywhere')}</button>
+          <button type="button" onClick={splitBlur} disabled={!blurAt(srcT)} className="px-3 py-2 rounded-2xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-700 text-sm disabled:opacity-40">{tr('✂ Split blur')}</button>
+          <button type="button" onClick={deleteBlur} disabled={!blurSel} className="px-3 py-2 rounded-2xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-700 text-sm disabled:opacity-40">{tr('Delete blur')}</button>
+          <button type="button" onClick={addBlur} disabled={!!blurAt(srcT)} className="px-3 py-2 rounded-2xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-700 text-sm disabled:opacity-40">{tr('+ Blur here')}</button>
+          <button type="button" onClick={() => { setBlurs([{ key: `b${nextBlur.current++}`, start: 0, end: duration }]); setBlurSel(null); }} className="px-3 py-2 rounded-2xl bg-violet-100 hover:bg-violet-200 text-sm">{tr('Blur everywhere')}</button>
         </>)}
         <button type="button" disabled={!dirty || busy || lines.every((l) => !l.text.trim())}
           onClick={() => onApply([...lines].sort((a, b) => a.start - b.start).map((l) => ({ id: l.id ?? null, speaker: l.speaker, start: Number(l.start), text: l.text, source_text: l.source_text, tempo: l.tempo })), voicesChanged ? speakerVoices : undefined, blurDirty ? normBlur(blurs) : undefined, capDirty ? cap : undefined)}
-          className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 font-semibold text-sm disabled:opacity-40">
+          className="px-4 py-2 rounded-2xl bg-violet-500 hover:bg-violet-600 font-semibold text-sm disabled:opacity-40 text-white">
           {busy ? tr('Re-rendering…') : tr('Apply changes & re-render')}
         </button>
         {dirty && !busy && (
-          <button type="button" onClick={() => { setCap(initialCap); setLines(initial); setSelected(initial[0]?.key ?? null); setSpeakerVoices(Object.fromEntries(speakerIds.map((s) => [s, project.speakers[s].voice]))); setMovedTo({}); setBlurs(initialBlur); setBlurSel(null); if (finish) onFinish(initialFinish.current); }} className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm">{tr('Reset')}</button>
+          <button type="button" onClick={() => { setCap(initialCap); setLines(initial); setSelected(initial[0]?.key ?? null); setSpeakerVoices(Object.fromEntries(speakerIds.map((s) => [s, project.speakers[s].voice]))); setMovedTo({}); setBlurs(initialBlur); setBlurSel(null); if (finish) onFinish(initialFinish.current); }} className="px-3 py-2 rounded-2xl bg-violet-100 hover:bg-violet-200 text-sm">{tr('Reset')}</button>
         )}
-        {dirty && !busy && <span className="self-center text-xs text-amber-300">{tr('Not applied yet: press "Apply changes & re-render" to hear it.')}</span>}
-        <span className="self-center text-xs text-slate-500">{tr('Only changed lines are re-voiced. Estimated length ≈ {t}.', { t: fmt(total) })}</span>
+        {dirty && !busy && <span className="self-center text-xs text-amber-700">{tr('Not applied yet: press "Apply changes & re-render" to hear it.')}</span>}
+        <span className="self-center text-xs text-ink-faint">{tr('Only changed lines are re-voiced. Estimated length ≈ {t}.', { t: fmt(total) })}</span>
       </div>
     </fieldset>
   );

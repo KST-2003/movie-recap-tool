@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
 // Interface language: 'my' (Myanmar) or 'en' (English). English strings are the keys; MY holds the Burmese text.
 // {name} placeholders are filled by tr(text, { name: value }).
@@ -116,6 +116,14 @@ const MY = {
   'Original music & effects volume': 'မူလတေးဂီတနှင့် အသံပြုလွှာများ အသံအတိုးအကျယ်',
   'Create video': 'ဗီဒီယိုဖန်တီးရန်',
   'My usage': 'ကျွန်ုပ်၏ အသုံးပြုမှု',
+  'Create': 'ဖန်တီး',
+  'Recap studio': 'Recap စတူဒီယို',
+  'What are we recapping today?': 'ဒီနေ့ ဘာဗီဒီယိုကို recap လုပ်ကြမလဲ?',
+  'Drop in a video and Recat turns it into Burmese.': 'ဗီဒီယိုတစ်ခု ထည့်လိုက်ပါ၊ Recat က မြန်မာလို ပြောင်းပေးပါမယ်။',
+  'Videos': 'ဗီဒီယိုများ',
+  'Usage': 'အသုံးပြုမှု',
+  'Burmese recaps, purr-fectly made.': 'မြန်မာဘာသာ recap ဗီဒီယိုများကို လွယ်ကူစွာ ဖန်တီးပါ။',
+  'Welcome back!': 'ပြန်လည်ကြိုဆိုပါတယ်!',
   'Today': 'ယနေ့',
   'This month': 'ဤလ',
   '{used} / {limit} min': '{used} / {limit} မိနစ်',
@@ -422,6 +430,7 @@ export function LangProvider({ children }) {
     setLangState(l);
     try { localStorage.setItem('lang', l); } catch (e) { /* ignore */ }
   };
+  useEffect(() => { document.documentElement.lang = lang; }, [lang]);   // CSS gives Burmese taller lines (:lang(my))
   const value = useMemo(() => ({ lang, setLang, ...makeTr(lang) }), [lang]);
   return <LangContext.Provider value={value}>{children}</LangContext.Provider>;
 }
@@ -429,10 +438,10 @@ export function LangProvider({ children }) {
 export function LangSwitch() {
   const { lang, setLang } = useI18n();
   return (
-    <span className="inline-flex rounded-lg overflow-hidden border border-slate-700 text-xs">
+    <span className="inline-flex rounded-full overflow-hidden border border-violet-200 text-xs font-medium">
       {[['my', 'မြန်မာ'], ['en', 'English']].map(([k, label]) => (
         <button key={k} type="button" onClick={() => setLang(k)}
-          className={`px-2.5 py-1 ${lang === k ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>{label}</button>
+          className={`px-3 py-1 ${lang === k ? 'bg-violet-500 text-white' : 'bg-white text-ink-soft hover:bg-violet-50'}`}>{label}</button>
       ))}
     </span>
   );

@@ -28,60 +28,60 @@ export default function HistoryPage({ apiBase, refreshKey, onOpen }) {
     finally { setBusy(''); }
   };
 
-  if (error && !data) return <div className="max-w-4xl mx-auto p-4 rounded-xl bg-red-950/50 border border-red-800 text-red-300 text-sm">{error}</div>;
-  if (!data) return <div className="max-w-4xl mx-auto text-sm text-slate-400 p-4">{tr('Loading…')}</div>;
+  if (error && !data) return <div className="max-w-4xl mx-auto p-4 rounded-2xl bg-rose-50/50 border border-rose-200 text-rose-600 text-sm">{error}</div>;
+  if (!data) return <div className="max-w-4xl mx-auto text-sm text-ink-soft p-4">{tr('Loading…')}</div>;
   const pages = Math.max(1, Math.ceil(data.total / data.per_page));
 
   return (
     <div className="max-w-4xl mx-auto space-y-4">
       <div>
-        <h2 className="text-xl font-bold text-white">{tr('My videos')}</h2>
-        <p className="mt-1 text-xs text-slate-400">
+        <h2 className="text-xl font-bold text-ink">{tr('My videos')}</h2>
+        <p className="mt-1 text-xs text-ink-soft">
           {tr('Finished videos are kept for {n} days, then removed to save space. The list stays.', { n: data.keep_result_days })}{' '}
           {tr('You can edit a video for {n} days after you uploaded it.', { n: data.keep_source_days })}
         </p>
       </div>
-      {error && <div className="p-3 rounded-xl bg-red-950/50 border border-red-800 text-red-300 text-sm">{error}</div>}
+      {error && <div className="p-3 rounded-2xl bg-rose-50/50 border border-rose-200 text-rose-600 text-sm">{error}</div>}
       {data.items.length === 0 ? (
-        <div className="rounded-xl border border-slate-800 bg-slate-900 p-6 text-sm text-slate-400">{tr('No videos yet.')}</div>
+        <div className="rounded-2xl border border-violet-100 bg-white p-6 text-sm text-ink-soft">{tr('No videos yet.')}</div>
       ) : (
         <ul className="space-y-3">
           {data.items.map((j) => {
             const ok = j.status === 'done';
             const left = j.expires_at ? daysLeft(j.expires_at) : null;
             return (
-              <li key={j.id} className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+              <li key={j.id} className="rounded-2xl border border-violet-100 bg-white p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-slate-100">{j.title || tr('Untitled video')}</p>
-                    <p className="mt-0.5 text-xs text-slate-400">
+                    <p className="truncate text-sm font-semibold text-ink">{j.title || tr('Untitled video')}</p>
+                    <p className="mt-0.5 text-xs text-ink-soft">
                       {when(j.created_at)} · {tr(KIND[j.kind] || j.kind)} · {fmt(j.minutes)} {tr('min')} · {j.aspect === 'original' ? tr('Original') : j.aspect}
                     </p>
                   </div>
-                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${ok ? 'bg-emerald-900/50 text-emerald-300' : j.status === 'error' ? 'bg-red-900/50 text-red-300' : 'bg-slate-800 text-slate-300'}`}>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${ok ? 'bg-emerald-50/50 text-emerald-700' : j.status === 'error' ? 'bg-rose-100/50 text-rose-600' : 'bg-violet-50 text-ink-soft'}`}>
                     {ok ? '✓ ' : j.status === 'error' ? '✕ ' : ''}{tr(j.status)}
                   </span>
                 </div>
-                {j.error && <p className="mt-2 text-xs text-red-300">{trs(j.error)}</p>}
+                {j.error && <p className="mt-2 text-xs text-rose-600">{trs(j.error)}</p>}
                 {ok && (
                   <div className="mt-3 flex flex-wrap items-center gap-3">
                     {j.video_available ? (
                       <>
-                        <button type="button" onClick={() => onOpen(j.id)} className="rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-semibold hover:bg-purple-500">
+                        <button type="button" onClick={() => onOpen(j.id)} className="rounded-lg bg-violet-500 px-3 py-1.5 text-xs font-semibold hover:bg-violet-600 text-white">
                           {j.can_edit ? tr('Open & edit') : tr('Open')}
                         </button>
-                        <span className={`text-xs ${left <= 3 ? 'text-amber-300' : 'text-slate-400'}`}>
+                        <span className={`text-xs ${left <= 3 ? 'text-amber-700' : 'text-ink-soft'}`}>
                           {left <= 1 ? tr('Removed within a day: download it now') : tr('Kept for {n} more days', { n: left })}
                         </span>
                       </>
                     ) : (
-                      <span className="text-xs text-slate-400">{tr('The video was removed after its keeping time. Upload the original again to make a new one.')}</span>
+                      <span className="text-xs text-ink-soft">{tr('The video was removed after its keeping time. Upload the original again to make a new one.')}</span>
                     )}
-                    <button type="button" disabled={busy === j.id} onClick={() => remove(j)} className="ml-auto text-xs text-slate-400 hover:text-red-300 disabled:opacity-50">{tr('Delete')}</button>
+                    <button type="button" disabled={busy === j.id} onClick={() => remove(j)} className="ml-auto text-xs text-ink-soft hover:text-rose-600 disabled:opacity-50">{tr('Delete')}</button>
                   </div>
                 )}
                 {!ok && j.status !== 'running' && j.status !== 'queued' && (
-                  <div className="mt-3 flex"><button type="button" disabled={busy === j.id} onClick={() => remove(j)} className="ml-auto text-xs text-slate-400 hover:text-red-300">{tr('Delete')}</button></div>
+                  <div className="mt-3 flex"><button type="button" disabled={busy === j.id} onClick={() => remove(j)} className="ml-auto text-xs text-ink-soft hover:text-rose-600">{tr('Delete')}</button></div>
                 )}
               </li>
             );
@@ -89,10 +89,10 @@ export default function HistoryPage({ apiBase, refreshKey, onOpen }) {
         </ul>
       )}
       {pages > 1 && (
-        <div className="flex items-center justify-center gap-3 text-xs text-slate-400">
-          <button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)} className="rounded-lg bg-slate-800 px-3 py-1.5 disabled:opacity-40">‹</button>
+        <div className="flex items-center justify-center gap-3 text-xs text-ink-soft">
+          <button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)} className="rounded-lg bg-violet-50 px-3 py-1.5 disabled:opacity-40">‹</button>
           <span>{page} / {pages}</span>
-          <button type="button" disabled={page >= pages} onClick={() => setPage(page + 1)} className="rounded-lg bg-slate-800 px-3 py-1.5 disabled:opacity-40">›</button>
+          <button type="button" disabled={page >= pages} onClick={() => setPage(page + 1)} className="rounded-lg bg-violet-50 px-3 py-1.5 disabled:opacity-40">›</button>
         </div>
       )}
     </div>

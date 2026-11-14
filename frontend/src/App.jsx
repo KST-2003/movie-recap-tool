@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import Editor from './Editor.jsx';
+import Mascot from './Mascot.jsx';
 import VoiceLibrary from './VoiceLibrary.jsx';
 import Select from './Select.jsx';
 import PreviewStudio, { ASPECTS } from './PreviewStudio.jsx';
@@ -83,17 +84,26 @@ function AuthScreen({ onAuth, notice }) {
     }
   };
 
-  const input = 'w-full rounded-xl bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-white outline-none focus:border-purple-500';
+  const input = 'w-full rounded-2xl bg-page border border-violet-100 px-4 py-3 text-sm text-ink placeholder:text-ink-faint outline-none transition-shadow focus:border-violet-400 focus:shadow-[0_0_0_4px_rgba(139,92,246,0.15)]';
   return (
-    <div className="min-h-screen bg-slate-950 text-white p-6 font-sans flex items-center justify-center">
-      <form onSubmit={submit} className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
-        <div className="flex items-center justify-between"><h1 className="text-xl font-bold text-purple-400">🎬 Movie Recap Tool</h1><LangSwitch /></div>
-        {notice && !error && <p className="text-sm text-amber-300">{trs(notice)}</p>}
+    <div className="relative min-h-screen overflow-hidden text-ink p-6 font-sans flex items-center justify-center">
+      {/* soft clouds drifting behind the card */}
+      <div aria-hidden="true" className="pointer-events-none absolute -top-24 -left-20 h-72 w-72 rounded-full bg-lavender/50 blur-3xl animate-drift" />
+      <div aria-hidden="true" className="pointer-events-none absolute -bottom-24 -right-16 h-80 w-80 rounded-full bg-blush/50 blur-3xl animate-drift [animation-delay:-4s]" />
+      <div aria-hidden="true" className="pointer-events-none absolute top-1/4 right-1/4 h-40 w-40 rounded-full bg-popcorn/40 blur-3xl animate-drift [animation-delay:-2s]" />
+      <div className="absolute right-4 top-4"><LangSwitch /></div>
+      <form onSubmit={submit} className="relative w-full max-w-sm rounded-[2rem] bg-white/90 backdrop-blur border border-white p-7 pt-16 shadow-card space-y-4 animate-rise">
+        <div className="absolute -top-14 left-1/2 -translate-x-1/2 rounded-full bg-white p-2 shadow-card"><Mascot className="h-24 w-24" /></div>
+        <div className="text-center">
+          <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-violet-600 to-pink-500 bg-clip-text text-transparent">Recat</h1>
+          <p className="mt-1 text-sm text-ink-soft">{tr('Burmese recaps, purr-fectly made.')}</p>
+        </div>
+        {notice && !error && <p className="rounded-2xl bg-amber-50 px-3 py-2 text-sm text-amber-700">{trs(notice)}</p>}
         <input className={input} type="text" autoComplete="username" autoCapitalize="none" spellCheck={false} placeholder={tr('Username')} value={username} onChange={(e) => setUsername(e.target.value)} required />
         <input className={input} type="password" autoComplete="current-password" placeholder={tr('Password')} value={password} onChange={(e) => setPassword(e.target.value)} required />
-        {error && <p className="text-sm text-red-400">{error}</p>}
-        <button disabled={busy} className="w-full py-2 rounded-xl bg-purple-600 hover:bg-purple-500 font-semibold disabled:opacity-50">{tr('Log in')}</button>
-        <p className="text-xs text-slate-500">{tr('Your username and password are given to you by the admin.')}</p>
+        {error && <p className="rounded-2xl bg-rose-50 px-3 py-2 text-sm text-rose-600 animate-pop">{error}</p>}
+        <button disabled={busy} className="btn-candy animate-shimmer w-full py-3 rounded-2xl font-semibold text-white shadow-pop hover:-translate-y-0.5 disabled:opacity-50">{busy ? '…' : tr('Log in')}</button>
+        <p className="text-center text-xs text-ink-faint">{tr('Your username and password are given to you by the admin.')}</p>
       </form>
     </div>
   );
@@ -116,13 +126,13 @@ function ProcessingPanel({ upload, progress, elapsed, subsOnly }) {
   const uploading = upload !== null && upload < 100;
   const pct = uploading ? -1 : progress.pct;
   return (
-    <div className="w-full max-w-xs mt-3 rounded-xl border border-slate-800 bg-slate-900/60 p-3 text-xs">
-      <div className="flex justify-between text-slate-400 mb-2">
+    <div className="w-full max-w-xs mt-3 rounded-2xl border border-violet-100 bg-white/60 p-3 text-xs">
+      <div className="flex justify-between text-ink-soft mb-2">
         <span>{tr('Working on your video')}</span>
         <span className="font-mono">{mmss(elapsed)}</span>
       </div>
       {!uploading && progress.eta != null && (
-        <div className="mb-2 text-purple-200">
+        <div className="mb-2 text-violet-600">
           {progress.over ? tr('Almost done: this one is taking a little longer than usual')
             : progress.eta < 60 ? tr('Less than a minute left')
               : tr('About {m} min left', { m: Math.ceil(progress.eta / 60) })}
@@ -135,17 +145,17 @@ function ProcessingPanel({ upload, progress, elapsed, subsOnly }) {
           return (
             <li key={st.label} className="flex items-start gap-2">
               <span className={`mt-0.5 w-4 h-4 flex-shrink-0 rounded-full flex items-center justify-center text-[10px] ${
-                done ? 'bg-emerald-500 text-slate-900' : active ? 'border-2 border-purple-400 border-t-transparent animate-spin' : 'border border-slate-600'
+                done ? 'bg-emerald-500 text-white animate-pop' : active ? 'border-2 border-violet-400 border-t-transparent animate-spin' : 'border border-violet-300'
               }`}>{done ? '✓' : ''}</span>
-              <span className={done ? 'text-slate-400' : active ? 'text-white' : 'text-slate-500'}>
+              <span className={done ? 'text-ink-soft' : active ? 'text-ink' : 'text-ink-faint'}>
                 {tr(st.label)}
-                {active && <span className="block text-purple-300">{i === 0 ? `${upload}%` : trs(progress.stage)}</span>}
+                {active && <span className="block text-violet-600">{i === 0 ? `${upload}%` : trs(progress.stage)}</span>}
               </span>
             </li>
           );
         })}
       </ol>
-      <p className="mt-2 text-[11px] text-slate-500">{tr('Longer videos can take a few minutes. You can cancel at any time.')}</p>
+      <p className="mt-2 text-[11px] text-ink-faint">{tr('Longer videos can take a few minutes. You can cancel at any time.')}</p>
     </div>
   );
 }
@@ -624,10 +634,10 @@ function App() {
   return (
     <Shell view={view} setView={setView} account={account} onLogout={() => logout()}>
       {dragOver && view === 'create' && (
-        <div className="fixed inset-0 z-50 pointer-events-none flex items-center justify-center bg-slate-950/80 p-6">
-          <div className="rounded-3xl border-4 border-dashed border-purple-400 bg-purple-500/10 px-8 py-10 text-center">
+        <div className="fixed inset-0 z-50 pointer-events-none flex items-center justify-center bg-ink/80 p-6 text-white">
+          <div className="rounded-3xl border-4 border-dashed border-violet-400 bg-violet-500/10 px-8 py-10 text-center">
             <div className="text-4xl mb-3" aria-hidden="true">🎬</div>
-            <p className="text-lg font-semibold text-white">{loading ? tr('A video is being made. Please wait until it is finished.') : tr('Drop the video here')}</p>
+            <p className="text-lg font-semibold text-ink">{loading ? tr('A video is being made. Please wait until it is finished.') : tr('Drop the video here')}</p>
           </div>
         </div>
       )}
@@ -636,12 +646,22 @@ function App() {
           onSelect={(v) => { setVoiceType(v.name); setVoiceGender(v.gender); }} onClose={() => setShowLibrary(false)} apiBase={API_BASE} />
       )}
       <div className={view === 'create' ? '' : 'hidden'}>
-      <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl">
+      {/* hero banner */}
+      <div className="relative max-w-3xl mx-auto mb-5 overflow-hidden rounded-[2rem] bg-gradient-to-br from-violet-500 via-purple-400 to-pink-300 p-6 pr-32 sm:pr-44 text-white shadow-pop animate-rise">
+        <div aria-hidden="true" className="pointer-events-none absolute -right-10 -top-16 h-56 w-56 rounded-full border border-white/20" />
+        <div aria-hidden="true" className="pointer-events-none absolute -right-24 -top-28 h-80 w-80 rounded-full border border-white/15" />
+        <div aria-hidden="true" className="pointer-events-none absolute left-1/3 -bottom-8 h-20 w-40 rounded-full bg-white/15 blur-xl animate-drift" />
+        <span className="inline-block rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-violet-600">{tr('Recap studio')}</span>
+        <h1 className="mt-3 text-2xl sm:text-3xl font-bold leading-tight">{tr('What are we recapping today?')}</h1>
+        <p className="mt-1 text-sm text-white/85">{tr('Drop in a video and Recat turns it into Burmese.')}</p>
+        <Mascot className="absolute right-3 sm:right-8 bottom-1 h-28 w-28 sm:h-36 sm:w-36 drop-shadow-xl" />
+      </div>
+      <div className="max-w-3xl mx-auto bg-white/90 backdrop-blur border border-white rounded-[2rem] p-5 sm:p-7 shadow-card animate-rise [animation-delay:80ms]">
 
         {blockedSeconds > 0 && (
           <div role="alert" className="mb-5 rounded-2xl border-2 border-amber-400/70 bg-amber-500/10 p-4 flex gap-3 animate-[selectIn_200ms_ease-out]">
             <span className="text-2xl leading-none" aria-hidden="true">⚠️</span>
-            <div className="min-w-0 text-sm text-amber-100 space-y-1">
+            <div className="min-w-0 text-sm text-amber-700 space-y-1">
               <p className="font-semibold">{tr('Your uploads are paused for now')}</p>
               <p>{tr('Your last 5 videos did not finish (failed or cancelled), so new videos are paused to keep the service stable. Please try again in about {t}. Our admin has been notified, and your minutes were refunded.', { t: blockedSeconds >= 3600 ? tr('{h} h {m} min', { h: Math.floor(blockedSeconds / 3600), m: Math.ceil((blockedSeconds % 3600) / 60) }) : tr('{m} min', { m: Math.max(1, Math.ceil(blockedSeconds / 60)) }) })}</p>
             </div>
@@ -650,8 +670,8 @@ function App() {
         <form onSubmit={handleGenerateRecap} className="space-y-6">
           
           {/* Format first, then the video (like CapCut) */}
-          <div className="rounded-xl border border-slate-800 bg-slate-800/30 p-4 space-y-3">
-            <label className="block text-sm font-medium text-slate-300">{tr('Video format')}</label>
+          <div className="rounded-2xl border border-violet-100 bg-violet-50/30 p-4 space-y-3">
+            <label className="block text-sm font-medium text-ink-soft">{tr('Video format')}</label>
             <div className="flex flex-wrap gap-2">
               {[['original', tr('Original')], ['9:16', '9:16'], ['1:1', '1:1'], ['4:5', '4:5'], ['16:9', '16:9']].map(([k, label]) => {
                 const [w, h] = ASPECTS[k] || [3, 4];
@@ -659,19 +679,19 @@ function App() {
                 return (
                   <button
                     key={k} type="button" onClick={() => setAspect(k)}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm border ${aspect === k ? 'border-purple-400 bg-purple-600/30 text-white' : 'border-slate-700 bg-slate-800/50 text-slate-300'}`}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-2xl text-sm border ${aspect === k ? 'border-violet-400 bg-violet-500/30 text-ink' : 'border-violet-200 bg-violet-50/50 text-ink-soft'}`}
                   >
-                    <span className={`inline-block border-2 rounded-sm ${aspect === k ? 'border-purple-300' : 'border-slate-500'}`} style={{ width: ASPECTS[k] ? w * s : 20, height: ASPECTS[k] ? h * s : 20, borderStyle: ASPECTS[k] ? 'solid' : 'dashed' }} />
+                    <span className={`inline-block border-2 rounded-sm ${aspect === k ? 'border-violet-300' : 'border-violet-300'}`} style={{ width: ASPECTS[k] ? w * s : 20, height: ASPECTS[k] ? h * s : 20, borderStyle: ASPECTS[k] ? 'solid' : 'dashed' }} />
                     {label}
                   </button>
                 );
               })}
             </div>
             {aspect !== 'original' && (
-              <div className="flex gap-4 text-sm text-slate-300 flex-wrap">
+              <div className="flex gap-4 text-sm text-ink-soft flex-wrap">
                 {[['blur', tr('Fit (blurred background)')], ['crop', tr('Fill (crop)')]].map(([k, label]) => (
                   <label key={k} className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" name="fitMode" checked={fitMode === k} onChange={() => setFitMode(k)} className="accent-purple-500" />
+                    <input type="radio" name="fitMode" checked={fitMode === k} onChange={() => setFitMode(k)} className="accent-violet-500" />
                     {label}
                   </label>
                 ))}
@@ -681,7 +701,7 @@ function App() {
               <div className="flex justify-center">
                 <div
                   style={{ aspectRatio: ASPECTS[aspect] ? ASPECTS[aspect].join(' / ') : '16 / 9', width: ASPECTS[aspect] && ASPECTS[aspect][1] > ASPECTS[aspect][0] ? 'min(100%, 12rem)' : 'min(100%, 20rem)' }}
-                  className="rounded-xl border border-dashed border-slate-600 flex items-center justify-center text-xs text-slate-500 text-center p-2"
+                  className="rounded-2xl border border-dashed border-violet-300 flex items-center justify-center text-xs text-ink-faint text-center p-2"
                 >
                   {tr('Choose a video to see it in this frame')}
                 </div>
@@ -690,32 +710,32 @@ function App() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">{tr('Video quality (size)')}</label>
+            <label className="block text-sm font-medium text-ink-soft mb-2">{tr('Video quality (size)')}</label>
             <Select value={resolution} onChange={setResolution} options={[
               { value: '720', label: tr('720p - faster (recommended)') },
               { value: '1080', label: tr('1080p - sharper, slower') }]} />
           </div>
 
           {deviceCap?.ok && (
-            <div className={`rounded-xl border-2 p-3 transition-all duration-300 ease-out ${useDevice
+            <div className={`rounded-2xl border-2 p-3 transition-all duration-300 ease-out ${useDevice
               ? 'border-emerald-400 bg-emerald-500/15 shadow-[0_0_0_3px_rgba(52,211,153,0.15)]'
-              : 'border-slate-700 bg-slate-800/60 hover:border-slate-500'}`}>
+              : 'border-violet-200 bg-violet-50/60 hover:border-violet-300'}`}>
               <label className="flex items-start gap-3 cursor-pointer select-none">
                 <input type="checkbox" checked={useDevice} onChange={(e) => setUseDevice(e.target.checked)} className="peer sr-only" />
                 <span aria-hidden="true" className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-2 transition-all duration-300 ease-out peer-focus-visible:ring-2 peer-focus-visible:ring-emerald-300 ${useDevice
-                  ? 'border-emerald-400 bg-emerald-500 scale-110'
-                  : 'border-slate-500 bg-slate-900'}`}>
-                  <svg viewBox="0 0 20 20" className={`h-4 w-4 text-white transition-all duration-300 ease-out ${useDevice ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`} fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  ? 'border-emerald-400 bg-emerald-500 scale-110 text-white'
+                  : 'border-violet-300 bg-white'}`}>
+                  <svg viewBox="0 0 20 20" className={`h-4 w-4 text-ink transition-all duration-300 ease-out ${useDevice ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`} fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M4 10.5l4 4 8-9" />
                   </svg>
                 </span>
-                <span className={`text-sm transition-colors duration-300 ${useDevice ? 'text-emerald-100' : 'text-slate-200'}`}>
+                <span className={`text-sm transition-colors duration-300 ${useDevice ? 'text-emerald-700' : 'text-ink'}`}>
                   <span className="font-semibold">{tr('Render on my device (faster, beta)')}</span>
-                  <span className={`block text-xs mt-0.5 transition-colors duration-300 ${useDevice ? 'text-emerald-200/80' : 'text-slate-400'}`}>{tr('Rendered with your phone\'s own processor. Keep the screen open.')}</span>
+                  <span className={`block text-xs mt-0.5 transition-colors duration-300 ${useDevice ? 'text-emerald-700/80' : 'text-ink-soft'}`}>{tr('Rendered with your phone\'s own processor. Keep the screen open.')}</span>
                 </span>
               </label>
               {queue?.busy && !useDevice && (
-                <div className="mt-2 text-xs text-amber-300">
+                <div className="mt-2 text-xs text-amber-700">
                   {tr('The server is busy: about {m} min wait.', { m: Math.max(1, Math.ceil(queue.wait_seconds / 60)) })}{' '}
                   <button type="button" onClick={() => setUseDevice(true)} className="underline font-semibold">{tr('Use my phone instead (faster)')}</button>
                 </div>
@@ -726,7 +746,7 @@ function App() {
           {/* File Upload Section */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
+              <label className="block text-sm font-medium text-ink-soft mb-2">
                 {tr('Upload video')}
               </label>
               <input
@@ -734,28 +754,28 @@ function App() {
                 type="file"
                 accept="video/*"
                 onChange={(e) => setVideoFile(e.target.files[0])}
-                className="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-purple-600 file:text-white hover:file:bg-purple-500 cursor-pointer"
+                className="w-full text-sm text-ink-soft file:mr-4 file:py-2 file:px-4 file:rounded-2xl file:border-0 file:text-sm file:font-semibold file:bg-violet-500 file:text-white hover:file:bg-violet-500 cursor-pointer"
               />
-              <p className="hidden md:block mt-1 text-xs text-slate-500">{tr('You can also drag a video file and drop it anywhere on this page.')}</p>
+              <p className="hidden md:block mt-1 text-xs text-ink-faint">{tr('You can also drag a video file and drop it anywhere on this page.')}</p>
               <div className="mt-3">
-                <label className="block text-xs text-slate-400 mb-1">{tr('Or paste a RedNote, YouTube or TikTok link')}</label>
+                <label className="block text-xs text-ink-soft mb-1">{tr('Or paste a RedNote, YouTube or TikTok link')}</label>
                 <div className="flex gap-2">
                   <input type="text" inputMode="url" value={linkText} onChange={(e) => setLinkText(e.target.value)} disabled={!!linkBusy || loading}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); fetchLink(); } }}
                     placeholder="https://…"
-                    className="min-w-0 flex-1 rounded-xl bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-white outline-none focus:border-purple-500" />
+                    className="min-w-0 flex-1 rounded-2xl bg-violet-50 border border-violet-200 px-3 py-2 text-sm text-ink outline-none focus:border-violet-400" />
                   <button type="button" onClick={fetchLink} disabled={!linkText.trim() || !!linkBusy || loading}
-                    className="shrink-0 px-3 py-2 rounded-xl bg-purple-600 text-white text-sm font-semibold disabled:opacity-40">{tr('Get video')}</button>
+                    className="shrink-0 px-3 py-2 rounded-2xl bg-violet-500 text-white text-sm font-semibold disabled:opacity-40">{tr('Get video')}</button>
                 </div>
-                {linkBusy && <p className="mt-1 text-xs text-purple-300">{linkBusy}</p>}
+                {linkBusy && <p className="mt-1 text-xs text-violet-600">{linkBusy}</p>}
                 {!linkBusy && linkInfo && linkInfo.file === videoFile && (
-                  <p className="mt-1 text-xs text-emerald-300 break-words">{tr('From {site}: {title}', { site: linkInfo.site, title: linkInfo.title || tr('video') })}</p>
+                  <p className="mt-1 text-xs text-emerald-700 break-words">{tr('From {site}: {title}', { site: linkInfo.site, title: linkInfo.title || tr('video') })}</p>
                 )}
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
+              <label className="block text-sm font-medium text-ink-soft mb-2">
                 {tr('Logo (optional)')}
               </label>
               <input
@@ -763,10 +783,10 @@ function App() {
                 type="file"
                 accept="image/*"
                 onChange={(e) => setCustomLogo(e.target.files[0] || null)}
-                className="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-slate-700 file:text-white hover:file:bg-slate-600 cursor-pointer"
+                className="w-full text-sm text-ink-soft file:mr-4 file:py-2 file:px-4 file:rounded-2xl file:border-0 file:text-sm file:font-semibold file:bg-violet-100 file:text-ink hover:file:bg-violet-200 cursor-pointer"
               />
               {customLogo && (
-                <button type="button" onClick={removeLogo} className="mt-2 px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm text-slate-200">
+                <button type="button" onClick={removeLogo} className="mt-2 px-3 py-1.5 rounded-lg bg-violet-100 hover:bg-violet-200 text-sm text-ink">
                   {tr('Remove logo')}
                 </button>
               )}
@@ -777,20 +797,20 @@ function App() {
             <>
               <PreviewStudio src={sourceUrl} logoFile={customLogo} fx={{ ...previewFx, captionStyle: outputKind === 'voice' ? null : captionStyle }} onChange={changePreviewFx} />
               {outputKind !== 'voice' && <CaptionStyleControls cap={captionStyle} onChange={setCaptionStyle} showSample={false} />}
-              {outputKind !== 'voice' && <p className="text-xs text-slate-500 -mt-2">{tr('The sample line in the preview shows the subtitle style. Drag it up or down to place it. "Automatic" puts subtitles over the original ones when they are found.')}</p>}
+              {outputKind !== 'voice' && <p className="text-xs text-ink-faint -mt-2">{tr('The sample line in the preview shows the subtitle style. Drag it up or down to place it. "Automatic" puts subtitles over the original ones when they are found.')}</p>}
             </>
           )}
 
           {standardOk && (
-            <div className="rounded-xl border border-slate-800 bg-slate-800/30 p-4 space-y-2">
-              <label className="block text-sm font-medium text-slate-300">{tr('Voice quality')}</label>
+            <div className="rounded-2xl border border-violet-100 bg-violet-50/30 p-4 space-y-2">
+              <label className="block text-sm font-medium text-ink-soft">{tr('Voice quality')}</label>
               <div className="grid gap-2 sm:grid-cols-2">
                 {[['standard', 'Standard', 'Two clear Burmese voices (female / male), no emotion. Cheaper and almost always available.'],
                   ['premium', 'High quality', '30 voices to choose from, with emotion. Uses more of your allowance.']].map(([q, title, text]) => (
                   <button key={q} type="button" onClick={() => { setVoiceQuality(q); if (q === 'standard') { setVoiceType(voiceGender === 'male' ? 'Charon' : 'Kore'); } }}
-                    className={`text-left rounded-xl border p-3 ${voiceQuality === q ? 'border-purple-500 bg-purple-950/40' : 'border-slate-700 bg-slate-800/50 hover:bg-slate-800'}`}>
+                    className={`text-left rounded-2xl border p-3 ${voiceQuality === q ? 'border-violet-400 bg-violet-100/40' : 'border-violet-200 bg-violet-50/50 hover:bg-violet-50'}`}>
                     <span className="block text-sm font-semibold">{tr(title)}</span>
-                    <span className="block text-xs text-slate-400 mt-0.5">{tr(text)}</span>
+                    <span className="block text-xs text-ink-soft mt-0.5">{tr(text)}</span>
                   </button>
                 ))}
               </div>
@@ -798,16 +818,16 @@ function App() {
           )}
 
           {standard ? (
-            <div className="rounded-xl border border-purple-500/30 bg-purple-950/30 p-4">
-              <p className="text-sm text-purple-200 mb-3">{tr('The Standard voice reads everything in one clear Burmese voice. In a full movie, all female characters share the female voice and all male characters the male voice.')}</p>
+            <div className="rounded-2xl border border-violet-400/30 bg-violet-100/30 p-4">
+              <p className="text-sm text-violet-600 mb-3">{tr('The Standard voice reads everything in one clear Burmese voice. In a full movie, all female characters share the female voice and all male characters the male voice.')}</p>
               <div className="grid grid-cols-2 gap-2">
                 {[['female', 'Nilar'], ['male', 'Thiha']].map(([g, name]) => (
-                  <div key={g} className={`p-2 rounded-xl border ${voiceGender === g ? 'border-purple-500 bg-purple-950/40' : 'border-slate-800 bg-slate-800/50 hover:bg-slate-800'}`}>
+                  <div key={g} className={`p-2 rounded-2xl border ${voiceGender === g ? 'border-violet-400 bg-violet-100/40' : 'border-violet-100 bg-violet-50/50 hover:bg-violet-50'}`}>
                     <button type="button" onClick={() => { setVoiceGender(g); setVoiceType(g === 'male' ? 'Charon' : 'Kore'); }} className="w-full text-left">
                       <span className="font-semibold text-sm block">{name}</span>
-                      <span className="text-xs text-purple-300 capitalize">{tr('{gender} Burmese voice', { gender: tr(g) })}</span>
+                      <span className="text-xs text-violet-600 capitalize">{tr('{gender} Burmese voice', { gender: tr(g) })}</span>
                     </button>
-                    <button type="button" onClick={() => playSample({ name: `azure-${g}`, sample_url: `/api/azure-samples/${g}.wav` })} className="mt-2 text-xs text-purple-300 hover:text-white">
+                    <button type="button" onClick={() => playSample({ name: `azure-${g}`, sample_url: `/api/azure-samples/${g}.wav` })} className="mt-2 text-xs text-violet-600 hover:text-ink">
                       {playing === `azure-${g}` ? tr('■ Stop') : tr('▶ Play')}
                     </button>
                   </div>
@@ -815,7 +835,7 @@ function App() {
               </div>
             </div>
           ) : (
-          <div className="rounded-xl border border-purple-500/30 bg-purple-950/30 p-4">
+          <div className="rounded-2xl border border-violet-400/30 bg-violet-100/30 p-4">
             <div className="flex gap-2 mb-3">
               {['female', 'male'].map((g) => (
                 <button
@@ -823,7 +843,7 @@ function App() {
                   type="button"
                   onClick={() => setVoiceGender(g)}
                   className={`px-3 py-1 rounded-lg text-xs font-semibold capitalize ${
-                    voiceGender === g ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    voiceGender === g ? 'bg-violet-500 text-white' : 'bg-violet-50 text-ink-soft hover:bg-violet-100'
                   }`}
                 >
                   {tr(g)}
@@ -831,35 +851,35 @@ function App() {
               ))}
             </div>
             {voices.length === 0 && (
-              <p className="text-xs text-slate-400">{tr('No voice samples available: the default voice will be used.')}</p>
+              <p className="text-xs text-ink-soft">{tr('No voice samples available: the default voice will be used.')}</p>
             )}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
               {[...voices.filter((v) => v.gender === voiceGender).slice(0, 4), ...voices.filter((v) => v.gender === voiceGender).slice(4).filter((v) => v.name === voiceType)].map((v) => (
                 <div
                   key={v.name}
-                  className={`p-2 rounded-xl border transition-all ${
+                  className={`p-2 rounded-2xl border transition-all ${
                     voiceType === v.name
-                      ? 'border-purple-500 bg-purple-950/40 shadow-lg shadow-purple-900/20'
-                      : 'border-slate-800 bg-slate-800/50 hover:bg-slate-800'
+                      ? 'border-violet-400 bg-violet-100/40 shadow-lg shadow-violet-300/20'
+                      : 'border-violet-100 bg-violet-50/50 hover:bg-violet-50'
                   }`}
                 >
                   <button type="button" onClick={() => setVoiceType(v.name)} className="w-full text-left">
                     <span className="font-semibold text-sm block">{v.name}</span>
-                    <span className="text-xs text-purple-300 capitalize">{tr('{gender} Burmese voice', { gender: tr(v.gender) })}</span>
+                    <span className="text-xs text-violet-600 capitalize">{tr('{gender} Burmese voice', { gender: tr(v.gender) })}</span>
                   </button>
                   <div className="flex items-center gap-3 mt-2 text-xs whitespace-nowrap">
-                    <button type="button" onClick={() => playSample(v)} className="text-purple-300 hover:text-white whitespace-nowrap">
+                    <button type="button" onClick={() => playSample(v)} className="text-violet-600 hover:text-ink whitespace-nowrap">
                       {playing === v.name ? tr('■ Stop') : tr('▶ Play')}
                     </button>
                   </div>
                 </div>
               ))}
             </div>
-            <button type="button" onClick={() => setShowLibrary(true)} className="mt-3 w-full px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm text-purple-200 text-center leading-snug">
+            <button type="button" onClick={() => setShowLibrary(true)} className="mt-3 w-full px-3 py-2.5 rounded-2xl bg-violet-50 hover:bg-violet-100 text-sm text-violet-600 text-center leading-snug">
               {/* long text: the two halves wrap onto their own lines on a phone instead of running off the button */}
               <span className="flex flex-wrap justify-center items-center gap-x-2 gap-y-0.5">
                 {tr('See more voices ({n}) · search & categories →', { n: voices.length + looks.length }).split(' · ').map((part, i) => (
-                  <span key={i} className={`break-words min-w-0 ${i ? 'text-xs text-purple-300/80' : 'font-medium'}`}>{part}</span>
+                  <span key={i} className={`break-words min-w-0 ${i ? 'text-xs text-violet-600/80' : 'font-medium'}`}>{part}</span>
                 ))}
               </span>
             </button>
@@ -867,7 +887,7 @@ function App() {
           )}
 
           {/* What kind of video is this? */}
-          <div className="rounded-xl border border-slate-800 bg-slate-800/30 p-4 space-y-3">
+          <div className="rounded-2xl border border-violet-100 bg-violet-50/30 p-4 space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {[['recap', tr('Recap video'), tr('One narrator voice')], ['full', tr('Full movie / drama'), tr('A voice for each character')]].map(([k, title, sub]) => {
                 const on = filmMode === k;
@@ -875,38 +895,38 @@ function App() {
                   <button
                     key={k} type="button" onClick={() => setFilmMode(k)} aria-pressed={on}
                     className={`group flex sm:flex-col items-center sm:text-center gap-4 sm:gap-3 rounded-2xl px-4 py-5 sm:py-6 text-left border-2 transition-all duration-300 ease-out active:scale-[0.98] ${on
-                      ? 'border-purple-400 bg-purple-600/25 shadow-[0_8px_30px_-8px_rgba(168,85,247,0.55)] sm:-translate-y-0.5'
-                      : 'border-slate-700 bg-slate-800/50 hover:border-slate-500 hover:bg-slate-800'}`}
+                      ? 'border-violet-400 bg-violet-500/25 shadow-[0_8px_30px_-8px_rgba(139,92,246,0.45)] sm:-translate-y-0.5'
+                      : 'border-violet-200 bg-violet-50/50 hover:border-violet-300 hover:bg-violet-50'}`}
                   >
                     <span className={`shrink-0 transition-transform duration-300 ease-out ${on ? 'scale-110 -rotate-3' : 'group-hover:scale-105'}`}>
                       {k === 'recap' ? <RecapIcon /> : <MovieIcon />}
                     </span>
                     <span className="min-w-0">
-                      <span className="block text-base font-bold text-white">{title}</span>
-                      <span className={`block text-xs mt-0.5 transition-colors duration-300 ${on ? 'text-purple-200' : 'text-slate-400'}`}>{sub}</span>
+                      <span className="block text-base font-bold text-ink">{title}</span>
+                      <span className={`block text-xs mt-0.5 transition-colors duration-300 ${on ? 'text-violet-600' : 'text-ink-soft'}`}>{sub}</span>
                     </span>
                   </button>
                 );
               })}
             </div>
-            <div className="text-sm text-slate-300">
+            <div className="text-sm text-ink-soft">
                 <div className="flex gap-4 flex-wrap">
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" name="outputKind" checked={outputKind === 'dub'} onChange={() => setOutputKind('dub')} className="accent-purple-500" />
+                    <input type="radio" name="outputKind" checked={outputKind === 'dub'} onChange={() => setOutputKind('dub')} className="accent-violet-500" />
                     {tr('Burmese voice-over + subtitles')}
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" name="outputKind" checked={outputKind === 'voice'} onChange={() => setOutputKind('voice')} className="accent-purple-500" />
+                    <input type="radio" name="outputKind" checked={outputKind === 'voice'} onChange={() => setOutputKind('voice')} className="accent-violet-500" />
                     {tr('Burmese voice-over only (no subtitles)')}
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" name="outputKind" checked={outputKind === 'subtitles'} onChange={() => setOutputKind('subtitles')} className="accent-purple-500" />
+                    <input type="radio" name="outputKind" checked={outputKind === 'subtitles'} onChange={() => setOutputKind('subtitles')} className="accent-violet-500" />
                     {tr('Burmese subtitles only (original sound stays)')}
                   </label>
                 </div>
             </div>
             {filmMode === 'full' && (
-              <div className="space-y-3 text-sm text-slate-300">
+              <div className="space-y-3 text-sm text-ink-soft">
                 {outputKind !== 'subtitles' && (
                   <>
                     <label className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
@@ -917,29 +937,29 @@ function App() {
                         { value: 'off', label: tr('Remove all original sound') }]} />
                     </label>
                     {!standard && (<label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={emotionOn} onChange={(e) => setEmotionOn(e.target.checked)} className="w-4 h-4 accent-purple-500" />
+                      <input type="checkbox" checked={emotionOn} onChange={(e) => setEmotionOn(e.target.checked)} className="w-4 h-4 accent-violet-500" />
                       {tr('Add emotion to the voices (angry, sad, scared…; a few key lines)')}
                     </label>)}
                   </>
                 )}
               </div>
             )}
-            <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-300">
-              <input type="checkbox" checked={softMusic} onChange={(e) => setSoftMusic(e.target.checked)} className="w-4 h-4 accent-purple-500" />
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-ink-soft">
+              <input type="checkbox" checked={softMusic} onChange={(e) => setSoftMusic(e.target.checked)} className="w-4 h-4 accent-violet-500" />
               {tr('Add a soft background tone (optional)')}
             </label>
           </div>
 
           {/* Sync policy + editing tools */}
-          <div className="rounded-xl border border-slate-800 bg-slate-800/30 p-4 space-y-4">
+          <div className="rounded-2xl border border-violet-100 bg-violet-50/30 p-4 space-y-4">
             <label className="flex items-center space-x-3 cursor-pointer">
               <input
                 type="checkbox"
                 checked={fitTranslation}
                 onChange={(e) => setFitTranslation(e.target.checked)}
-                className="w-4 h-4 accent-purple-500"
+                className="w-4 h-4 accent-violet-500"
               />
-              <span className="text-sm text-slate-300">
+              <span className="text-sm text-ink-soft">
                 {tr('Tighten long translations to fit each scene')}
               </span>
             </label>
@@ -948,18 +968,18 @@ function App() {
                 type="checkbox"
                 checked={keepBackground}
                 onChange={(e) => setKeepBackground(e.target.checked)}
-                className="w-4 h-4 accent-purple-500"
+                className="w-4 h-4 accent-violet-500"
               />
-              <span className="text-sm text-slate-300">{tr('Keep original background music and effects (slower)')}</span>
+              <span className="text-sm text-ink-soft">{tr('Keep original background music and effects (slower)')}</span>
             </label>}
             <label className="flex items-center space-x-3 cursor-pointer">
               <input
                 type="checkbox"
                 checked={allowVoiceSpeedup}
                 onChange={(e) => setAllowVoiceSpeedup(e.target.checked)}
-                className="w-4 h-4 accent-purple-500"
+                className="w-4 h-4 accent-violet-500"
               />
-              <span className="text-sm text-slate-300">
+              <span className="text-sm text-ink-soft">
                 {tr('Allow slight voice speed-up (up to 1.35x) before slowing the video')}
               </span>
             </label>
@@ -969,7 +989,7 @@ function App() {
           <button
             type="submit"
             disabled={loading || blockedSeconds > 0}
-            className="w-full py-4 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 font-bold rounded-xl shadow-lg transition-all transform active:scale-[0.99] disabled:opacity-50 cursor-pointer"
+            className="btn-candy animate-shimmer w-full py-4 font-bold rounded-2xl shadow-pop hover:-translate-y-0.5 disabled:opacity-50 cursor-pointer text-white"
           >
             {loading ? tr('⚡ Processing…') : tr('✨ Generate video')}
           </button>
@@ -977,30 +997,30 @@ function App() {
 
         {loading && (
           <div className="mt-4">
-            <div className="flex justify-between items-center text-xs text-slate-400 mb-1">
+            <div className="flex justify-between items-center text-xs text-ink-soft mb-1">
               <span>{trs(progress.stage)}</span>
               <span className="flex items-center gap-3">
                 {progress.pct}%
-                <button type="button" onClick={cancelJob} className="px-2 py-0.5 rounded bg-slate-700 hover:bg-red-800 text-slate-200">{tr('Cancel')}</button>
+                <button type="button" onClick={cancelJob} className="px-2 py-0.5 rounded bg-violet-100 hover:bg-rose-200 text-ink">{tr('Cancel')}</button>
               </span>
             </div>
-            <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-              <div className="h-full bg-purple-500 transition-all" style={{ width: `${progress.pct}%` }} />
+            <div className="h-2 bg-violet-50 rounded-full overflow-hidden">
+              <div className="h-full bg-violet-500 transition-all text-white" style={{ width: `${progress.pct}%` }} />
             </div>
           </div>
         )}
 
         {/* Error Message */}
         {errorMessage && (
-          <div className="mt-4 p-4 bg-amber-500/10 border border-amber-400/60 text-amber-100 rounded-xl text-sm flex gap-2">
+          <div className="mt-4 p-4 bg-amber-500/10 border border-amber-400/60 text-amber-700 rounded-2xl text-sm flex gap-2">
             <span aria-hidden="true">ℹ️</span><span>{errorMessage}</span>
           </div>
         )}
 
         {/* Preview & Download Section */}
         {(resultVideoUrl || (loading && sourceUrl)) && (
-          <div className="mt-8 border-t border-slate-800 pt-6">
-            <h2 className="text-lg font-semibold text-slate-200 mb-4">
+          <div className="mt-8 border-t border-violet-100 pt-6">
+            <h2 className="text-lg font-semibold text-ink mb-4">
               {tr('Preview & download')}
             </h2>
             <div className="flex flex-col items-center space-y-4">
@@ -1009,16 +1029,16 @@ function App() {
                   ref={videoRef}
                   src={resultVideoUrl || sourceUrl}
                   controls={!loading}
-                  className="w-full rounded-xl border border-slate-800 shadow-lg"
+                  className="w-full rounded-2xl border border-violet-100 shadow-lg"
                 />
                 {loading && (
-                  <div className="absolute inset-0 rounded-xl bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3 p-4 text-center">
-                    <div className="w-10 h-10 shrink-0 aspect-square rounded-full border-4 border-slate-700 border-t-purple-400 animate-spin" />
-                    <p className="text-sm text-slate-200">{upload !== null && upload < 100 ? tr('Uploading {n}%', { n: upload }) : trs(progress.stage) || tr('Working…')}</p>
-                    <div className="w-40 h-1.5 shrink-0 bg-slate-800 rounded-full overflow-hidden">
-                      <div className="h-full bg-purple-500 transition-all" style={{ width: `${upload !== null && upload < 100 ? upload : progress.pct}%` }} />
+                  <div className="absolute inset-0 rounded-2xl bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3 p-4 text-center text-ink">
+                    <Mascot className="h-24 w-24 shrink-0" />
+                    <p className="text-sm font-medium text-ink">{upload !== null && upload < 100 ? tr('Uploading {n}%', { n: upload }) : trs(progress.stage) || tr('Working…')}</p>
+                    <div className="w-40 h-2 shrink-0 bg-violet-100 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full btn-candy animate-shimmer transition-all duration-700" style={{ width: `${upload !== null && upload < 100 ? upload : progress.pct}%` }} />
                     </div>
-                    <button type="button" onClick={cancelJob} className="mt-1 px-4 py-1.5 shrink-0 rounded-full bg-slate-700 hover:bg-red-800 text-sm">
+                    <button type="button" onClick={cancelJob} className="mt-1 px-4 py-1.5 shrink-0 rounded-full bg-white border border-violet-200 hover:bg-rose-100 hover:border-rose-200 text-sm font-medium">
                       {tr('Cancel')}
                     </button>
                   </div>
@@ -1028,23 +1048,23 @@ function App() {
               {resultVideoUrl && <a
                 href={resultDownloadUrl}
                 download
-                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl text-sm transition-all shadow-md"
+                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-2xl text-sm transition-all shadow-md"
               >
                 {tr('📥 Download video (MP4)')}
               </a>}
               {resultVideoUrl && <a
                 href={subtitleUrl}
                 download
-                className="px-6 py-2.5 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-xl text-sm transition-all"
+                className="px-6 py-2.5 bg-violet-100 hover:bg-violet-200 text-ink font-semibold rounded-2xl text-sm transition-all"
               >
                 {tr('Download subtitles (.srt)')}
               </a>}
-              {notes && <p className="text-xs text-slate-400">{notes}</p>}
+              {notes && <p className="text-xs text-ink-soft">{notes}</p>}
               {project && (
                 <Editor key={jobId} project={project} videoRef={videoRef} busy={loading} voices={voices} looks={looks} playingVoice={playing} onPlaySample={playSample} onPreviewLine={previewLine} previewing={previewing} onApply={applyEdits} finish={finish} onFinish={(patch) => setFinish((f) => ({ ...f, ...patch }))} hasBackground={bgKept} />
               )}
               {!project && timeline.length > 0 && (
-                <ul className="w-full text-xs text-slate-400 space-y-1">
+                <ul className="w-full text-xs text-ink-soft space-y-1">
                   {timeline.map((scene, i) => (
                     <li key={i}>
                       {scene.output_start.toFixed(1)}s · {scene.action}
