@@ -2,11 +2,49 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Recat theme: soft lavender page, white cards, violet primary (see tailwind.config.js). */
+html { color-scheme: light; }
 body {
   margin: 0;
-  background-color: #020617;
+  color: #2B2440;
+  background-color: #F7F4FF;
+  background-image:
+    radial-gradient(60rem 28rem at 85% -8rem, rgba(255, 182, 217, 0.45), transparent 70%),
+    radial-gradient(50rem 26rem at 5% -6rem, rgba(196, 166, 255, 0.55), transparent 70%),
+    radial-gradient(40rem 22rem at 50% 105%, rgba(255, 217, 118, 0.18), transparent 70%);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
 }
+/* Burmese needs taller lines than Latin text or the stacked marks touch */
+:lang(my) { line-height: 1.75; }
 
-/* mobile: nothing may be wider than the screen */
+/* mobile: nothing may be wider than the screen; long <select> options are cut instead of stretching the page */
 html, body { overflow-x: hidden; }
 select, input, textarea { max-width: 100%; min-width: 0; }
+select { text-overflow: ellipsis; }
+
+/* small, friendly motion everywhere: buttons squish a little when pressed */
+button, [role="button"], a { transition: transform 0.15s ease, background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease; }
+button:not(:disabled):active { transform: scale(0.96); }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid #8B5CF6; outline-offset: 2px; }
+input[type="range"], input[type="checkbox"], input[type="radio"] { accent-color: #8B5CF6; }
+::selection { background: #C4A6FF; color: #2B2440; }
+* { scrollbar-color: #C4A6FF transparent; scrollbar-width: thin; }
+
+.btn-candy { background-image: linear-gradient(90deg, #8B5CF6, #C084FC, #F472B6, #8B5CF6); background-size: 200% 100%; }
+
+/* page entrance: each direct child of a .stagger container rises in, one after the other (My videos, Top up, My usage;
+   the Create page uses animate-rise on its banner and card). Also applies to children that appear later (loaded data). */
+@keyframes rise { from { opacity: 0; transform: translateY(14px) scale(0.98); } to { opacity: 1; transform: none; } }
+.stagger > * { animation: rise 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+.stagger > *:nth-child(2) { animation-delay: 70ms; }
+.stagger > *:nth-child(3) { animation-delay: 140ms; }
+.stagger > *:nth-child(4) { animation-delay: 210ms; }
+.stagger > *:nth-child(5) { animation-delay: 280ms; }
+.stagger > *:nth-child(n+6) { animation-delay: 350ms; }
+
+@keyframes selectIn { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}

@@ -42,10 +42,10 @@ export function LangProvider({ children }) {
 export function LangSwitch() {
   const { lang, setLang } = useI18n();
   return (
-    <span className="inline-flex overflow-hidden rounded-lg border border-slate-700 text-xs">
+    <span className="inline-flex overflow-hidden rounded-full border border-violet-200 text-xs font-medium">
       {[['my', 'မြန်မာ'], ['en', 'English']].map(([k, label]) => (
         <button key={k} type="button" onClick={() => setLang(k)}
-          className={`px-2.5 py-1 ${lang === k ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>{label}</button>
+          className={`px-3 py-1 ${lang === k ? 'bg-violet-500 text-white' : 'bg-white text-ink-soft hover:bg-violet-50'}`}>{label}</button>
       ))}
     </span>
   );

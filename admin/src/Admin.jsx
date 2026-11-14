@@ -47,17 +47,17 @@ export default function Admin({ account, onLogout }) {
   const title = tr(NAV.find((n) => n.id === page)?.label || 'Admin');
 
   const nav = (
-    <nav className="space-y-1">
+    <nav className="space-y-1.5">
       {pages.map(({ id, label, icon: Icon }) => (
         <button key={id} onClick={() => go(id)}
-          className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm ${page === id ? 'bg-purple-600/20 text-purple-200' : 'text-slate-300 hover:bg-slate-800'}`}>
-          <Icon size={18} />{tr(label)}{id === 'topups' && pending > 0 && <span className="ml-auto rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-semibold text-slate-900">{pending}</span>}
+          className={`group flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium ${page === id ? 'bg-gradient-to-r from-violet-500 to-violet-400 text-white shadow-pop' : 'text-ink-soft hover:bg-violet-50 hover:text-violet-600'}`}>
+          <span className={`flex h-8 w-8 items-center justify-center rounded-xl transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-6 ${page === id ? 'bg-white/20' : 'bg-violet-50 text-violet-500'}`}><Icon size={16} /></span>{tr(label)}{id === 'topups' && pending > 0 && <span className="ml-auto rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-semibold text-ink">{pending}</span>}
         </button>
       ))}
     </nav>
   );
   const footer = (
-    <div className="mt-auto space-y-2 text-xs text-slate-500">
+    <div className="mt-auto space-y-2 text-xs text-ink-faint">
       <div className="truncate">{account?.email}</div>
       {APP_URL && <a href={APP_URL} className={`${btnGhost} w-full`}><ExternalLink size={15} />{tr('Open app')}</a>}
       <button onClick={onLogout} className={`${btnGhost} w-full`}><LogOut size={15} />{tr('Log out')}</button>
@@ -65,30 +65,30 @@ export default function Admin({ account, onLogout }) {
   );
 
   return (
-    <div className="min-h-screen bg-slate-950 font-sans text-white md:flex md:h-screen md:overflow-hidden">
-      <aside className="hidden h-full w-60 flex-shrink-0 flex-col border-r border-slate-800 bg-slate-900 p-4 md:flex">
-        <div className="mb-6 text-lg font-bold text-purple-400">🎬 {tr('Admin')}</div>
+    <div className="min-h-screen font-sans text-ink md:flex md:h-screen md:overflow-hidden">
+      <aside className="hidden h-full w-64 flex-shrink-0 flex-col border-r border-violet-100 bg-white/80 p-5 md:flex">
+        <div className="mb-6"><span className="inline-flex items-center gap-2"><img src="/recat.webp" alt="" className="h-10 w-10 animate-floaty" /><span className="leading-tight"><span className="block text-lg font-bold tracking-tight whitespace-nowrap"><span className="bg-gradient-to-r from-violet-600 to-pink-500 bg-clip-text text-transparent">Recat</span> <span className="text-amber-500">Studio</span></span><span className="block text-[10px] font-semibold uppercase tracking-[0.2em] text-ink-faint">{tr('Admin')}</span></span></span></div>
         {nav}{footer}
       </aside>
 
       {drawer && (
         <div className="fixed inset-0 z-40 md:hidden" onClick={() => setDrawer(false)}>
-          <div className="absolute inset-0 bg-black/60" />
-          <aside className="absolute left-0 top-0 flex h-full w-72 max-w-[85vw] flex-col border-r border-slate-800 bg-slate-900 p-4" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-6 flex items-center justify-between"><span className="text-lg font-bold text-purple-400">🎬 {tr('Admin')}</span>
-              <button onClick={() => setDrawer(false)} aria-label={tr('Close')} className="rounded-lg p-1 text-slate-400"><X size={20} /></button></div>
+          <div className="absolute inset-0 bg-ink/40 backdrop-blur-sm" />
+          <aside className="absolute left-0 top-0 flex h-full w-72 max-w-[85vw] flex-col rounded-r-[2rem] bg-white p-5 shadow-card" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-6 flex items-center justify-between"><span className="inline-flex items-center gap-2"><img src="/recat.webp" alt="" className="h-10 w-10 animate-floaty" /><span className="leading-tight"><span className="block text-lg font-bold tracking-tight whitespace-nowrap"><span className="bg-gradient-to-r from-violet-600 to-pink-500 bg-clip-text text-transparent">Recat</span> <span className="text-amber-500">Studio</span></span><span className="block text-[10px] font-semibold uppercase tracking-[0.2em] text-ink-faint">{tr('Admin')}</span></span></span>
+              <button onClick={() => setDrawer(false)} aria-label={tr('Close')} className="rounded-lg p-1 text-ink-soft"><X size={20} /></button></div>
             {nav}{footer}
           </aside>
         </div>
       )}
 
       <div className="min-w-0 flex-1 md:h-full md:overflow-y-auto">
-        <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-slate-800 bg-slate-950/90 px-4 py-3 backdrop-blur">
-          <button onClick={() => setDrawer(true)} aria-label={tr('Menu')} className="rounded-lg p-1.5 text-slate-300 hover:bg-slate-800 md:hidden"><Menu size={20} /></button>
+        <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-violet-100 bg-white/80 px-4 py-3 backdrop-blur">
+          <button onClick={() => setDrawer(true)} aria-label={tr('Menu')} className="rounded-lg p-1.5 text-ink-soft hover:bg-violet-50 md:hidden"><Menu size={20} /></button>
           <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">{title}</h1>
           <LangSwitch />
         </header>
-        <main className="mx-auto max-w-6xl p-4 pb-16 md:p-6">
+        <main key={page} className="mx-auto max-w-6xl p-4 pb-16 md:p-6 animate-rise">
           {page === 'overview' && <OverviewPage go={go} />}
           {page === 'users' && <UsersPage me={account.id} superadmin={superadmin} openJobsFor={(u) => { setUserFilter(u); setPage('jobs'); }} />}
           {page === 'topups' && <TopupsPage onChanged={reloadOv} />}

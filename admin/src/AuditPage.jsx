@@ -38,7 +38,7 @@ function describe(tr, e) {
   return lines;
 }
 
-const ACTION_STYLE = { 'user.create': 'bg-emerald-500/15 text-emerald-300', 'user.update': 'bg-sky-500/15 text-sky-300', 'user.device': 'bg-sky-500/15 text-sky-300', 'topup.approve': 'bg-emerald-500/15 text-emerald-300', 'topup.reject': 'bg-red-500/15 text-red-300', 'credit.adjust': 'bg-emerald-500/15 text-emerald-300', 'job.cancel': 'bg-amber-500/15 text-amber-300', 'settings.update': 'bg-purple-500/15 text-purple-300' };
+const ACTION_STYLE = { 'user.create': 'bg-emerald-500/15 text-emerald-700', 'user.update': 'bg-sky-500/15 text-sky-600', 'user.device': 'bg-sky-500/15 text-sky-600', 'topup.approve': 'bg-emerald-500/15 text-emerald-700', 'topup.reject': 'bg-red-500/15 text-rose-600', 'credit.adjust': 'bg-emerald-500/15 text-emerald-700', 'job.cancel': 'bg-amber-500/15 text-amber-700', 'settings.update': 'bg-violet-500/15 text-violet-600' };
 
 export default function AuditPage() {
   const { tr } = useI18n();
@@ -46,45 +46,45 @@ export default function AuditPage() {
   const [page, setPage] = useState(1);
   const { data, error, loading, reload } = useApi(`/api/admin/audit?page=${page}${action ? `&action=${action}` : ''}`, { every: 15000 });
   const items = data?.items || [];
-  const Tag = ({ a }) => <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${ACTION_STYLE[a] || 'bg-slate-700 text-slate-300'}`}>{tr(a)}</span>;
+  const Tag = ({ a }) => <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${ACTION_STYLE[a] || 'bg-violet-100 text-ink-soft'}`}>{tr(a)}</span>;
   const Lines = ({ e }) => <ul className="space-y-0.5">{describe(tr, e).map((l, i) => <li key={i} className="break-words">{l}</li>)}</ul>;
 
   return (
     <div>
-      <p className="mb-3 text-sm text-slate-400">{tr('Every change made from this dashboard: who did it, what changed, and when. Passwords are never recorded.')}</p>
+      <p className="mb-3 text-sm text-ink-soft">{tr('Every change made from this dashboard: who did it, what changed, and when. Passwords are never recorded.')}</p>
       <div className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:px-0">
         {['', ...(data?.actions || ['user.create', 'user.update', 'user.device', 'topup.approve', 'topup.reject', 'credit.adjust', 'job.cancel', 'settings.update'])].map((a) => (
           <button key={a || 'all'} onClick={() => { setAction(a); setPage(1); }}
-            className={`flex-shrink-0 rounded-full px-3 py-1.5 text-xs ${action === a ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>{tr(a || 'all')}</button>
+            className={`flex-shrink-0 rounded-full px-3 py-1.5 text-xs ${action === a ? 'bg-violet-500 text-white' : 'bg-violet-50 text-ink-soft hover:bg-violet-100'}`}>{tr(a || 'all')}</button>
         ))}
       </div>
       <ErrorBox error={error} onRetry={reload} />
       <Card className="overflow-hidden !p-0">
         <table className="hidden w-full table-fixed text-sm md:table">
-          <thead className="bg-slate-900 text-left text-xs text-slate-400">
+          <thead className="bg-white text-left text-xs text-ink-soft">
             <tr><th className="w-36 px-4 py-3">{tr('When')}</th><th className="w-1/4 px-4 py-3">{tr('Admin')}</th><th className="w-36 px-4 py-3">{tr('Action')}</th><th className="px-4 py-3">{tr('What changed')}</th></tr>
           </thead>
-          <tbody className="divide-y divide-slate-800">
+          <tbody className="divide-y divide-violet-100">
             {items.map((e) => (
-              <tr key={e.id} className="align-top hover:bg-slate-800/40">
-                <td className="px-4 py-3 text-slate-400">{fmtTime(e.created_at)}</td>
+              <tr key={e.id} className="align-top hover:bg-violet-50/40">
+                <td className="px-4 py-3 text-ink-soft">{fmtTime(e.created_at)}</td>
                 <td className="px-4 py-3"><div className="truncate" title={e.admin_email}>{e.admin_email}</div></td>
                 <td className="px-4 py-3"><Tag a={e.action} /></td>
-                <td className="px-4 py-3 text-xs text-slate-300"><Lines e={e} /></td>
+                <td className="px-4 py-3 text-xs text-ink-soft"><Lines e={e} /></td>
               </tr>
             ))}
           </tbody>
         </table>
-        <ul className="divide-y divide-slate-800 md:hidden">
+        <ul className="divide-y divide-violet-100 md:hidden">
           {items.map((e) => (
             <li key={e.id} className="p-4">
-              <div className="flex items-center justify-between gap-2"><Tag a={e.action} /><span className="text-xs text-slate-500">{fmtTime(e.created_at)}</span></div>
-              <div className="mt-1.5 text-sm text-slate-200"><Lines e={e} /></div>
-              <div className="mt-1 break-all text-xs text-slate-500">{tr('by {email}', { email: e.admin_email })}</div>
+              <div className="flex items-center justify-between gap-2"><Tag a={e.action} /><span className="text-xs text-ink-faint">{fmtTime(e.created_at)}</span></div>
+              <div className="mt-1.5 text-sm text-ink"><Lines e={e} /></div>
+              <div className="mt-1 break-all text-xs text-ink-faint">{tr('by {email}', { email: e.admin_email })}</div>
             </li>
           ))}
         </ul>
-        {!items.length && <p className="p-6 text-center text-sm text-slate-500">{loading ? tr('Loading…') : tr('Nothing recorded yet.')}</p>}
+        {!items.length && <p className="p-6 text-center text-sm text-ink-faint">{loading ? tr('Loading…') : tr('Nothing recorded yet.')}</p>}
       </Card>
       {data && <Pager page={data.page} perPage={data.per_page} total={data.total} onPage={setPage} />}
     </div>

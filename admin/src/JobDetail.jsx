@@ -49,35 +49,35 @@ export default function JobDetail({ id, onClose }) {
   const copy = async () => {
     try { await navigator.clipboard.writeText(report()); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch (e) { /* clipboard blocked: the text can still be selected by hand */ }
   };
-  const Section = ({ title, children }) => <section className="mt-5"><h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">{title}</h4>{children}</section>;
+  const Section = ({ title, children }) => <section className="mt-5"><h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-soft">{title}</h4>{children}</section>;
   const Rows = ({ list }) => (
-    <dl className="divide-y divide-slate-800 rounded-xl border border-slate-800 text-sm">
-      {list.map(([k, v]) => <div key={k} className="flex justify-between gap-4 px-3 py-2"><dt className="flex-shrink-0 text-slate-400">{k}</dt><dd className="break-all text-right">{v}</dd></div>)}
+    <dl className="divide-y divide-violet-100 rounded-2xl border border-violet-100 text-sm">
+      {list.map(([k, v]) => <div key={k} className="flex justify-between gap-4 px-3 py-2"><dt className="flex-shrink-0 text-ink-soft">{k}</dt><dd className="break-all text-right">{v}</dd></div>)}
     </dl>
   );
 
   return (
     <Sheet wide title={tr('Video details')} onClose={onClose}>
       <ErrorBox error={error} onRetry={reload} />
-      {!d ? (!error && <p className="py-6 text-center text-sm text-slate-500">{tr('Loading…')}</p>) : (
+      {!d ? (!error && <p className="py-6 text-center text-sm text-ink-faint">{tr('Loading…')}</p>) : (
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge status={d.status} />
             <span className="break-all text-sm">{d.user.email}</span>
-            <span className="text-xs text-slate-500">· {d.id}</span>
+            <span className="text-xs text-ink-faint">· {d.id}</span>
             <button className={`${btnGhost} ml-auto !px-2.5 !py-1.5 text-xs`} onClick={copy}><Copy size={13} />{copied ? tr('Copied') : tr('Copy all details')}</button>
           </div>
 
           {d.status === 'error' && (
             <Section title={tr('Error')}>
-              <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3">
-                <pre className="whitespace-pre-wrap break-words font-mono text-xs text-red-200 select-text">{d.error || tr('No message was saved.')}</pre>
-                {d.failed_stage && <p className="mt-2 text-xs text-red-300/80">{tr('It stopped at: {stage} ({p}%)', { stage: d.failed_stage.stage, p: d.failed_stage.progress })} · {fmtTime(d.failed_stage.at)}</p>}
+              <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-3">
+                <pre className="whitespace-pre-wrap break-words font-mono text-xs text-rose-600 select-text">{d.error || tr('No message was saved.')}</pre>
+                {d.failed_stage && <p className="mt-2 text-xs text-rose-600/80">{tr('It stopped at: {stage} ({p}%)', { stage: d.failed_stage.stage, p: d.failed_stage.progress })} · {fmtTime(d.failed_stage.at)}</p>}
               </div>
               {d.error_detail && (
-                <details className="mt-2 rounded-xl border border-slate-800 p-3">
-                  <summary className="cursor-pointer text-xs text-slate-400">{tr('Technical details (where in the code)')}</summary>
-                  <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] text-slate-300 select-text">{d.error_detail}</pre>
+                <details className="mt-2 rounded-2xl border border-violet-100 p-3">
+                  <summary className="cursor-pointer text-xs text-ink-soft">{tr('Technical details (where in the code)')}</summary>
+                  <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] text-ink-soft select-text">{d.error_detail}</pre>
                 </details>
               )}
             </Section>
@@ -97,21 +97,21 @@ export default function JobDetail({ id, onClose }) {
           <Section title={tr('What the user chose')}>
             <div className="space-y-3">
               {GROUPS.map(([g, keys]) => rows(keys).length > 0 && (
-                <div key={g}><p className="mb-1 text-[11px] text-slate-500">{tr(g)}</p><Rows list={rows(keys).map((k) => [tr(LABELS[k] || k), show(d.params[k])])} /></div>
+                <div key={g}><p className="mb-1 text-[11px] text-ink-faint">{tr(g)}</p><Rows list={rows(keys).map((k) => [tr(LABELS[k] || k), show(d.params[k])])} /></div>
               ))}
-              {other.length > 0 && <div><p className="mb-1 text-[11px] text-slate-500">{tr('Other')}</p><Rows list={other.map((k) => [k, show(d.params[k])])} /></div>}
-              <details className="rounded-xl border border-slate-800 p-3"><summary className="cursor-pointer text-xs text-slate-400">{tr('Raw options (JSON)')}</summary>
-                <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-slate-300 select-text">{JSON.stringify(d.params, null, 2)}</pre></details>
+              {other.length > 0 && <div><p className="mb-1 text-[11px] text-ink-faint">{tr('Other')}</p><Rows list={other.map((k) => [k, show(d.params[k])])} /></div>}
+              <details className="rounded-2xl border border-violet-100 p-3"><summary className="cursor-pointer text-xs text-ink-soft">{tr('Raw options (JSON)')}</summary>
+                <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-ink-soft select-text">{JSON.stringify(d.params, null, 2)}</pre></details>
             </div>
           </Section>
 
           <Section title={tr('Steps')}>
-            {d.stages.length === 0 ? <p className="text-xs text-slate-500">{tr('No step history was recorded for this video.')}</p> : (
-              <ol className="divide-y divide-slate-800 rounded-xl border border-slate-800 text-sm">
+            {d.stages.length === 0 ? <p className="text-xs text-ink-faint">{tr('No step history was recorded for this video.')}</p> : (
+              <ol className="divide-y divide-violet-100 rounded-2xl border border-violet-100 text-sm">
                 {d.stages.map((s, i) => (
                   <li key={i} className="flex items-center justify-between gap-3 px-3 py-1.5">
                     <span className="min-w-0 break-words">{trs(s.stage)}</span>
-                    <span className="flex-shrink-0 text-xs text-slate-500">{s.progress}% · +{Math.max(0, Math.round((new Date(s.at).getTime() - t0) / 1000))} s</span>
+                    <span className="flex-shrink-0 text-xs text-ink-faint">{s.progress}% · +{Math.max(0, Math.round((new Date(s.at).getTime() - t0) / 1000))} s</span>
                   </li>
                 ))}
               </ol>
@@ -119,14 +119,14 @@ export default function JobDetail({ id, onClose }) {
           </Section>
 
           <Section title={tr('Log (what the server printed for this video)')}>
-            {!d.log?.length ? <p className="text-xs text-slate-500">{tr('No log was recorded for this video (videos made before this feature have none).')}</p> : (
-              <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-slate-800 bg-slate-950 p-3 font-mono text-[11px] leading-relaxed text-slate-300 select-text">{d.log.join('\n')}</pre>
+            {!d.log?.length ? <p className="text-xs text-ink-faint">{tr('No log was recorded for this video (videos made before this feature have none).')}</p> : (
+              <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-2xl border border-violet-100 bg-page p-3 font-mono text-[11px] leading-relaxed text-ink-soft select-text">{d.log.join('\n')}</pre>
             )}
-            {d.status === 'running' && <p className="mt-1 text-xs text-slate-500">{tr('Updates about every 8 seconds while the video is running.')}</p>}
+            {d.status === 'running' && <p className="mt-1 text-xs text-ink-faint">{tr('Updates about every 8 seconds while the video is running.')}</p>}
           </Section>
 
           {d.result?.warnings?.length > 0 && (
-            <Section title={tr('Warnings')}><ul className="list-disc space-y-1 pl-5 text-xs text-amber-200">{d.result.warnings.map((w, i) => <li key={i}>{trs(w)}</li>)}</ul></Section>
+            <Section title={tr('Warnings')}><ul className="list-disc space-y-1 pl-5 text-xs text-amber-700">{d.result.warnings.map((w, i) => <li key={i}>{trs(w)}</li>)}</ul></Section>
           )}
         </div>
       )}

@@ -28,7 +28,9 @@ export default {
         kernel: { '0%,100%': { transform: 'translateY(0) rotate(0deg)' }, '50%': { transform: 'translateY(-5px) rotate(18deg)' } },
       },
       animation: {
-        rise: 'rise 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both',
+        // 'backwards', not 'both': an animation that keeps filling on `transform` makes the element the reference box of its
+        // position:fixed children for ever (popups opened inside it land in the wrong place; seen in the admin app)
+        rise: 'rise 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) backwards',
         floaty: 'floaty 4s ease-in-out infinite',
         drift: 'drift 9s ease-in-out infinite',
         pop: 'pop 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both',

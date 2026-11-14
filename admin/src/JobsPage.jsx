@@ -24,58 +24,58 @@ export default function JobsPage({ userFilter, clearUser }) {
   };
   const mode = (j) => [j.mode ? tr(j.mode) : null, j.output === 'subtitles' ? tr('subs only') : null].filter(Boolean).join(' · ');
   const Stage = ({ j }) => (j.status === 'error' && j.error
-    ? <span className="text-red-300" title={j.error}>{trs(j.error)}</span>
-    : <span className="text-slate-400">{j.status === 'running' ? `${j.progress}% · ${trs(j.stage)}` : trs(j.stage)}</span>);
+    ? <span className="text-rose-600" title={j.error}>{trs(j.error)}</span>
+    : <span className="text-ink-soft">{j.status === 'running' ? `${j.progress}% · ${trs(j.stage)}` : trs(j.stage)}</span>);
   const CancelBtn = ({ j }) => ['queued', 'running'].includes(j.status)
-    ? <button className={`${btnGhost} !px-2.5 !py-1.5 text-red-300`} onClick={(e) => { e.stopPropagation(); cancel(j.id); }}><CircleStop size={14} />{tr('Cancel')}</button> : null;
+    ? <button className={`${btnGhost} !px-2.5 !py-1.5 text-rose-600`} onClick={(e) => { e.stopPropagation(); cancel(j.id); }}><CircleStop size={14} />{tr('Cancel')}</button> : null;
 
   return (
     <div>
       {userFilter && (
-        <div className="mb-3 flex items-center justify-between gap-2 rounded-xl bg-purple-500/10 px-3 py-2 text-sm text-purple-200">
+        <div className="mb-3 flex items-center justify-between gap-2 rounded-2xl bg-violet-500/10 px-3 py-2 text-sm text-violet-600">
           <span className="truncate">{tr('Videos of {email}', { email: userFilter.email })}</span><button className="flex-shrink-0 underline" onClick={clearUser}>{tr('Show all')}</button>
         </div>
       )}
       <div className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:px-0">
         {STATUS_FILTERS.map((s) => (
           <button key={s || 'all'} onClick={() => { setStatus(s); setPage(1); }}
-            className={`flex-shrink-0 rounded-full px-3 py-1.5 text-xs ${status === s ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>{tr(s || 'all')}</button>
+            className={`flex-shrink-0 rounded-full px-3 py-1.5 text-xs ${status === s ? 'bg-violet-500 text-white' : 'bg-violet-50 text-ink-soft hover:bg-violet-100'}`}>{tr(s || 'all')}</button>
         ))}
       </div>
       <ErrorBox error={error || actionError} onRetry={reload} />
       <Card className="overflow-hidden !p-0">
         <table className="hidden w-full table-fixed text-sm md:table">
-          <thead className="bg-slate-900 text-left text-xs text-slate-400">
+          <thead className="bg-white text-left text-xs text-ink-soft">
             <tr><th className="w-28 px-4 py-3">{tr('Status')}</th><th className="w-1/4 px-4 py-3">{tr('User')}</th><th className="px-4 py-3">{tr('Stage / error')}</th><th className="w-24 px-4 py-3">{tr('Length')}</th><th className="w-24 px-4 py-3">{tr('Took')}</th><th className="w-36 px-4 py-3">{tr('Started')}</th><th className="w-28 px-4 py-3" /></tr>
           </thead>
-          <tbody className="divide-y divide-slate-800">
+          <tbody className="divide-y divide-violet-100">
             {items.map((j) => (
-              <tr key={j.id} className="cursor-pointer hover:bg-slate-800/40" onClick={() => setOpenId(j.id)}>
+              <tr key={j.id} className="cursor-pointer hover:bg-violet-50/40" onClick={() => setOpenId(j.id)}>
                 <td className="px-4 py-3"><Badge status={j.status} /></td>
-                <td className="px-4 py-3"><div className="truncate" title={j.email}>{j.email}</div><div className="text-[11px] text-slate-500">{mode(j)}</div></td>
+                <td className="px-4 py-3"><div className="truncate" title={j.email}>{j.email}</div><div className="text-[11px] text-ink-faint">{mode(j)}</div></td>
                 <td className="px-4 py-3"><div className="line-clamp-2 break-words text-xs"><Stage j={j} /></div></td>
-                <td className="px-4 py-3 text-slate-300">{j.video_minutes ? tr('{n} min', { n: j.video_minutes }) : '–'}{j.cost_thb != null && <span className="block text-xs text-slate-500">{j.cost_thb} THB{j.cost_complete ? '' : ' *'}</span>}</td>
-                <td className="px-4 py-3 text-slate-300">{fmtDur(j.run_seconds)}</td>
-                <td className="px-4 py-3 text-slate-400">{fmtTime(j.created_at)}</td>
+                <td className="px-4 py-3 text-ink-soft">{j.video_minutes ? tr('{n} min', { n: j.video_minutes }) : '–'}{j.cost_thb != null && <span className="block text-xs text-ink-faint">{j.cost_thb} THB{j.cost_complete ? '' : ' *'}</span>}</td>
+                <td className="px-4 py-3 text-ink-soft">{fmtDur(j.run_seconds)}</td>
+                <td className="px-4 py-3 text-ink-soft">{fmtTime(j.created_at)}</td>
                 <td className="px-4 py-3 text-right"><CancelBtn j={j} /></td>
               </tr>
             ))}
           </tbody>
         </table>
-        <ul className="divide-y divide-slate-800 md:hidden">
+        <ul className="divide-y divide-violet-100 md:hidden">
           {items.map((j) => (
-            <li key={j.id} className="cursor-pointer p-4 active:bg-slate-800/40" onClick={() => setOpenId(j.id)}>
-              <div className="flex items-center justify-between gap-2"><Badge status={j.status} /><span className="text-xs text-slate-500">{fmtTime(j.created_at)}</span></div>
+            <li key={j.id} className="cursor-pointer p-4 active:bg-violet-50/40" onClick={() => setOpenId(j.id)}>
+              <div className="flex items-center justify-between gap-2"><Badge status={j.status} /><span className="text-xs text-ink-faint">{fmtTime(j.created_at)}</span></div>
               <div className="mt-1.5 break-all text-sm">{j.email}</div>
               <div className="mt-0.5 break-words text-xs"><Stage j={j} /></div>
-              <div className="mt-2 flex items-center justify-between gap-2 text-xs text-slate-400">
+              <div className="mt-2 flex items-center justify-between gap-2 text-xs text-ink-soft">
                 <span className="min-w-0">{[j.video_minutes ? tr('{n} min video', { n: j.video_minutes }) : '', j.run_seconds ? tr('took {t}', { t: fmtDur(j.run_seconds) }) : '', j.cost_thb != null ? `${j.cost_thb} THB${j.cost_complete ? '' : ' *'}` : '', mode(j)].filter(Boolean).join(' · ')}</span>
                 <CancelBtn j={j} />
               </div>
             </li>
           ))}
         </ul>
-        {!items.length && <p className="p-6 text-center text-sm text-slate-500">{loading ? tr('Loading…') : tr('No videos.')}</p>}
+        {!items.length && <p className="p-6 text-center text-sm text-ink-faint">{loading ? tr('Loading…') : tr('No videos.')}</p>}
       </Card>
       {openId && <JobDetail id={openId} onClose={() => setOpenId(null)} />}
       {data && <Pager page={data.page} perPage={data.per_page} total={data.total} onPage={setPage} />}

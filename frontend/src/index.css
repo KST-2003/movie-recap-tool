@@ -36,7 +36,7 @@ input[type="range"], input[type="checkbox"], input[type="radio"] { accent-color:
 /* page entrance: each direct child of a .stagger container rises in, one after the other (My videos, Top up, My usage;
    the Create page uses animate-rise on its banner and card). Also applies to children that appear later (loaded data). */
 @keyframes rise { from { opacity: 0; transform: translateY(14px) scale(0.98); } to { opacity: 1; transform: none; } }
-.stagger > * { animation: rise 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.stagger > * { animation: rise 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
 .stagger > *:nth-child(2) { animation-delay: 70ms; }
 .stagger > *:nth-child(3) { animation-delay: 140ms; }
 .stagger > *:nth-child(4) { animation-delay: 210ms; }
