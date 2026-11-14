@@ -13,6 +13,7 @@ import Shell from './Shell.jsx';
 import UsageDashboard from './UsageDashboard.jsx';
 import HistoryPage from './HistoryPage.jsx';
 import TopUpPage from './TopUpPage.jsx';
+import PostBanner from './PostBanner.jsx';
 import { LangSwitch, useI18n } from './i18n.jsx';
 import { deviceCapability, renderFromPlan } from './deviceRenderPlan.js';
 
@@ -664,6 +665,8 @@ function App() {
           onSelect={(v) => { setVoiceType(v.name); setVoiceGender(v.gender); }} onClose={() => setShowLibrary(false)} apiBase={API_BASE} />
       )}
       <div className={view === 'create' ? '' : 'hidden'}>
+      {/* banners made by the admin (Posts); nothing is shown when there are none */}
+      <PostBanner apiBase={API_BASE} className={`max-w-3xl mx-auto mb-5 ${step > 1 ? 'max-lg:hidden' : ''}`} />
       {/* hero banner */}
       <div className={`relative max-w-3xl mx-auto mb-5 overflow-hidden rounded-[2rem] bg-gradient-to-br from-violet-500 via-purple-400 to-pink-300 p-6 pr-32 sm:pr-44 text-white shadow-pop animate-rise ${step > 1 ? 'max-lg:hidden' : ''}`}>
         <div aria-hidden="true" className="pointer-events-none absolute -right-10 -top-16 h-56 w-56 rounded-full border border-white/20" />

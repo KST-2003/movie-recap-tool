@@ -59,6 +59,9 @@ app.add_middleware(
 
 app.include_router(admin_router)
 app.include_router(topup.router)
+import posts  # noqa: E402  (banners made in the admin dashboard)
+app.include_router(posts.admin_router)
+app.include_router(posts.router)
 
 SAMPLES_DIR = "voice_samples"
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")

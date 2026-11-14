@@ -97,6 +97,22 @@ class AuditLog(Base):
     details = Column(JSON, default=dict)   # {field: {"from": old, "to": new}} or small facts; never passwords
 
 
+class Post(Base):
+    """A banner shown to users in the app (made by an admin): picture + optional text / link, a status and an optional schedule."""
+    __tablename__ = "posts"
+    id = Column(Integer, primary_key=True)
+    title = Column(String(120), nullable=False)
+    body = Column(String(600))
+    link_url = Column(String(500))
+    image_file = Column(String(200))                   # file name inside DATA_DIR/posts
+    status = Column(String(12), default="draft", index=True, nullable=False)   # draft | published | off
+    starts_at = Column(DateTime(timezone=True))        # shown from (empty = at once)
+    ends_at = Column(DateTime(timezone=True))          # shown until (empty = until turned off)
+    created_by = Column(String(255))
+    created_at = Column(DateTime(timezone=True), default=utcnow, index=True)
+    updated_at = Column(DateTime(timezone=True), default=utcnow)
+
+
 class TopupRequest(Base):
     """A user asks for bought minutes and sends the payment slip; the admin checks the slip and approves (the minutes are added) or rejects."""
     __tablename__ = "topup_requests"
