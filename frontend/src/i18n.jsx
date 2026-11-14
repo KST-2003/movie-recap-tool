@@ -182,7 +182,7 @@ const MY = {
   '30 voices to choose from, with emotion. Uses more of your allowance.': 'အသံမျိုးပေါင်း (၃၀)မှ ပါဝင်ပြီး သဘာဝတိုင်း ပီပြင်ပါသည်။ ကုန်ကျမှု ပိုများသည်။',
   'Tighten long translations to fit each scene': 'ဇာတ်ဝန်ခန်းနှင့် ကိုက်ညီအောင် ရှည်လွန်းသော ဘာသာပြန်ကို တိုစေမည်',
   'Your uploads are paused for now': 'သင့်ဗီဒီယိုတင်ခြင်းကို ယာယီရပ်ထားပါသည်',
-  'Your last 5 videos did not finish (failed or cancelled), so new videos are paused to keep the service stable. Please try again in about {t}. Our admin has been notified, and your minutes were refunded.': 'သင်၏ နောက်ဆုံးဗီဒီယို ၅ ခု မပြီးစီးခဲ့ပါ (မအောင်မြင်ခြင်း သို့မဟုတ် ပယ်ဖျက်ခြင်း)။ ဝန်ဆောင်မှု တည်ငြိမ်စေရန် ဗီဒီယိုအသစ်များကို ခေတ္တရပ်ထားပါသည်။ ခန့်မှန်း {t} အကြာတွင် ပြန်လည်ကြိုးစားပါ။',
+  'Your last 5 videos did not finish (failed or cancelled), so new videos are paused to keep the service stable. Please try again in about {t}. Our admin has been notified.': 'သင်၏ နောက်ဆုံးဗီဒီယို ၅ ခု မပြီးစီးခဲ့ပါ (မအောင်မြင်ခြင်း သို့မဟုတ် ပယ်ဖျက်ခြင်း)။ ဝန်ဆောင်မှု တည်ငြိမ်စေရန် ဗီဒီယိုအသစ်များကို ခေတ္တရပ်ထားပါသည်။ ခန့်မှန်း {t} အကြာတွင် ပြန်လည်ကြိုးစားပါ။',
   '{h} h {m} min': '{h} နာရီ {m} မိနစ်',
   '{m} min': '{m} မိနစ်',
   'We could not complete this just now. Our team has been notified. Please try again a little later.': 'ယခုအချိန်တွင် မပြီးစီးနိုင်ပါ။ ကျွန်ုပ်တို့အဖွဲ့ကို အကြောင်းကြားပြီးဖြစ်သည်။ ခဏနေမှ ပြန်ကြိုးစားပါ။',
@@ -274,7 +274,7 @@ const MY = {
   'Generating the Burmese voice-over': 'မြန်မာအသံသွင်းချက် ဖန်တီးနေသည်',
   'Fitting each line to its scene': 'စာကြောင်းတစ်ကြောင်းစီကို မြင်ကွင်းနှင့် ကိုက်ညီအောင် ညှိနေသည်',
   'Rendering the final video': 'နောက်ဆုံးဗီဒီယို ထုတ်လုပ်နေသည်',
-  'Longer videos can take a few minutes. You can cancel at any time.': 'ဗီဒီယိုရှည်လျှင် မိနစ်အနည်းငယ် ကြာနိုင်ပါသည်။ မည်သည့်အချိန်တွင်မဆို ပယ်ဖျက်နိုင်ပါသည်။',
+  'Longer videos can take a few minutes. If you cancel after it has started, the minutes are still used.': 'ဗီဒီယိုရှည်လျှင် မိနစ်အနည်းငယ် ကြာနိုင်ပါသည်။ စတင်ပြီးမှ ပယ်ဖျက်လျှင် မိနစ်များ ပြန်မရပါ။',
   // editor
   'Characters: each keeps one voice for the whole film. Change a voice, then re-render (only that character\'s lines are re-voiced).':
     'ဇာတ်ကောင်များ — တစ်ဦးစီသည် ရုပ်ရှင်တစ်ခုလုံးအတွက် အသံတစ်မျိုးတည်း ရှိသည်။ အသံပြောင်းပြီး ပြန်ထုတ်ပါ (ထိုဇာတ်ကောင်၏ စာကြောင်းများကိုသာ အသံပြန်သွင်းမည်)။',
@@ -327,8 +327,8 @@ const MY = {
 // Texts that come from the server (progress steps, warnings, errors). [pattern, Burmese with $1, $2 ... captures].
 const SERVER = [
   [/^Your available minutes are not enough for this video\. Please top up minutes to make it\.$/, "သင့်မိနစ်များ ဤဗီဒီယိုအတွက် မလုံလောက်ပါ။ ဗီဒီယိုပြုလုပ်ရန် မိနစ်ဖြည့်ပါ။"],
-  [/^Our service is very busy right now, so we couldn't finish this video\. Your minutes were refunded\. Please try again a little later\.$/, "ယခု ဝန်ဆောင်မှု အလွန်များနေသဖြင့် ဤဗီဒီယိုကို မပြီးစီးနိုင်ခဲ့ပါ။ ခဏနေမှ ပြန်ကြိုးစားပါ။"],
-  [/^We couldn't finish this video this time\. Our team has been notified and your minutes were refunded\. Please try again a little later\.$/, "ဤအကြိမ် ဗီဒီယိုကို မပြီးစီးနိုင်ခဲ့ပါ။ ခဏနေမှ ပြန်ကြိုးစားပါ။"],
+  [/^Our service is very busy right now, so we couldn't finish this video\.(?: Your minutes were refunded\.)? Please try again a little later\.$/, "ယခု ဝန်ဆောင်မှု အလွန်များနေသဖြင့် ဤဗီဒီယိုကို မပြီးစီးနိုင်ခဲ့ပါ။ ခဏနေမှ ပြန်ကြိုးစားပါ။"],
+  [/^We couldn't finish this video this time\. Our team has been notified(?: and your minutes were refunded)?\. Please try again a little later\.$/, "ဤအကြိမ် ဗီဒီယိုကို မပြီးစီးနိုင်ခဲ့ပါ။ ခဏနေမှ ပြန်ကြိုးစားပါ။"],
   [/^Limit reached: ([\d.]+) minutes of your allowance are left right now \(daily or monthly limit\), this video is ([\d.]+) minutes, and you have ([\d.]+) bought minutes\. Top up minutes to make this video\.$/, 'အကန့်အသတ်ပြည့်ပါပြီ - ခွင့်ပြုချက် $1 မိနစ်သာ ကျန်ပြီး ဤဗီဒီယိုမှာ $2 မိနစ်ဖြစ်ကာ ဝယ်ယူထားသော $3 မိနစ်ရှိပါသည်။ ဤဗီဒီယိုအတွက် မိနစ်ဖြည့်ပါ။'],
   [/^Limit reached: not enough bought minutes\. Top up minutes to make this video\.$/, "အကန့်အသတ်ပြည့်ပါပြီ - ဝယ်ယူထားသောမိနစ် မလုံလောက်ပါ။ ဤဗီဒီယိုအတွက် မိနစ်ဖြည့်ပါ။"],
   [/^Pick one of the minute packs\.$/, "မိနစ်အထုပ်များထဲမှ တစ်ခုရွေးပါ။"],

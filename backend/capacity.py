@@ -3,7 +3,7 @@ that then all fail half way when the money or the voice quota runs out.
 
 Two checks, made in one place under a lock together with creating the job (main.create_job):
  1. MONEY (optional, set in the admin dashboard): the owner types what is left in the Google billing account. Every video charges
-    its minutes at upload (charged_seconds, refunded when it fails), so `spent = charged minutes since the balance was typed x
+    its minutes at upload (charged_seconds; kept when a started video fails, see db.keeps_minutes), so `spent = charged minutes since the balance was typed x
     cost per minute` already includes videos still running. Refused unless the free budget covers this video AND at least
     `min_free_minutes` of video (default 30) - that buffer is never handed out.
  2. VOICE REQUESTS: the video's estimated TTS requests are RESERVED on ONE voice model (the first with enough requests left after the

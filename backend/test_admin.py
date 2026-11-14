@@ -118,7 +118,7 @@ ok(d["status"] == "error" and d["error"].endswith("Unrecognized option") and "Ru
 ok(d["failed_stage"]["stage"] == "Voiceover (gemini)" and d["failed_stage"]["progress"] == 40, "detail: knows which stage failed")
 ok([x["stage"] for x in d["stages"]] == ["Starting", "Voiceover (gemini)"], f"detail: stage history {[x['stage'] for x in d['stages']]}")
 ok(d["params"]["voice_quality"] == "standard" and d["params"]["aspect"] == "9:16" and d["params"]["manual_blurs"] == [{"x": 0.1}] and d["params"]["filename"] == "movie.mp4", "detail: every option the user chose")
-ok(d["user"]["email"] == "bob@x.com" and d["bought_minutes"] == 0.0, "detail: user shown; a failed video's bought minutes were given back")
+ok(d["user"]["email"] == "bob@x.com" and d["bought_minutes"] == 1.0 and d["charged_minutes"] == 2.0, "detail: user shown; a video that started and failed keeps its minutes (no refund)")
 import joblog, usage  # noqa: E402
 joblog.install()
 usage.start("jobx")

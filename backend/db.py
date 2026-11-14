@@ -77,8 +77,8 @@ class Job(Base):
     data = Column(JSON, default=dict)          # result + misc fields reported to the client
     input_key = Column(String(500))            # storage key of the uploaded video
     logo_key = Column(String(500))
-    charged_seconds = Column(Float, default=0.0)   # counted against the user's daily allowance; refunded on failure
-    credit_seconds = Column(Float, default=0.0)    # the part of this video paid with the user's bought minutes; refunded on failure
+    charged_seconds = Column(Float, default=0.0)   # counted against the user's allowance; kept when a started video fails / is cancelled (keeps_minutes)
+    credit_seconds = Column(Float, default=0.0)    # the part of this video paid with the user's bought minutes; same rule
     created_at = Column(DateTime(timezone=True), default=utcnow, index=True)
     finished_at = Column(DateTime(timezone=True))
 
@@ -153,6 +153,7 @@ def update_job(job_id: str, **fields) -> bool:
             return False
         extra = {}
         prev_stage, prev_progress = job.stage, job.progress
+        never_started = job.status == "queued"   # still waiting in line: no paid work was done for it
         for k, v in fields.items():
             if k in _COLUMNS:
                 setattr(job, k, (v[:2000] if k == "error" and isinstance(v, str) else v))
@@ -176,8 +177,8 @@ def update_job(job_id: str, **fields) -> bool:
             job.data = {**data, **extra}
         if fields.get("status") in ("done", "error", "cancelled"):
             job.finished_at = utcnow()
-        if fields.get("status") in ("error", "cancelled"):
-            job.charged_seconds = 0.0  # failed or cancelled jobs don't use up the allowance
+        if fields.get("status") in ("error", "cancelled") and keeps_minutes(never_started):
+            job.charged_seconds = 0.0
             refund_credit(s, job)
         s.commit()
         if fields.get("status") in ("error", "cancelled") and failure_wait_seconds(s, job.user_id) > 0:   # this failure completed the run: tell the owner
@@ -201,6 +202,14 @@ def save_log(job_id: str) -> None:
                 job.data = {**(job.data or {}), "log": lines}
                 s.commit()
     joblog.forget(job_id)
+
+
+def keeps_minutes(never_started: bool) -> bool:
+    """Does a failed / cancelled video give its minutes BACK to the user? Owner's rule (2026-11-14): NO once the video has started
+    (the tokens are paid, Google refunds nothing); yes only when it never left the waiting line. `REFUND_UNFINISHED=1` brings
+    the old behaviour back (every failed / cancelled video refunded). An admin can still give minutes back by hand."""
+    from config import REFUND_UNFINISHED
+    return REFUND_UNFINISHED or never_started
 
 
 def refund_credit(s, job: "Job") -> None:

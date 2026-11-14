@@ -32,7 +32,7 @@ import looks
 import storage
 import topup
 from common import media_duration, tts_provider
-from db import Job, Session, User, active_jobs, failure_wait_seconds, month_start, refund_credit, user_role, used_seconds_month, used_seconds_today, utcnow
+from db import Job, Session, User, active_jobs, failure_wait_seconds, keeps_minutes, month_start, refund_credit, user_role, used_seconds_month, used_seconds_today, utcnow
 from voices import VOICES, VOICE_NAMES
 
 import logging
@@ -86,8 +86,10 @@ def _fail_orphaned_jobs():
     with Session() as s:
         stuck = s.execute(select(Job).where(Job.status.in_(("queued", "running")))).scalars().all()
         for job in stuck:
-            job.status, job.stage, job.charged_seconds = "error", "Interrupted", 0.0
-            refund_credit(s, job)
+            if keeps_minutes(job.status == "queued"):   # a video that had started keeps its minutes (owner's rule)
+                job.charged_seconds = 0.0
+                refund_credit(s, job)
+            job.status, job.stage = "error", "Interrupted"
             job.error = "The server was restarted while this video was processing. Please upload it again."
         s.commit()
         if stuck:
@@ -543,7 +545,7 @@ def create_job(
 
 
 def _refuse_if_failing(s, user: User):
-    """Several failed / cancelled videos that already spent paid tokens in a short time: wait a few hours (their minutes were refunded, our API bill was not)."""
+    """Several failed / cancelled videos that already spent paid tokens in a short time: wait a few hours (our API bill is paid either way)."""
     if user.is_admin:
         return
     wait = failure_wait_seconds(s, user.id)
@@ -588,8 +590,8 @@ def _queue_info(job: Job) -> dict:
     return {"queue_position": ahead + 1, "eta_seconds": int(waiting_for * avg / WORKERS)}
 
 
-FRIENDLY_BUSY = "Our service is very busy right now, so we couldn't finish this video. Your minutes were refunded. Please try again a little later."
-FRIENDLY_FAILED = "We couldn't finish this video this time. Our team has been notified and your minutes were refunded. Please try again a little later."
+FRIENDLY_BUSY = "Our service is very busy right now, so we couldn't finish this video. Please try again a little later."
+FRIENDLY_FAILED = "We couldn't finish this video this time. Our team has been notified. Please try again a little later."
 _BUSY_WORDS = ("quota", "rate", "429", "busy", "capacity", "exhausted", "too slow", "time limit", "timed out", "overloaded", "unavailable", "503")
 
 
@@ -916,7 +918,8 @@ def preview_line(job_id: str, body: PreviewBody, user: User = Depends(auth.curre
 
 @app.post("/api/jobs/{job_id}/cancel")
 def cancel_job(job_id: str, user: User = Depends(auth.current_user)):
-    """Stop a queued or running job. The worker notices at its next step and quits; nothing is charged."""
+    """Stop a queued or running job. The worker notices at its next step and quits. Minutes come back only if the video had not
+    started yet (db.keeps_minutes)."""
     from db import update_job
     with Session() as s:
         job = s.get(Job, job_id)

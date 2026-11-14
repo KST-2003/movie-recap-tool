@@ -159,7 +159,7 @@ function ProcessingPanel({ upload, progress, elapsed, subsOnly }) {
           );
         })}
       </ol>
-      <p className="mt-2 text-[11px] text-ink-faint">{tr('Longer videos can take a few minutes. You can cancel at any time.')}</p>
+      <p className="mt-2 text-[11px] text-ink-faint">{tr('Longer videos can take a few minutes. If you cancel after it has started, the minutes are still used.')}</p>
     </div>
   );
 }
@@ -681,7 +681,7 @@ function App() {
             <span className="text-2xl leading-none" aria-hidden="true">⚠️</span>
             <div className="min-w-0 text-sm text-amber-700 space-y-1">
               <p className="font-semibold">{tr('Your uploads are paused for now')}</p>
-              <p>{tr('Your last 5 videos did not finish (failed or cancelled), so new videos are paused to keep the service stable. Please try again in about {t}. Our admin has been notified, and your minutes were refunded.', { t: blockedSeconds >= 3600 ? tr('{h} h {m} min', { h: Math.floor(blockedSeconds / 3600), m: Math.ceil((blockedSeconds % 3600) / 60) }) : tr('{m} min', { m: Math.max(1, Math.ceil(blockedSeconds / 60)) }) })}</p>
+              <p>{tr('Your last 5 videos did not finish (failed or cancelled), so new videos are paused to keep the service stable. Please try again in about {t}. Our admin has been notified.', { t: blockedSeconds >= 3600 ? tr('{h} h {m} min', { h: Math.floor(blockedSeconds / 3600), m: Math.ceil((blockedSeconds % 3600) / 60) }) : tr('{m} min', { m: Math.max(1, Math.ceil(blockedSeconds / 60)) }) })}</p>
             </div>
           </div>
         )}

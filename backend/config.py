@@ -31,3 +31,6 @@ KEEP_RESULT_DAYS = float(os.getenv("KEEP_RESULT_DAYS", "30"))   # finished video
 KEEP_SOURCE_DAYS = float(os.getenv("KEEP_SOURCE_DAYS", "7"))    # uploaded source videos, voice clips, work files (needed for editing / re-rendering)
 TRUST_PROXY = os.getenv("TRUST_PROXY", "").lower() in ("1", "true")   # behind Nginx: take the visitor IP from X-Forwarded-For
 SIGNED_URL_SECONDS = int(os.getenv("SIGNED_URL_SECONDS", "3600"))
+# Failed / cancelled videos: minutes are NOT given back once the video has started (owner's rule 2026-11-14: the tokens are paid).
+# 1 = the old behaviour (always refunded). A video cancelled while still waiting in line is refunded either way.
+REFUND_UNFINISHED = os.getenv("REFUND_UNFINISHED", "0").strip().lower() in ("1", "true", "yes")
