@@ -5,6 +5,7 @@ import Mascot from './Mascot.jsx';
 import Splash from './Splash.jsx';
 import VoiceLibrary from './VoiceLibrary.jsx';
 import Select from './Select.jsx';
+import { voiceLabel } from './voiceNames.js';
 import PreviewStudio, { ASPECTS } from './PreviewStudio.jsx';
 import CaptionStyleControls from './CaptionStyleControls.jsx';
 import { DEFAULT_CAPTION_STYLE } from './captionFonts.js';
@@ -164,7 +165,7 @@ function ProcessingPanel({ upload, progress, elapsed, subsOnly }) {
 }
 
 function App() {
-  const { tr, trs } = useI18n();
+  const { tr, trs, lang } = useI18n();
   const [token, setToken] = useState(() => localStorage.getItem('token') || '');
   const [view, setView] = useState('create');   // sidebar page: create | usage
   const [usageKey, setUsageKey] = useState(0);   // bumped when a job ends so the usage page reloads
@@ -912,12 +913,12 @@ function App() {
                   key={v.name}
                   className={`p-2 rounded-2xl border transition-all ${
                     voiceType === v.name
-                      ? 'border-violet-400 bg-violet-100/40 shadow-lg shadow-violet-300/20'
-                      : 'border-violet-100 bg-violet-50/50 hover:bg-violet-50'
+                      ? 'border-violet-500 bg-violet-100 ring-2 ring-violet-400 shadow-pop'
+                      : 'border-violet-100 bg-white hover:bg-violet-50'
                   }`}
                 >
                   <button type="button" onClick={() => setVoiceType(v.name)} className="w-full text-left">
-                    <span className="font-semibold text-sm block">{v.name}</span>
+                    <span className="font-semibold text-sm block">{voiceLabel(v.name, lang)}</span>
                     <span className="text-xs text-violet-600 capitalize">{tr('{gender} Burmese voice', { gender: tr(v.gender) })}</span>
                   </button>
                   <div className="flex items-center gap-3 mt-2 text-xs whitespace-nowrap">

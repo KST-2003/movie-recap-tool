@@ -1,21 +1,22 @@
 import React, { useMemo, useState } from 'react';
 import { useI18n } from './i18n.jsx';
+import { voiceLabel, voiceSearch } from './voiceNames.js';
 
 const CATS = ['all', 'female', 'male', 'age', 'creature', 'machine', 'animal', 'mood'];
 
 // Full-screen "see more" page: every Gemini voice plus the character looks, with category chips and a search box.
 export default function VoiceLibrary({ voices, looks, selected, playing, onPlay, onSelect, onClose, apiBase }) {
-  const { tr } = useI18n();
+  const { tr, lang } = useI18n();
   const [cat, setCat] = useState('all');
   const [q, setQ] = useState('');
 
   const items = useMemo(() => [
-    ...voices.map((v) => ({ key: v.name, kind: 'voice', cat: v.gender, title: v.name, sub: `${v.gender} · Gemini voice`, sample_url: v.sample_url, voice: v })),
-    ...looks.map((l) => ({ key: `look:${l.id}`, kind: 'look', cat: l.group, title: l.label, sub: `${l.group} · ${l.voice}`, sample_url: l.sample_url })),
-  ], [voices, looks]);
+    ...voices.map((v) => ({ key: v.name, kind: 'voice', cat: v.gender, title: voiceLabel(v.name, lang), find: voiceSearch(v.name), sub: tr(v.gender), sample_url: v.sample_url, voice: v })),
+    ...looks.map((l) => ({ key: `look:${l.id}`, kind: 'look', cat: l.group, title: l.label, sub: `${l.group} · ${voiceLabel(l.voice, lang)}`, find: voiceSearch(l.voice), sample_url: l.sample_url })),
+  ], [voices, looks, lang]);
 
   const shown = items.filter((it) => (cat === 'all' || it.cat === cat)
-    && (!q.trim() || `${it.title} ${it.sub} ${it.cat}`.toLowerCase().includes(q.trim().toLowerCase())));
+    && (!q.trim() || `${it.title} ${it.sub} ${it.cat} ${it.find || ''}`.toLowerCase().includes(q.trim().toLowerCase())));
   const count = (c) => items.filter((it) => c === 'all' || it.cat === c).length;
 
   return (

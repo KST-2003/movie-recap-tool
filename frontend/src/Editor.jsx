@@ -1,6 +1,7 @@
 import Select from './Select.jsx';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useI18n } from './i18n.jsx';
+import { voiceLabel } from './voiceNames.js';
 import { DEFAULT_CAPTION_STYLE } from './captionFonts.js';
 import CaptionStyleControls from './CaptionStyleControls.jsx';
 
@@ -32,7 +33,7 @@ const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
  * Edits are applied with one re-render; only changed lines are re-voiced.
  */
 export default function Editor({ project, videoRef, busy, onApply, finish = null, onFinish = () => {}, hasBackground = false, voices = [], looks = [], playingVoice = null, onPlaySample = () => {}, onPreviewLine = null, previewing = null }) {
-  const { tr } = useI18n();
+  const { tr, lang } = useI18n();
   const duration = project.source_duration;
   const model = project.voice_model || DEFAULT_MODEL;
   const predict = (text) => model.a * syllables(text) + model.b;
@@ -385,8 +386,8 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
                 <Select
                   size="sm" className="w-44" value={speakerVoices[sid]} onChange={(v) => setSpeakerVoices({ ...speakerVoices, [sid]: v })}
                   options={[
-                    ...(voices.length === 0 ? [{ value: speakerVoices[sid], label: speakerVoices[sid] }] : []),
-                    ...voices.map((v) => ({ value: v.name, label: `${v.name} (${tr(v.gender)})`, group: tr('Voices') })),
+                    ...(voices.length === 0 ? [{ value: speakerVoices[sid], label: voiceLabel(speakerVoices[sid], lang) }] : []),
+                    ...voices.map((v) => ({ value: v.name, label: `${voiceLabel(v.name, lang)} (${tr(v.gender)})`, group: tr('Voices') })),
                     ...looks.map((l) => ({ value: `look:${l.id}`, label: `${tr(l.label)} · ${l.voice}`, group: tr('Character looks') })),
                   ]}
                 />
@@ -430,7 +431,7 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
                 <span className="flex flex-wrap items-center gap-1" title={tr('Which character says this line')}>
                   {speakerIds.map((sid) => (
                     <button key={sid} type="button" onClick={() => patch(sel.key, { speaker: sid })}
-                      title={`${sid}: ${speakerVoices[sid]}`}
+                      title={`${sid}: ${voiceLabel(speakerVoices[sid], lang)}`}
                       className={`w-6 h-6 rounded-md text-[11px] font-semibold text-white ${sel.speaker === sid ? 'ring-2 ring-violet-500 ring-offset-1' : 'opacity-50 hover:opacity-100'}`}
                       style={{ backgroundColor: colorOf(sid) }}>{sid}</button>
                   ))}
@@ -440,7 +441,7 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
                 <button type="button" disabled={previewing != null} title={tr('Hear this line in the chosen character\'s voice (1 voice request, kept for Apply)')}
                   onClick={() => onPreviewLine(sel, speakerVoices[sel.speaker])}
                   className="px-2 py-0.5 rounded-full bg-violet-500 text-white disabled:opacity-50 whitespace-nowrap">
-                  {previewing === sel.key ? '…' : `▶ ${tr('Hear')} ${isStandard ? (voices.find((x) => x.name === speakerVoices[sel.speaker])?.gender === 'male' || (!voices.some((x) => x.name === speakerVoices[sel.speaker]) && project.speakers[sel.speaker]?.gender === 'male') ? 'Thiha' : 'Nilar') : (looks.find((x) => `look:${x.id}` === speakerVoices[sel.speaker])?.label ?? speakerVoices[sel.speaker])}`}
+                  {previewing === sel.key ? '…' : `▶ ${tr('Hear')} ${isStandard ? (voices.find((x) => x.name === speakerVoices[sel.speaker])?.gender === 'male' || (!voices.some((x) => x.name === speakerVoices[sel.speaker]) && project.speakers[sel.speaker]?.gender === 'male') ? 'Thiha' : 'Nilar') : (looks.find((x) => `look:${x.id}` === speakerVoices[sel.speaker])?.label ?? voiceLabel(speakerVoices[sel.speaker], lang))}`}
                 </button>
               )}
               {meta[sel.key]?.emotion && meta[sel.key].emotion !== 'neutral' && <span className="text-amber-700">{tr(meta[sel.key].emotion)}</span>}
