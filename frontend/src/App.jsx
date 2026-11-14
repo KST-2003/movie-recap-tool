@@ -98,7 +98,7 @@ function AuthScreen({ onAuth, notice }) {
       <form onSubmit={submit} className="relative w-full max-w-sm rounded-[2rem] bg-white/90 backdrop-blur border border-white p-7 pt-16 shadow-card space-y-4 animate-rise">
         <div className="absolute -top-14 left-1/2 -translate-x-1/2 rounded-full bg-white p-2 shadow-card"><Mascot className="h-24 w-24" /></div>
         <div className="text-center">
-          <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-violet-600 to-pink-500 bg-clip-text text-transparent">Recat</h1>
+          <h1 className="text-3xl font-bold tracking-tight whitespace-nowrap"><span className="bg-gradient-to-r from-violet-600 to-pink-500 bg-clip-text text-transparent">Recat</span> <span className="text-amber-500">Studio</span></h1>
           <p className="mt-1 text-sm text-ink-soft">{tr('Burmese recaps, purr-fectly made.')}</p>
         </div>
         {notice && !error && <p className="rounded-2xl bg-amber-50 px-3 py-2 text-sm text-amber-700">{trs(notice)}</p>}
