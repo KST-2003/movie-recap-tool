@@ -53,11 +53,11 @@ function PostForm({ post, onClose, onSaved }) {
           <p className="mt-1 text-[11px] text-ink-faint">{tr('Wide picture, 16:9 (for example 1600 x 900). JPG, PNG or WEBP, up to 4 MB.')}</p>
           {wrongShape && <p className="mt-1 text-[11px] text-amber-700">{tr('This picture is not 16:9, so its edges will be cut off in the banner (the preview above shows how).')}</p>}
         </div>
-        <label className="block"><span className="mb-1 block text-xs text-ink-soft">{tr('Title')}</span>
+        <label className="block"><span className="mb-1 block text-xs text-ink-soft">{tr('Title (only admins see it)')}</span>
           <input className={field} value={f.title} maxLength={120} required onChange={set('title')} /></label>
-        <label className="block"><span className="mb-1 block text-xs text-ink-soft">{tr('Text (optional)')}</span>
+        <label className="block"><span className="mb-1 block text-xs text-ink-soft">{tr('Notes (optional, only admins see them)')}</span>
           <textarea className={field} rows={3} value={f.body} maxLength={600} onChange={set('body')} />
-          <span className="mt-1 block text-[11px] text-ink-faint">{tr('With text, the title and text are written over the bottom of the picture. Leave it empty when the picture already has its own words.')}</span></label>
+          <span className="mt-1 block text-[11px] text-ink-faint">{tr('The title and text are notes for the admin team only. Users see just the picture.')}</span></label>
         <label className="block"><span className="mb-1 block text-xs text-ink-soft">{tr('Link opened when the banner is tapped (optional)')}</span>
           <input className={field} type="url" placeholder="https://" value={f.link_url} maxLength={500} onChange={set('link_url')} /></label>
         <div>
@@ -100,7 +100,7 @@ export default function PostsPage() {
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <p className="min-w-0 flex-1 text-sm text-ink-soft">{tr('Posts are the banners users see at the top of the app. Only posts marked "live" are shown.')}</p>
+        <p className="min-w-0 flex-1 text-sm text-ink-soft">{tr('Posts are the banner pictures users swipe through at the top of the app. Only posts marked "live" are shown.')}</p>
         <button className={btnPrimary} onClick={() => setEditing('new')}><Plus size={16} />{tr('New post')}</button>
       </div>
       <ErrorBox error={error} onRetry={reload} />

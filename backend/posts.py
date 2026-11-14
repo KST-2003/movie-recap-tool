@@ -1,5 +1,5 @@
 """Posts = banners in the user app, made in the admin dashboard (admins and the superadmin).
-A post has a 16:9 picture, a title, optional text and link, a status (draft | published | off) and an optional schedule (from / until).
+A post has a 16:9 picture (the ONLY thing users see), a title + optional text (the admin's own notes), an optional link, a status (draft | published | off) and an optional schedule (from / until).
 Users see a post while it is LIVE: published, the start time reached and the end time not passed (`state`).
 Admin: /api/admin/posts (list, create, change, delete; audit-logged). Users: GET /api/posts (login needed).
 Pictures: DATA_DIR/posts, served WITHOUT login at /api/posts/image/<random name> (an <img> cannot send the login; banners are not secret)."""
@@ -177,7 +177,7 @@ def live_posts(user: User = Depends(auth.current_user)):
         rows = s.execute(select(Post).where(Post.status == "published").order_by(Post.id.desc()).limit(200)).scalars().all()
         live = [p for p in rows if state(p, now) == "live" and p.image_file]
         live.sort(key=lambda p: (_aware(p.starts_at) or _aware(p.created_at) or now, p.id), reverse=True)
-        return {"posts": [{"id": p.id, "title": p.title, "body": p.body or "", "link_url": p.link_url or "", "image_url": image_url(p.image_file)} for p in live[:MAX_SHOWN]]}
+        return {"posts": [{"id": p.id, "link_url": p.link_url or "", "image_url": image_url(p.image_file)} for p in live[:MAX_SHOWN]]}   # the picture only: title / text are the admin's notes
 
 
 @router.get("/api/posts/image/{name}")

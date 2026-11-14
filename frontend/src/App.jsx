@@ -665,18 +665,19 @@ function App() {
           onSelect={(v) => { setVoiceType(v.name); setVoiceGender(v.gender); }} onClose={() => setShowLibrary(false)} apiBase={API_BASE} />
       )}
       <div className={view === 'create' ? '' : 'hidden'}>
-      {/* banners made by the admin (Posts); nothing is shown when there are none */}
-      <PostBanner apiBase={API_BASE} className={`max-w-3xl mx-auto mb-5 ${step > 1 ? 'max-lg:hidden' : ''}`} />
-      {/* hero banner */}
-      <div className={`relative max-w-3xl mx-auto mb-5 overflow-hidden rounded-[2rem] bg-gradient-to-br from-violet-500 via-purple-400 to-pink-300 p-6 pr-32 sm:pr-44 text-white shadow-pop animate-rise ${step > 1 ? 'max-lg:hidden' : ''}`}>
-        <div aria-hidden="true" className="pointer-events-none absolute -right-10 -top-16 h-56 w-56 rounded-full border border-white/20" />
-        <div aria-hidden="true" className="pointer-events-none absolute -right-24 -top-28 h-80 w-80 rounded-full border border-white/15" />
-        <div aria-hidden="true" className="pointer-events-none absolute left-1/3 -bottom-8 h-20 w-40 rounded-full bg-white/15 blur-xl animate-drift" />
-        <span className="inline-block rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-violet-600">Recat Studio</span>
-        <h1 className="mt-3 text-2xl sm:text-3xl font-bold leading-tight">{tr('What are we recapping today?')}</h1>
-        <p className="mt-1 text-sm text-white/85">{tr('Drop in a video and Recat turns it into Burmese.')}</p>
-        <Mascot className="absolute right-3 sm:right-8 bottom-1 h-28 w-28 sm:h-36 sm:w-36 drop-shadow-xl" />
-      </div>
+      {/* top banner: our own "What are we recapping today?" card first, then the pictures the admin posted (Posts), swiped sideways.
+          Every slide is 16:9, the shape the admin uploads. */}
+      <PostBanner apiBase={API_BASE} className={`max-w-3xl mx-auto mb-5 ${step > 1 ? 'max-lg:hidden' : ''}`}>
+        <div className="relative flex h-full w-full flex-col justify-center overflow-hidden bg-gradient-to-br from-violet-500 via-purple-400 to-pink-300 p-5 pr-32 sm:p-10 sm:pr-64 text-white">
+          <div aria-hidden="true" className="pointer-events-none absolute -right-10 -top-16 h-56 w-56 sm:h-96 sm:w-96 rounded-full border border-white/20" />
+          <div aria-hidden="true" className="pointer-events-none absolute -right-24 -top-28 h-80 w-80 sm:h-[34rem] sm:w-[34rem] rounded-full border border-white/15" />
+          <div aria-hidden="true" className="pointer-events-none absolute left-1/3 -bottom-8 h-20 w-40 rounded-full bg-white/15 blur-xl animate-drift" />
+          <span className="self-start rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-violet-600">Recat Studio</span>
+          <h1 className="mt-3 text-xl sm:text-4xl font-bold leading-tight">{tr('What are we recapping today?')}</h1>
+          <p className="mt-1 sm:mt-3 text-xs sm:text-base text-white/85">{tr('Drop in a video and Recat turns it into Burmese.')}</p>
+          <Mascot className="absolute right-2 sm:right-10 bottom-2 sm:bottom-8 h-28 w-28 sm:h-56 sm:w-56 drop-shadow-xl" />
+        </div>
+      </PostBanner>
       <div className="max-w-3xl mx-auto bg-white border border-white rounded-[2rem] p-5 sm:p-7 shadow-card animate-rise [animation-delay:80ms]">
 
         {blockedSeconds > 0 && (

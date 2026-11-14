@@ -32,7 +32,12 @@ PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 50
 pic = lambda: {"image": ("b.png", PNG, "image/png")}
 iso = lambda dt: dt.isoformat()
 now = utcnow()
-shown = lambda: [p["title"] for p in c.get("/api/posts", headers=H["amy"]).json()["posts"]]
+TITLES = {}
+
+
+def shown():
+    names = {r["id"]: r["title"] for r in c.get("/api/admin/posts", headers=H["boss"]).json()["items"]}
+    return [names[p["id"]] for p in c.get("/api/posts", headers=H["amy"]).json()["posts"]]
 
 ok(c.get("/api/admin/posts", headers=H["amy"]).status_code == 403 and c.post("/api/admin/posts", headers=H["amy"], data={"title": "x"}).status_code == 403, "a normal user cannot see or make posts")
 ok(c.get("/api/posts").status_code == 401, "the banner list needs a login")
@@ -52,7 +57,7 @@ window = c.post("/api/admin/posts", headers=H["boss"], data={"title": "This week
 ok([live["state"], soon["state"], past["state"], window["state"]] == ["live", "scheduled", "ended", "live"], "state follows status + schedule: live, scheduled, ended, live")
 ok(shown() == ["Live now", "This week"], f"users see only the live ones, newest start first: {shown()}")
 u = c.get("/api/posts", headers=H["amy"]).json()["posts"][0]
-ok(set(u) == {"id", "title", "body", "link_url", "image_url"} and u["link_url"] == "https://example.com/x", "users get only what the banner needs")
+ok(set(u) == {"id", "link_url", "image_url"} and u["link_url"] == "https://example.com/x", "users get the picture and link only (title and text are the admin's notes)")
 img = c.get(u["image_url"])
 ok(img.status_code == 200 and img.content == PNG and img.headers["content-type"] == "image/png", "the picture opens without a login (an <img> cannot send one)")
 ok(c.get("/api/posts/image/..%2Fapp.db").status_code == 404 and c.get("/api/posts/image/secret.key").status_code == 404, "only post pictures can be fetched there")
