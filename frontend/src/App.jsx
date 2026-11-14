@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import Editor from './Editor.jsx';
 import Mascot from './Mascot.jsx';
+import Splash from './Splash.jsx';
 import VoiceLibrary from './VoiceLibrary.jsx';
 import Select from './Select.jsx';
 import PreviewStudio, { ASPECTS } from './PreviewStudio.jsx';
@@ -176,7 +177,9 @@ function App() {
     setToken('');
     setAccount(null);
   };
+  const [splash, setSplash] = useState(() => !!localStorage.getItem('token'));   // opening animation (~2 s) for a signed-in user, and after signing in
   const onAuth = (data) => {
+    setSplash(true);
     localStorage.setItem('token', data.token);
     axios.defaults.headers.common.Authorization = `Bearer ${data.token}`;
     setNotice('');
@@ -633,6 +636,7 @@ function App() {
 
   return (
     <Shell view={view} setView={setView} account={account} onLogout={() => logout()}>
+      {splash && <Splash onDone={() => setSplash(false)} />}
       {dragOver && view === 'create' && (
         <div className="fixed inset-0 z-50 pointer-events-none flex items-center justify-center bg-ink/80 p-6 text-white">
           <div className="rounded-3xl border-4 border-dashed border-violet-400 bg-violet-500/10 px-8 py-10 text-center">

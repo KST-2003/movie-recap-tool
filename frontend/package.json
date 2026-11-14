@@ -11,7 +11,9 @@
     "prebuild": "node scripts/copy-ort.mjs"
   },
   "dependencies": {
+    "@fontsource/fredoka": "^5.3.0",
     "@fontsource/poppins": "^5.3.0",
+    "@fontsource/space-mono": "^5.3.0",
     "axios": "^1.21.0",
     "lucide-react": "^0.344.0",
     "mediabunny": "^1.65.2",

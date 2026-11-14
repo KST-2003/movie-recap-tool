@@ -117,6 +117,7 @@ const MY = {
   'Create video': 'ဗီဒီယိုဖန်တီးရန်',
   'My usage': 'ကျွန်ုပ်၏ အသုံးပြုမှု',
   'Create': 'ဖန်တီး',
+  'Loading': 'ဖွင့်နေသည်',
   'Recap studio': 'Recap စတူဒီယို',
   'What are we recapping today?': 'ဒီနေ့ ဘာဗီဒီယိုကို recap လုပ်ကြမလဲ?',
   'Drop in a video and Recat turns it into Burmese.': 'ဗီဒီယိုတစ်ခု ထည့်လိုက်ပါ၊ Recat က မြန်မာလို ပြောင်းပေးပါမယ်။',
