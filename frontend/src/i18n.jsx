@@ -31,7 +31,7 @@ const MY = {
   "Standard": "ပုံမှန်",
   "Natural Gemini voices: 30 to choose from, with emotion. Uses more of your allowance.": "သဘာဝကျသော Gemini အသံ ၃၀ ခုမှ ရွေးနိုင်ပြီး စိတ်ခံစားမှုပါသည်။ သင့်ခွင့်ပြုချက်ကို ပိုသုံးပါသည်။",
   "Two clear Burmese voices (female / male), no emotion. Cheaper and almost always available.": "အသံ နှစ်မျိုး (အမျိုးသမီး / အမျိုးသား)။ ပိုသက်သာပြီး မြန်ဆန်သည်။",
-  "The Standard voice reads everything in one clear Burmese voice. In a full movie, all female characters share the female voice and all male characters the male voice.": "ပုံမှန်အသံသည် အားလုံးကို ပီပြင်သော မြန်မာအသံတစ်မျိုးဖြင့် ဖတ်ပါသည်။ ရုပ်ရှင်အပြည့်အစုံတွင် အမျိုးသမီးဇာတ်ကောင်အားလုံး အမျိုးသမီးအသံကို၊ အမျိုးသားဇာတ်ကောင်အားလုံး အမျိုးသားအသံကို မျှဝေသုံးပါသည်။",
+  "The Standard voice reads everything in one clear Burmese voice. In a full movie, all female characters share the female voice and all male characters the male voice.": "အားလုံးကို ပီပြင်သော မြန်မာအသံတစ်မျိုးဖြင့် ဖတ်ပါသည်။",
   "Username": "အသုံးပြုသူအမည်",
   "Password": "စကားဝှက်",
   "Your username and password are given to you by the admin.": "သင့်အသုံးပြုသူအမည်နှင့် စကားဝှက်ကို အက်မင်က ပေးပါမည်။",
