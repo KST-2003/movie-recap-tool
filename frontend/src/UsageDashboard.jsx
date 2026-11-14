@@ -109,15 +109,15 @@ export default function UsageDashboard({ apiBase, refreshKey }) {
   const dayOfMonth = new Date().getUTCDate();
 
   return (
-    <div className="max-w-4xl mx-auto space-y-4">
+    <div className="max-w-4xl mx-auto space-y-4 stagger">
       <h2 className="text-xl font-bold text-ink">{tr('My usage')}</h2>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger">
         <Allowance title={tr('Today')} used={data.used_seconds / 60} limit={data.daily_minutes} note={tr('resets at {time}', { time: dayReset })} />
         <Allowance title={tr('This month')} used={monthUsed} limit={data.monthly_minutes} note={tr('resets on {date}', { date: monthReset })} />
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 stagger">
         {[
           [tr('Videos this month'), data.month_videos],
           [tr('Videos made in total'), data.total_videos],

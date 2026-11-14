@@ -33,7 +33,7 @@ export default function HistoryPage({ apiBase, refreshKey, onOpen }) {
   const pages = Math.max(1, Math.ceil(data.total / data.per_page));
 
   return (
-    <div className="max-w-4xl mx-auto space-y-4">
+    <div className="max-w-4xl mx-auto space-y-4 stagger">
       <div>
         <h2 className="text-xl font-bold text-ink">{tr('My videos')}</h2>
         <p className="mt-1 text-xs text-ink-soft">
@@ -45,7 +45,7 @@ export default function HistoryPage({ apiBase, refreshKey, onOpen }) {
       {data.items.length === 0 ? (
         <div className="rounded-2xl border border-violet-100 bg-white p-6 text-sm text-ink-soft">{tr('No videos yet.')}</div>
       ) : (
-        <ul className="space-y-3">
+        <ul className="space-y-3 stagger">
           {data.items.map((j) => {
             const ok = j.status === 'done';
             const left = j.expires_at ? daysLeft(j.expires_at) : null;

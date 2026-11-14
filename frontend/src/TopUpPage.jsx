@@ -46,7 +46,7 @@ export default function TopUpPage({ apiBase, onChanged }) {
   if (!info) return <div className="max-w-3xl mx-auto text-sm text-ink-soft p-4">{tr('Loading…')}</div>;
 
   return (
-    <div className="max-w-3xl mx-auto space-y-4">
+    <div className="max-w-3xl mx-auto space-y-4 stagger">
       <div>
         <h2 className="text-xl font-bold text-ink">{tr('Top up minutes')}</h2>
         <p className="mt-1 text-xs text-ink-soft">
