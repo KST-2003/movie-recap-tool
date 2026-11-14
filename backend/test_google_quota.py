@@ -86,6 +86,28 @@ amb = [{"metric": "x/requests_a", "display": "", "unit": "1/d/{project}/{model}"
 r = gq.per_model([M], amb, [])[M]
 ok(r["per_day_limit"] == 250 and r["ambiguous"] is True, "several different limits -> biggest, flagged ambiguous")
 
+# real shape (2026-11-14): Google lists every tier's limits for every project, and drops "-preview" from the model name
+def row(metric, display, unit, model, limit):
+    return {"metric": "generativelanguage.googleapis.com/" + metric, "display": display, "unit": unit, "limit_name": "x", "dimensions": {"model": model}, "limit": limit}
+D, MIN = "1/d/{project}/{model}", "1/min/{project}/{model}"
+real = []
+for mod, t1 in (("gemini-2.5-flash-tts", (10, 100)), ("gemini-3.8-flash", (1000, 10000))):
+    real += [row("generate_content_free_tier_requests", "in the free tier.", MIN, mod, 3), row("generate_content_free_tier_requests", "in the free tier.", D, mod, 10),
+             row("generate_requests_per_model", "requests per model (paid tier)", MIN, mod, t1[0]), row("generate_requests_per_model_per_day", "requests per model per day", D, mod, t1[1]),
+             row("generate_content_paid_tier_2_requests", "(paid tier 2)", MIN, mod, 1000), row("generate_content_paid_tier_2_requests", "(paid tier 2)", D, mod, 10000),
+             row("generate_content_paid_tier_2_requests_prio", "(paid tier 2) (priority)", D, mod, 3000),
+             row("generate_content_paid_tier_3_requests", "(paid tier 3)", MIN, mod, 1000), row("generate_content_paid_tier_3_requests", "(paid tier 3)", D, mod, -1),
+             row("generate_content_paid_tier_input_token_count", "input token count", MIN, mod, 10000)]
+os.environ.pop("GEMINI_TIER", None)
+r = gq.per_model(["gemini-2.5-flash-preview-tts", "gemini-3.8-flash-tts"], real, [])
+p_ = r["gemini-2.5-flash-preview-tts"]
+ok(p_["per_day_limit"] == 100 and p_["per_minute_limit"] == 10 and p_["ambiguous"] is False and p_["tier"] == "1", f"all tiers listed: OUR tier's limit (tier 1 by default) is shown, '-preview' name matched ({p_['per_day_limit']}/day)")
+ok(p_["tiers"]["2"] == {"day": 10000, "minute": 1000} and p_["tiers"]["3"]["day"] == -1 and p_["tiers"]["free"]["day"] == 10, "every tier's limits are kept for the page (priority rows ignored)")
+ok(r["gemini-3.8-flash-tts"]["per_day_limit"] is None, "another model's rows (gemini-3.8-flash) are not taken for gemini-3.8-flash-tts")
+os.environ["GEMINI_TIER"] = "2"
+ok(gq.per_model(["gemini-2.5-flash-preview-tts"], real, [])["gemini-2.5-flash-preview-tts"]["per_day_limit"] == 10000, "GEMINI_TIER=2 shows the tier 2 limit")
+os.environ.pop("GEMINI_TIER", None)
+
 # raw view + half failing
 raw = gq.raw()
 ok(len(raw["limits"]) == 4 and all("request" in (x["metric"] + x["display"]).lower() for x in raw["limits"]) and len(raw["usage"]) == 2, "raw(): request quotas only, usage rows kept")

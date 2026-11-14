@@ -85,6 +85,7 @@ export default function TtsPage() {
             <span className="min-w-0 break-words text-ink-soft">
               {!cloud.configured ? tr("Google Cloud is not connected, so limits and usage below are what this server configured and counted itself. To show Google's real numbers, set GCP_PROJECT_ID and GCP_SERVICE_ACCOUNT_FILE in backend/.env (see .env.example).")
                 : cloud.error ? tr('Google Cloud (project {p}): {e}', { p: cloud.project, e: cloud.error }) : tr('Google Cloud connected (project {p}): real limits and usage are shown.', { p: cloud.project })}
+              {cloud.configured && !cloud.error && !data.models.some((m) => m.cloud?.used_today != null) && <span className="mt-1 block text-ink-faint">{tr('Google returned no usage figures for the voice models, so "today" is what this server counted itself. Google lists the limits of every tier and does not say which tier the key is on: the tier is set on this server (GEMINI_TIER, default 1).')}</span>}
             </span>
           </li>
         </ul>
@@ -98,6 +99,7 @@ export default function TtsPage() {
       <div className="grid gap-3 md:grid-cols-2">
         {data.models.map((m) => {
           const c = m.cloud;
+          const tierName = (t) => (t === 'free' ? tr('Free tier') : tr('Tier {n}', { n: t }));
           const realLimit = c?.per_day_limit ?? m.seen_limit?.per_day ?? null;   // Google's own number, whichever source has it
           const differs = realLimit != null && realLimit !== m.per_day;
           const limit = c?.per_day_limit ?? m.per_day;
@@ -127,8 +129,12 @@ export default function TtsPage() {
               <dl className="mt-3 space-y-1 border-t border-violet-100 pt-2 text-[11px] text-ink-faint">
                 <div className="flex justify-between gap-2"><dt>{tr('Configured here (TTS_MODELS)')}</dt><dd className="text-right">{tr('{n}/day', { n: m.per_day })} · {tr('{n}/min', { n: m.per_minute })}</dd></div>
                 {seen && <div className="flex justify-between gap-2"><dt>{tr('Google said when it refused')}</dt><dd className="text-right">{seen}</dd></div>}
-                {c && <div className="flex justify-between gap-2"><dt>{tr('Google Cloud limit')}</dt><dd className="text-right">{c.per_day_limit != null || c.per_minute_limit != null ? [c.per_day_limit != null ? tr('{n}/day', { n: c.per_day_limit }) : null, c.per_minute_limit != null ? tr('{n}/min', { n: c.per_minute_limit }) : null].filter(Boolean).join(' · ') : tr('not found')}</dd></div>}
+                {c && <div className="flex justify-between gap-2"><dt>{c.tier ? tr('Google limit for your tier ({t})', { t: tierName(c.tier) }) : tr('Google Cloud limit')}</dt><dd className="text-right">{c.per_day_limit != null || c.per_minute_limit != null ? [c.per_day_limit != null ? tr('{n}/day', { n: c.per_day_limit }) : null, c.per_minute_limit != null ? tr('{n}/min', { n: c.per_minute_limit }) : null].filter(Boolean).join(' · ') : tr('not found')}</dd></div>}
+                {c?.tiers && Object.entries(c.tiers).filter(([t]) => t !== c.tier).map(([t, v]) => (
+                  <div key={t} className="flex justify-between gap-2 opacity-70"><dt>{tierName(t)}</dt><dd className="text-right">{[v.day != null ? (v.day < 0 ? tr('no daily limit') : tr('{n}/day', { n: v.day })) : null, v.minute != null ? (v.minute < 0 ? tr('no minute limit') : tr('{n}/min', { n: v.minute })) : null].filter(Boolean).join(' · ')}</dd></div>
+                ))}
               </dl>
+              {c?.tiers && !c.tier && <p className="mt-2 text-[11px] text-amber-700">{tr('Google lists no limit for the tier set on this server (GEMINI_TIER).')}</p>}
               {c?.ambiguous && <p className="mt-2 text-[11px] text-amber-700">{tr('Several different limits matched (free + paid tier?): the biggest is shown. Check the raw data below.')}</p>}
               {differs && <p className="mt-2 text-[11px] text-amber-700">{tr("Google's real limit ({n}/day) differs from the one configured here. Update TTS_MODELS in backend/.env so quotas are counted correctly.", { n: realLimit })}</p>}
             </Card>

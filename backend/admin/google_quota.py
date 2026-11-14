@@ -171,27 +171,65 @@ def _mentions(model: str, values) -> bool:
     return model.lower() in " ".join(str(v) for v in values).lower()
 
 
+def _names(model: str) -> set[str]:
+    """Names Google's quota rows may use for a pool model: its own, and the same without "-preview"
+    (real data 2026-11-14: `gemini-2.5-flash-preview-tts` is listed as `gemini-2.5-flash-tts`, `gemini-3.1-flash-tts-preview` as `gemini-3.1-flash-tts`)."""
+    m = model.lower()
+    return {m, m.replace("-preview", "")}
+
+
+def _is(model: str, values) -> bool:
+    """EXACT model name in the row (substring matching gave `gemini-3.8-flash` rows to `gemini-3.8-flash-tts` style lookups)."""
+    return bool(_names(model) & {str(v).lower() for v in values})
+
+
+def _tier(row: dict) -> str:
+    """Google lists the limits of EVERY tier for every project (real data 2026-11-14), it does not say which tier the project is on:
+    `..._free_tier_requests`, `generate_requests_per_model(_per_day)` = paid tier 1, `..._paid_tier_2_requests`, `..._paid_tier_3_requests`."""
+    t = f"{row['metric']} {row['display']}".lower()
+    if "free" in t:
+        return "free"
+    for n in ("3", "2"):
+        if f"tier_{n}" in t or f"tier {n}" in t:
+            return n
+    return "1"
+
+
+def account_tier() -> str:
+    """The tier OUR Gemini key is on. Google's API does not tell: set GEMINI_TIER (free | 1 | 2 | 3) after an upgrade. Default 1
+    (the 429 text of 2026-11 said "limit: 100 requests per day on Tier 1")."""
+    t = os.getenv("GEMINI_TIER", "1").strip().lower().replace("tier", "").strip()
+    return t if t in ("free", "1", "2", "3") else "1"
+
+
 def per_model(pool: list[str], limits: list[dict], usage: list[dict]) -> dict:
-    """{model: {per_day_limit, per_minute_limit, used_today, ambiguous}} from whatever Google returned.
-    ambiguous = several different limits matched (e.g. free tier + paid tier metrics): then the biggest is shown and flagged."""
+    """{model: {per_day_limit, per_minute_limit, used_today, ambiguous, tier, tiers}} from whatever Google returned.
+    The limit shown is the one of our tier (`account_tier`); `tiers` = every tier's request limits ({tier: {"day", "minute"}}, -1 = no limit)
+    so the page can show what an upgrade would give. ambiguous = several different limits inside the SAME tier (biggest shown)."""
+    mine = account_tier()
     out = {}
     for model in pool:
-        found = {"day": set(), "minute": set()}
+        tiers: dict = {}
         for r in limits:
-            if r["limit"] is None or "request" not in f"{r['metric']} {r['display']} {r['limit_name']}".lower():
+            name = r["metric"].lower()
+            if r["limit"] is None or "request" not in f"{name} {r['display']} {r['limit_name']}".lower() or name.endswith("_prio"):
                 continue
-            if not _mentions(model, r["dimensions"].values()):
+            if not _is(model, r["dimensions"].values()):
                 continue
             scope = _scope(f"{r['unit']} {r['limit_name']}")
             if scope:
-                found[scope].add(r["limit"])
+                tiers.setdefault(_tier(r), {"day": set(), "minute": set()})[scope].add(r["limit"])
+        found = tiers.get(mine) or (next(iter(tiers.values())) if len(tiers) == 1 else {"day": set(), "minute": set()})
         used = [u["used"] for u in usage
                 if "request" in f"{u['quota_metric']} {u['limit_name']}".lower() and _scope(f"{u['quota_metric']} {u['limit_name']}") == "day"
-                and _mentions(model, u["labels"].values())]
+                and _is(model, u["labels"].values())]
         out[model] = {"per_day_limit": max(found["day"]) if found["day"] else None,
                       "per_minute_limit": max(found["minute"]) if found["minute"] else None,
                       "used_today": sum(used) if used else None,
                       "ambiguous": len(found["day"]) > 1 or len(found["minute"]) > 1}
+        if len(tiers) > 1:
+            out[model]["tier"] = mine if mine in tiers else None
+            out[model]["tiers"] = {t: {k: (max(v) if v else None) for k, v in d.items()} for t, d in sorted(tiers.items())}
     return out
 
 
