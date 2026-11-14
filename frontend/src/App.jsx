@@ -673,7 +673,7 @@ function App() {
         <p className="mt-1 text-sm text-white/85">{tr('Drop in a video and Recat turns it into Burmese.')}</p>
         <Mascot className="absolute right-3 sm:right-8 bottom-1 h-28 w-28 sm:h-36 sm:w-36 drop-shadow-xl" />
       </div>
-      <div className="max-w-3xl mx-auto bg-white/90 backdrop-blur border border-white rounded-[2rem] p-5 sm:p-7 shadow-card animate-rise [animation-delay:80ms]">
+      <div className="max-w-3xl mx-auto bg-white border border-white rounded-[2rem] p-5 sm:p-7 shadow-card animate-rise [animation-delay:80ms]">
 
         {blockedSeconds > 0 && (
           <div role="alert" className="mb-5 rounded-2xl border-2 border-amber-400/70 bg-amber-500/10 p-4 flex gap-3 animate-[selectIn_200ms_ease-out]">

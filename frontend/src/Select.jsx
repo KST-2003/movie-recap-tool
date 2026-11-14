@@ -1,8 +1,11 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 /**
  * Our own dropdown (no system picker). options: [{ value, label, group? }] (an option with the same `group` text is listed under a heading).
- * size: 'md' (form fields) | 'sm' (compact, inside the editor). The menu is drawn with position: fixed so no parent can clip it.
+ * size: 'md' (form fields) | 'sm' (compact, inside the editor). The menu is drawn with position: fixed AND rendered into <body>
+ * (portal): a parent with backdrop-filter / transform / filter becomes the reference box of fixed children, which put the menu in
+ * the wrong place and made it impossible to press (2026-11-14, the form card had backdrop-blur).
  */
 export default function Select({ value, onChange, options, size = 'md', className = '', placeholder = '', disabled = false, title }) {
   const [open, setOpen] = useState(false);
@@ -75,7 +78,7 @@ export default function Select({ value, onChange, options, size = 'md', classNam
           <path d="M5 8l5 5 5-5" />
         </svg>
       </button>
-      {open && pos && (
+      {open && pos && createPortal(
         <div
           ref={menu} role="listbox"
           style={{ position: 'fixed', left: pos.left, width: pos.width, top: pos.top, bottom: pos.bottom, maxHeight: pos.maxH, zIndex: 1000 }}
@@ -96,7 +99,8 @@ export default function Select({ value, onChange, options, size = 'md', classNam
                 )}
               </div>
             )))}
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );
