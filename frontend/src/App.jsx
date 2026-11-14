@@ -854,9 +854,16 @@ function App() {
                 {[['standard', 'Standard', 'Two clear Burmese voices (female / male), no emotion. Cheaper and almost always available.'],
                   ['premium', 'High quality', '30 voices to choose from, with emotion. Uses more of your allowance.']].map(([q, title, text]) => (
                   <button key={q} type="button" onClick={() => { setVoiceQuality(q); if (q === 'standard') { setVoiceType(voiceGender === 'male' ? 'Charon' : 'Kore'); } }}
-                    className={`text-left rounded-2xl border p-3 ${voiceQuality === q ? 'border-violet-400 bg-violet-100/40' : 'border-violet-200 bg-violet-50/50 hover:bg-violet-50'}`}>
+                    aria-pressed={voiceQuality === q}
+                    className={`relative text-left rounded-2xl border-2 p-3 pr-11 transition-all duration-300 ${voiceQuality === q
+                      ? 'border-violet-500 bg-gradient-to-br from-violet-500 to-violet-400 text-white shadow-pop sm:-translate-y-0.5'
+                      : 'border-violet-100 bg-white text-ink opacity-80 hover:opacity-100 hover:border-violet-300'}`}>
+                    {/* the chosen card is filled and ticked; the other one is plain white with an empty circle */}
+                    <span aria-hidden="true" className={`absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full border-2 ${voiceQuality === q ? 'border-white bg-white text-violet-600' : 'border-violet-200 bg-white text-transparent'}`}>
+                      <svg key={String(voiceQuality === q)} viewBox="0 0 20 20" className={`h-3.5 w-3.5 ${voiceQuality === q ? 'animate-pop' : ''}`} fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M4 10.5l4 4 8-9" /></svg>
+                    </span>
                     <span className="block text-sm font-semibold">{tr(title)}</span>
-                    <span className="block text-xs text-ink-soft mt-0.5">{tr(text)}</span>
+                    <span className={`block text-xs mt-0.5 ${voiceQuality === q ? 'text-white/90' : 'text-ink-soft'}`}>{tr(text)}</span>
                   </button>
                 ))}
               </div>
