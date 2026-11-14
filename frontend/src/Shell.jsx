@@ -96,7 +96,7 @@ export default function Shell({ view, setView, account, onLogout, children }) {
       {/* Phones: top bar */}
       <header className="lg:hidden sticky top-0 z-30 flex items-center gap-3 px-4 py-2.5 bg-white/80 backdrop-blur border-b border-violet-100">
         <Brand size="text-lg" icon="h-9 w-9" />
-        {left != null && <span className="ml-auto rounded-full bg-violet-50 px-3 py-1 text-xs font-medium text-violet-600 whitespace-nowrap">{tr('{n} min left', { n: left })}</span>}
+        {left != null && <span className="ml-auto min-w-0 truncate rounded-full bg-violet-50 px-3 py-1 text-xs font-medium text-violet-600">{tr('{n} min left', { n: left })}</span>}
         <button type="button" aria-label={tr('Menu')} aria-expanded={open} onClick={() => setOpen(true)}
           className={`${left == null ? 'ml-auto' : ''} h-9 w-9 shrink-0 rounded-full bg-gradient-to-br from-violet-400 to-pink-300 text-sm font-bold text-white shadow-pop`}>{initial}</button>
       </header>

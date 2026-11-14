@@ -6,12 +6,15 @@ export default function Mascot({ className = 'h-12 w-12', still = false }) {
   return <img src="/recat.webp" alt="" aria-hidden="true" draggable={false} className={`${className} select-none object-contain ${still ? '' : 'animate-floaty'}`} />;
 }
 
-// The word mark: mascot + "Recat".
+// The word mark: mascot + "Recat Studio" (sidebar, phone top bar, account sheet).
 export function Brand({ size = 'text-xl', icon = 'h-10 w-10' }) {
   return (
     <span className="inline-flex items-center gap-2">
       <Mascot className={icon} />
-      <span className={`${size} font-bold tracking-tight bg-gradient-to-r from-violet-600 to-pink-500 bg-clip-text text-transparent`}>Recat</span>
+      <span className={`${size} font-bold tracking-tight whitespace-nowrap`}>
+        <span className="bg-gradient-to-r from-violet-600 to-pink-500 bg-clip-text text-transparent">Recat</span>{' '}
+        <span className="text-amber-500">Studio</span>
+      </span>
     </span>
   );
 }
