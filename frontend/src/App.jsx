@@ -546,7 +546,10 @@ function App() {
   // Draw the video on this device from the server's plan. Returns the video's blob URL, or null after handing the job to the server.
   const finishOnDevice = async (job, result) => {
     const signal = { aborted: false };
-    const onHide = () => { if (document.hidden) signal.aborted = true; };   // iOS pauses the page in the background: the decoder dies
+    // Phones and tablets suspend a hidden page (the decoder dies), so the render is stopped and the server takes over.
+    // A computer keeps a hidden tab running: there the render simply continues (2026-11-15: a Windows PC lost two renders to a tab switch).
+    const handheld = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+    const onHide = () => { if (document.hidden && handheld) signal.aborted = true; };   // iOS pauses the page in the background: the decoder dies
     let lock = null, ok = false, error = '', stats = null;
     const t0 = Date.now();
     try {
