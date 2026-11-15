@@ -307,8 +307,10 @@ export async function renderFromPlan(file, plan, audioBlob, logoFile, { onProgre
 
   let i = 0, last = null, lastReport = 0;
   const loopStart = performance.now();
+  let tDecode = 0, tDraw = 0, tEncode = 0, mark = loopStart, distinct = 0;   // where the time goes: waiting for the decoder, drawing, encoding
   for await (const sample of new VideoSampleSink(vTrack).samplesAtTimestamps(times)) {
     if (signal.aborted) throw new Error('aborted');
+    const t0 = performance.now(); tDecode += t0 - mark;
     const t = i / fps;
     while (cueIdx < cues.length && cues[cueIdx][1] <= t) cueIdx++;
     const cue = cueIdx < cues.length && cues[cueIdx][0] <= t ? cues[cueIdx][2] : '';
@@ -318,8 +320,10 @@ export async function renderFromPlan(file, plan, audioBlob, logoFile, { onProgre
     }
     const s = sample || last;
     if (s) comp.draw(s, subAt(srcTimes[i]), hasOverlay);
+    const t1 = performance.now(); tDraw += t1 - t0;
     await vSource.add(t, 1 / fps);
-    if (sample && sample !== last) { last?.close?.(); last = sample; }
+    mark = performance.now(); tEncode += mark - t1;
+    if (sample && sample !== last) { last?.close?.(); last = sample; distinct++; }
     i++;
     if (performance.now() - lastReport > 250) { lastReport = performance.now(); onProgress(0.9 * Math.min(1, i / frames), `Frame ${i}/${frames}`); }
   }
@@ -339,7 +343,8 @@ export async function renderFromPlan(file, plan, audioBlob, logoFile, { onProgre
   const blob = new Blob([output.target.buffer], { type: 'video/mp4' });
   onProgress(1, 'Done');
   return { blob, stats: { canvas: 'webgl', output: `${W}x${H}`, videoSeconds: +total.toFixed(1), seconds: +seconds.toFixed(1), speed: +(total / seconds).toFixed(2),
-    frames: i, videoLoopSeconds: +loopSeconds.toFixed(1), outputMB: +(blob.size / 1048576).toFixed(1) } };
+    frames: i, videoLoopSeconds: +loopSeconds.toFixed(1), decodeSeconds: +(tDecode / 1000).toFixed(1), drawSeconds: +(tDraw / 1000).toFixed(1), encodeSeconds: +(tEncode / 1000).toFixed(1), samples: distinct,
+    source: `${vTrack.displayWidth}x${vTrack.displayHeight} ${vTrack.codec || ''}`, outputMB: +(blob.size / 1048576).toFixed(1) } };
 }
 
 /** Quick check shown before offering the button: WebCodecs H.264 encoding + WebGL + a measured encode speed (no AAC encoder needed). */

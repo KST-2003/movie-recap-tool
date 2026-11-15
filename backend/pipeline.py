@@ -317,9 +317,16 @@ READ_ALOUD_EXTRA = float(os.getenv("READ_ALOUD_EXTRA", "0.45"))
 # listened: same person, acceptable. 2.0 still catches a voice that jumps a whole octave. Downward stays 0.78.
 EMOTION_PITCH_HI = float(os.getenv("EMOTION_PITCH_HI", "2.0"))
 EMOTION_MAX = int(os.getenv("EMOTION_MAX_LINES", "12"))   # emotional lines are voiced one per request: cap them (quota + time)
-# Time budget: a video must be finished in about its own length (hard cap JOB_BUDGET_MAX seconds). The optional
+# Time budget: a video should be finished in about its own length + a fixed allowance (hard cap JOB_BUDGET_MAX seconds). The optional
 # polishing steps (pre-fit, fit rounds) only start if enough budget is left AFTER reserving time for the render.
+# 2026-11-15: a real 208 s video had BOTH fitting steps skipped (budget 187 s = 0.9 x length; detection 48 s + translation 59 s had
+# used 107 s and 62 s were reserved for a render the server did not even do: device render) -> 48 of 63 voice lines too long, video
+# slowed / frozen, although the user had ticked "Tighten long translations". Short videos pay the same fixed costs (detection,
+# translation round trip) as long ones, so the budget now has a fixed part and a floor, and a device render reserves only the sound.
 JOB_BUDGET_MAX = float(os.getenv("JOB_BUDGET_MAX_SECONDS", "540"))
+JOB_BUDGET_EXTRA = float(os.getenv("JOB_BUDGET_EXTRA_SECONDS", "120"))   # fixed allowance on top of 0.9 x length
+JOB_BUDGET_MIN = float(os.getenv("JOB_BUDGET_MIN_SECONDS", "300"))       # even a 30 s clip may use this much
+SOUND_SECONDS_PER_VIDEO_SECOND = float(os.getenv("SOUND_SECONDS_PER_VIDEO_SECOND", "0.13"))   # device render: measured 70 s / 600 s and 19 s / 208 s on the Contabo server
 RENDER_SECONDS_PER_VIDEO_SECOND = float(os.getenv("RENDER_SECONDS_PER_VIDEO_SECOND", "0.2"))   # measured 0.14 on an M2 Air
 
 
@@ -610,8 +617,9 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
         info = probe_video(video_path)
         video_duration = media_duration(video_path)
         fx_kwargs = {}
-        budget = min(max(video_duration * 0.9, 150.0), JOB_BUDGET_MAX)
-        render_reserve = RENDER_SECONDS_PER_VIDEO_SECOND * video_duration + 20.0
+        budget = min(max(video_duration * 0.9 + JOB_BUDGET_EXTRA, JOB_BUDGET_MIN), JOB_BUDGET_MAX)
+        render_reserve = ((SOUND_SECONDS_PER_VIDEO_SECOND * video_duration + 10.0) if p.get("device_render")
+                          else (RENDER_SECONDS_PER_VIDEO_SECOND * video_duration + 20.0))
 
         def time_left() -> float:
             """Seconds the optional steps may still spend, with the render time already set aside."""
@@ -897,14 +905,16 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
             **fx_kwargs,
         )
         check_cancelled(job_id)
-        set_job(job_id, stage="Rendering video", progress=75)
+        device = bool(p.get("device_render"))
+        # device render: the server only builds the sound here; the picture is drawn on the user's device afterwards
+        render_stage = "Preparing the sound" if device else "Rendering video"
+        set_job(job_id, stage=render_stage, progress=75)
         if p.get("enable_subtitles", True) and not burmese_font_available():   # without it every Burmese letter is drawn as an empty box
             print("  WARNING: no Burmese font found on this server: the subtitles will be drawn as boxes (set BURMESE_FONT_PATH or add backend/fonts)", flush=True)
             warn.append("The Burmese subtitle font is missing on the server, so the subtitles may show as boxes. The owner has been informed.")
-        device = bool(p.get("device_render"))
 
         def render_progress(done: int, total: int):   # one step per finished segment, so the time-left estimate follows the render
-            set_job(job_id, stage="Rendering video", progress=75 + int(23 * done / max(total, 1)))
+            set_job(job_id, stage=render_stage, progress=75 + int(23 * done / max(total, 1)))
 
         with pipeline_stage("Voice track (device render)" if device else "FFmpeg Render"):
             if device:   # the phone draws the picture: the server only mixes the sound, in the same filter graph as a full render

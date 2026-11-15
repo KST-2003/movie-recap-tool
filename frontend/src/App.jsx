@@ -123,13 +123,19 @@ const STEPS = [
   { label: 'Fitting each line to its scene', from: 62, to: 75 },
   { label: 'Rendering the final video', from: 75, to: 100 },
 ];
+// With "Render on my device" the video is made in two parts (server, then this device). They are shown as ONE run:
+// the server part fills the first 70% of the bar and the device part the rest, so nothing looks like it starts again.
+const DEVICE_SHARE = 30;
+const overallPct = (progress, deviceJob) => (!deviceJob ? progress.pct : progress.device ? Math.round(100 - DEVICE_SHARE + (progress.pct * DEVICE_SHARE) / 100) : Math.round((progress.pct * (100 - DEVICE_SHARE)) / 100));
 const mmss = (t) => `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
 
 // What is done, what is running now, what is left, so a long job never looks stuck.
-function ProcessingPanel({ upload, progress, elapsed, subsOnly }) {
+function ProcessingPanel({ upload, progress, elapsed, subsOnly, deviceJob }) {
   const { tr, trs } = useI18n();
   const uploading = upload !== null && upload < 100;
-  const pct = uploading ? -1 : progress.pct;
+  const onDevice = !!progress.device;                       // the server part is finished, this device is drawing the picture
+  const pct = uploading ? -1 : onDevice ? 100 : progress.pct;   // every server step stays ticked while the device works
+  const steps = deviceJob ? [...STEPS.slice(0, -1), { ...STEPS[STEPS.length - 1], label: 'Preparing the sound' }] : STEPS;
   return (
     <div className="w-full max-w-xs mt-3 rounded-2xl border border-violet-100 bg-white/60 p-3 text-xs">
       <div className="flex justify-between text-ink-soft mb-2">
@@ -144,7 +150,7 @@ function ProcessingPanel({ upload, progress, elapsed, subsOnly }) {
         </div>
       )}
       <ol className="space-y-1.5">
-        {STEPS.map((st, i) => (subsOnly && i >= 3 && i <= 5 ? null : (st && { st, i }))).filter(Boolean).map(({ st, i }) => {
+        {steps.map((st, i) => (subsOnly && i >= 3 && i <= 5 ? null : (st && { st, i }))).filter(Boolean).map(({ st, i }) => {
           const done = i === 0 ? !uploading : pct >= st.to;
           const active = !done && (i === 0 ? uploading : pct >= st.from && pct < st.to);
           return (
@@ -159,6 +165,16 @@ function ProcessingPanel({ upload, progress, elapsed, subsOnly }) {
             </li>
           );
         })}
+        {deviceJob && (
+          <li className="flex items-start gap-2">
+            <span className={`mt-0.5 w-4 h-4 flex-shrink-0 rounded-full ${onDevice ? 'border-2 border-violet-400 border-t-transparent animate-spin' : 'border border-violet-300'}`} />
+            <span className={onDevice ? 'text-ink' : 'text-ink-faint'}>
+              {tr('Drawing the picture on this device')}
+              {onDevice ? <span className="block text-violet-600">{tr('Last step, on this device: {n}% · keep this screen open', { n: progress.pct })}</span>
+                : <span className="block">{tr('The last step is done by this device, not the server.')}</span>}
+            </span>
+          </li>
+        )}
       </ol>
       <p className="mt-2 text-[11px] text-ink-faint">{tr('Longer videos can take a few minutes. If you cancel after it has started, the minutes are still used.')}</p>
     </div>
@@ -340,7 +356,8 @@ function App() {
   const [bgMode, setBgMode] = useState('separate'); // full mode: the film's own sounds ('separate' = effects kept, speech removed | 'original' = all lowered | 'off')
   const [emotionOn, setEmotionOn] = useState(true);
   const [softMusic, setSoftMusic] = useState(false);
-  const [progress, setProgress] = useState({ pct: 0, stage: '' });
+  const [progress, setProgress] = useState({ pct: 0, stage: '' });   // device: true while THIS device draws the picture (second part of a device render)
+  const [deviceJob, setDeviceJob] = useState(false);                // the video being made ends with a step on this device
   const [notes, setNotes] = useState('');
   const [subtitleUrl, setSubtitleUrl] = useState('');
   const [timeline, setTimeline] = useState([]);
@@ -473,6 +490,7 @@ function App() {
     if (JSON.stringify(captionStyle) !== JSON.stringify(DEFAULT_CAPTION_STYLE)) formData.append('caption_style', JSON.stringify(captionStyle));
     formData.append('resolution', resolution);
     formData.append('device_render', !!(useDevice && deviceCap?.ok));
+    setDeviceJob(!!(useDevice && deviceCap?.ok));
     formData.append('aspect', aspect);
     formData.append('fit_mode', fitMode);
     formData.append('pan_x', pan.x);
@@ -533,18 +551,19 @@ function App() {
     const t0 = Date.now();
     try {
       if (!videoFile) throw new Error('The original video is not on this device any more');
-      setProgress({ pct: 0, stage: tr('Making the picture on your device: keep this screen open') });
+      setDeviceJob(true);
+      setProgress({ pct: 0, device: true, stage: tr('Making the picture on your device: keep this screen open') });
       document.addEventListener('visibilitychange', onHide);
       try { lock = await navigator.wakeLock?.request('screen'); } catch (e) { /* optional */ }
       const audioBlob = await (await fetch(absUrl(result.audio_url))).blob();
       const run = () => renderFromPlan(videoFile, result.device_plan, audioBlob, customLogo, {
         signal,
-        onProgress: (p) => { if (cancelled.current) signal.aborted = true; setProgress({ pct: Math.round(p * 100), stage: tr('Making the picture on your device: keep this screen open') }); },
+        onProgress: (p) => { if (cancelled.current) signal.aborted = true; setProgress({ pct: Math.round(p * 100), device: true, stage: tr('Making the picture on your device: keep this screen open') }); },
       });
       let out;
       try { out = await run(); } catch (e) { if (signal.aborted) throw e; out = await run(); }   // the first run after choosing a file sometimes fails once
       ok = true; stats = out.stats;
-      axios.post(`${API_BASE}/api/jobs/${job.id}/device-log`, { ok: true, seconds: stats.seconds, speed: stats.speed, info: { cores: deviceCap?.cores, memory: deviceCap?.memory, fps: deviceCap?.fps, ua: deviceCap?.ua } }).catch(() => {});
+      axios.post(`${API_BASE}/api/jobs/${job.id}/device-log`, { ok: true, seconds: stats.seconds, speed: stats.speed, info: { cores: deviceCap?.cores, memory: deviceCap?.memory, fps: deviceCap?.fps, ua: deviceCap?.ua, decode_s: stats.decodeSeconds, draw_s: stats.drawSeconds, encode_s: stats.encodeSeconds, frames: stats.frames, samples: stats.samples, source: stats.source, output: stats.output } }).catch(() => {});
       return URL.createObjectURL(out.blob);
     } catch (e) {
       if (cancelled.current) { const err = new Error('Cancelled'); err.cancelled = true; throw err; }
@@ -555,6 +574,7 @@ function App() {
     }
     // fallback: the same video, rendered by the server (voice clips are cached, nothing is charged)
     axios.post(`${API_BASE}/api/jobs/${job.id}/device-log`, { ok: false, error, fell_back: true, seconds: (Date.now() - t0) / 1000, info: { cores: deviceCap?.cores, memory: deviceCap?.memory, fps: deviceCap?.fps, ua: deviceCap?.ua } }).catch(() => {});
+    setDeviceJob(false);
     setProgress({ pct: 0, stage: tr('Your device could not make it, so the server is doing it') });
     const lines = (result.project?.segments || []).map((g) => ({ id: g.id, start: g.start, text: g.text, source_text: g.source_text || '', tempo: g.tempo || null, speaker: g.speaker || null }));
     const { data } = await axios.post(`${API_BASE}/api/jobs/${job.id}/rerender`, { segments: lines, device_render: false });
@@ -630,6 +650,7 @@ function App() {
     try {
       const { data: job } = await axios.get(`${API_BASE}/api/jobs/${id}`);
       const result = job.result;
+      setDeviceJob(false);   // a stored video was made by the server: its edits are too
       if (result?.device_plan) { setErrorMessage(tr('This video was made on your device and is not stored on the server. Upload the video again to make it again.')); setView('create'); return; }
       if (!result || result.expired) { setErrorMessage(tr('This result has expired. Please generate it again.')); setView('create'); return; }
       setErrorMessage('');
@@ -843,8 +864,6 @@ function App() {
           {sourceUrl && !loading && !resultVideoUrl && (
             <>
               <PreviewStudio src={sourceUrl} logoFile={customLogo} fx={{ ...previewFx, captionStyle: outputKind === 'voice' ? null : captionStyle }} onChange={changePreviewFx} />
-              {outputKind !== 'voice' && <CaptionStyleControls cap={captionStyle} onChange={setCaptionStyle} showSample={false} />}
-              {outputKind !== 'voice' && <p className="text-xs text-ink-faint -mt-2">{tr('The sample line in the preview shows the subtitle style. Drag it up or down to place it. "Automatic" puts subtitles over the original ones when they are found.')}</p>}
             </>
           )}
           {/* the same switches the editor has ("Look & sound"), so the FIRST video already comes out right; they can still be changed after */}
@@ -869,6 +888,12 @@ function App() {
             </div>
             <p className="text-xs text-ink-faint">{tr('You can still change these after the video is made.')}</p>
           </div>
+          {sourceUrl && !loading && !resultVideoUrl && (
+            <>
+              {outputKind !== 'voice' && <CaptionStyleControls cap={captionStyle} onChange={setCaptionStyle} showSample={false} />}
+              {outputKind !== 'voice' && <p className="text-xs text-ink-faint -mt-2">{tr('The sample line in the preview shows the subtitle style. Drag it up or down to place it. "Automatic" puts subtitles over the original ones when they are found.')}</p>}
+            </>
+          )}
           {!(sourceUrl && !loading && !resultVideoUrl) && (
             <p className="lg:hidden rounded-2xl border border-dashed border-violet-200 bg-page p-6 text-center text-sm text-ink-soft">
               {!sourceUrl ? tr('Choose a video in step 1 first. Then you can set the look here.') : tr('The look is set while the video is being made. Change it in the editor below the result.')}
@@ -1090,12 +1115,12 @@ function App() {
             <div className="flex justify-between items-center text-xs text-ink-soft mb-1">
               <span>{trs(progress.stage)}</span>
               <span className="flex items-center gap-3">
-                {progress.pct}%
+                {overallPct(progress, deviceJob)}%
                 <button type="button" onClick={cancelJob} className="px-2 py-0.5 rounded bg-violet-100 hover:bg-rose-200 text-ink">{tr('Cancel')}</button>
               </span>
             </div>
             <div className="h-2 bg-violet-50 rounded-full overflow-hidden">
-              <div className="h-full bg-violet-500 transition-all text-white" style={{ width: `${progress.pct}%` }} />
+              <div className="h-full bg-violet-500 transition-all text-white" style={{ width: `${overallPct(progress, deviceJob)}%` }} />
             </div>
           </div>
         )}
@@ -1126,7 +1151,7 @@ function App() {
                     <Mascot className="h-24 w-24 shrink-0" />
                     <p className="text-sm font-medium text-ink">{upload !== null && upload < 100 ? tr('Uploading {n}%', { n: upload }) : trs(progress.stage) || tr('Working…')}</p>
                     <div className="w-40 h-2 shrink-0 bg-violet-100 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full btn-candy animate-shimmer transition-all duration-700" style={{ width: `${upload !== null && upload < 100 ? upload : progress.pct}%` }} />
+                      <div className="h-full rounded-full btn-candy animate-shimmer transition-all duration-700" style={{ width: `${upload !== null && upload < 100 ? upload : overallPct(progress, deviceJob)}%` }} />
                     </div>
                     <button type="button" onClick={cancelJob} className="mt-1 px-4 py-1.5 shrink-0 rounded-full bg-white border border-violet-200 hover:bg-rose-100 hover:border-rose-200 text-sm font-medium">
                       {tr('Cancel')}
@@ -1134,7 +1159,7 @@ function App() {
                   </div>
                 )}
               </div>
-              {loading && <ProcessingPanel upload={upload} progress={progress} elapsed={elapsed} subsOnly={(project ? project.output : outputKind) === 'subtitles'} />}
+              {loading && <ProcessingPanel upload={upload} progress={progress} elapsed={elapsed} deviceJob={deviceJob} subsOnly={(project ? project.output : outputKind) === 'subtitles'} />}
               {resultVideoUrl && <a
                 href={resultDownloadUrl}
                 download
