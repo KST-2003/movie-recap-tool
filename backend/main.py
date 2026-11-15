@@ -136,7 +136,8 @@ def _quota(user: User) -> dict:
             "allowance_remaining_seconds": round(min(day_left, month_left)), "credit_seconds": round(credit),
             "monthly_minutes": user.monthly_minutes, "month_used_seconds": round(month_used),
             "month_remaining_seconds": round(month_left), "day_remaining_seconds": round(day_left),
-            "upload_blocked_seconds": 0 if user.is_admin else round(blocked)}
+            "upload_blocked_seconds": 0 if user.is_admin else round(blocked),
+            "expires_at": None if (user.is_admin or user.expires_at is None) else (user.expires_at if user.expires_at.tzinfo else user.expires_at.replace(tzinfo=timezone.utc)).isoformat()}
 
 
 @app.post("/api/auth/register")
@@ -170,6 +171,8 @@ def login(body: Credentials, request: Request):
             raise HTTPException(status_code=401, detail="Wrong username or password.")
         if user.status != "active":   # the password was right, so it is safe to say why the login does not work
             raise HTTPException(status_code=403, detail=auth.STATUS_MESSAGES.get(user.status, "Account unavailable."))
+        if auth.expired(user):
+            raise HTTPException(status_code=403, detail=auth.EXPIRED_MESSAGE)
         device_id = auth.clean_device_id(body.device_id)
         auth.register_device(s, user, device_id, request)   # may refuse: this login is limited to N devices
         s.commit()

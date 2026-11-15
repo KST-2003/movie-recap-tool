@@ -21,10 +21,10 @@ function StatusChip({ status }) {
 }
 
 // Shown ONCE after a login is made or a password is regenerated: the server keeps only a hash, so it cannot be shown again.
-function Credentials({ username, password, onClose }) {
+function Credentials({ username, password, expires, onClose }) {
   const { tr } = useI18n();
   const [copied, setCopied] = useState(false);
-  const text = `${tr('Username')}: ${username}\n${tr('Password')}: ${password}`;
+  const text = `${tr('Username')}: ${username}\n${tr('Password')}: ${password}${expires ? `\n${tr('Valid until')}: ${fmtDay(expires)}` : ''}`;
   const copy = async () => { try { await navigator.clipboard.writeText(text); setCopied(true); } catch (e) { setCopied(false); } };
   return (
     <Sheet title={tr('Login details')} onClose={onClose}>
@@ -33,6 +33,7 @@ function Credentials({ username, password, onClose }) {
         <dl className="space-y-2 rounded-2xl bg-violet-50/60 p-3 text-sm">
           <div className="flex justify-between gap-3"><dt className="text-ink-soft">{tr('Username')}</dt><dd className="break-all font-mono">{username}</dd></div>
           <div className="flex justify-between gap-3"><dt className="text-ink-soft">{tr('Password')}</dt><dd className="break-all font-mono">{password}</dd></div>
+          {expires && <div className="flex justify-between gap-3"><dt className="text-ink-soft">{tr('Valid until')}</dt><dd>{fmtDay(expires)}</dd></div>}
         </dl>
         <div className="flex justify-end gap-2">
           <button className={btnGhost} onClick={copy}><Copy size={14} />{copied ? tr('Copied') : tr('Copy')}</button>
@@ -40,6 +41,25 @@ function Credentials({ username, password, onClose }) {
         </div>
       </div>
     </Sheet>
+  );
+}
+
+const MONTH_CHOICES = [1, 3, 6, 12];
+const fmtDay = (iso) => (iso ? new Date(iso).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) : '');
+const daysLeft = (iso) => Math.ceil((new Date(iso) - Date.now()) / 86400000);
+
+// "1 month | 3 | 6 | 12 | (extra)" buttons; value 0 = the extra choice (no end date when creating)
+function MonthPicker({ value, onChange, zeroLabel }) {
+  const { tr } = useI18n();
+  return (
+    <div className="flex flex-wrap gap-2">
+      {[...MONTH_CHOICES, ...(zeroLabel ? [0] : [])].map((m) => (
+        <button key={m} type="button" aria-pressed={value === m} onClick={() => onChange(m)}
+          className={`rounded-2xl border px-3 py-2 text-xs font-medium ${value === m ? 'border-violet-500 bg-violet-500 text-white shadow-pop' : 'border-violet-200 text-ink-soft hover:bg-violet-50'}`}>
+          {m === 0 ? tr(zeroLabel) : m === 1 ? tr('1 month') : tr('{n} months', { n: m })}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -81,12 +101,13 @@ function CreateForm({ defaultMinutes, defaultMonthly, superadmin, onClose, onCre
   const [monthly, setMonthly] = useState(defaultMonthly ?? 2000);
   const [devices, setDevices] = useState(1);
   const [role, setRole] = useState('user');
+  const [months, setMonths] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const save = async (e) => {
     e.preventDefault(); setBusy(true); setError('');
     try {
-      const { data } = await axios.post('/api/admin/users', { username: username.trim() || null, password: password || null, daily_minutes: Number(minutes), monthly_minutes: Number(monthly), device_limit: devices, role });
+      const { data } = await axios.post('/api/admin/users', { username: username.trim() || null, password: password || null, daily_minutes: Number(minutes), monthly_minutes: Number(monthly), device_limit: devices, role, months: role === 'admin' ? 0 : months });
       onCreated(data);
     } catch (err) { setError(errText(err)); setBusy(false); }
   };
@@ -95,6 +116,13 @@ function CreateForm({ defaultMinutes, defaultMonthly, superadmin, onClose, onCre
       <form onSubmit={save} className="space-y-3">
         <input className={field} type="text" autoCapitalize="none" spellCheck={false} placeholder={tr('Username (leave empty to generate)')} value={username} onChange={(e) => setUsername(e.target.value)} />
         <input className={field} type="text" autoComplete="off" placeholder={tr('Password (leave empty to generate)')} value={password} onChange={(e) => setPassword(e.target.value)} minLength={password ? 8 : undefined} />
+        {role !== 'admin' && (
+          <div>
+            <p className="mb-1.5 text-xs text-ink-soft">{tr('How long the login works')}</p>
+            <MonthPicker value={months} onChange={setMonths} zeroLabel="No end date" />
+            <p className="mt-1.5 text-xs text-ink-faint">{months ? tr('The login stops working after {n} month(s) from today. You can add months later in Manage.', { n: months }) : tr('The login keeps working until you pause or deactivate it.')}</p>
+          </div>
+        )}
         <DevicePolicy value={devices} onChange={setDevices} />
         <label className="block text-xs text-ink-soft">{tr('Daily minutes')}<input className={`${field} mt-1`} type="number" min="0" value={minutes} onChange={(e) => setMinutes(e.target.value)} required /></label>
         <label className="block text-xs text-ink-soft">{tr('Monthly minutes')}<input className={`${field} mt-1`} type="number" min="0" value={monthly} onChange={(e) => setMonthly(e.target.value)} required /></label>
@@ -121,6 +149,9 @@ function EditSheet({ user, me, superadmin, onClose, onSaved, onCredentials }) {
   const locked = !superadmin && user.is_superadmin && !self;   // only the owner can change the owner account
   const [list, setList] = useState(null);
   const [credit, setCredit] = useState(user.credit_minutes || 0);
+  const [expires, setExpires] = useState(user.expires_at || null);
+  const [addMonths, setAddMonths] = useState(1);
+  const extend = (body, ask) => { if (ask && !window.confirm(ask)) return; run(async () => { const { data } = await axios.patch(`/api/admin/users/${user.id}`, body); setExpires(data.expires_at || null); }); };
   const [addMin, setAddMin] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -180,6 +211,20 @@ function EditSheet({ user, me, superadmin, onClose, onSaved, onCredentials }) {
           <p className="mt-2 text-[11px] text-ink-faint">{tr('A website cannot read the real device name, so the browser and system are shown. When the login is at its device limit, a new login signs out the device used longest ago. Removing a device signs it out.')}</p>
         </div>
 
+        {!user.is_admin && (
+          <div className="rounded-2xl border border-violet-100 p-3">
+            <p className="text-sm font-medium">{tr('Subscription')}: {!expires ? <span className="text-ink-soft">{tr('No end date')}</span>
+              : daysLeft(expires) > 0 ? <span className="text-violet-600">{tr('until {d} ({n} days left)', { d: fmtDay(expires), n: daysLeft(expires) })}</span>
+                : <span className="text-rose-600">{tr('ended on {d}', { d: fmtDay(expires) })}</span>}</p>
+            <div className="mt-2"><MonthPicker value={addMonths} onChange={setAddMonths} /></div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button type="button" className={btnPrimary} disabled={busy || locked} onClick={() => extend({ extend_months: addMonths })}>{addMonths === 1 ? tr('Add 1 month') : tr('Add {n} months', { n: addMonths })}</button>
+              {expires && <button type="button" className={btnGhost} disabled={busy || locked} onClick={() => extend({ no_expiry: true }, tr('Remove the end date? The login will then never end by itself.'))}>{tr('Remove end date')}</button>}
+            </div>
+            <p className="mt-2 text-[11px] text-ink-faint">{tr('Months are added to the end date, or counted from today when it has already passed. After the end date the user is signed out and cannot log in until you add months.')}</p>
+          </div>
+        )}
+
         <div className="rounded-2xl border border-violet-100 p-3">
           <p className="text-sm font-medium">{tr('Bought minutes')}: <span className="text-violet-600">{credit} {tr('min')}</span></p>
           <div className="mt-2 flex gap-2">
@@ -222,6 +267,8 @@ export default function UsersPage({ me, superadmin, openJobsFor }) {
   const Tags = ({ u }) => (<>
     {u.is_admin && <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2 py-0.5 text-[11px] text-violet-600"><ShieldCheck size={11} />{tr(u.is_superadmin ? 'superadmin' : 'admin')}</span>}
     {u.status !== 'active' && <StatusChip status={u.status} />}
+    {u.expired ? <span className="inline-block rounded-full bg-red-500/15 px-2 py-0.5 text-[11px] text-rose-600">{tr('expired {d}', { d: fmtDay(u.expires_at) })}</span>
+      : u.expires_at && !u.is_admin ? <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] ${daysLeft(u.expires_at) <= 7 ? 'bg-amber-500/15 text-amber-700' : 'bg-violet-50 text-ink-soft'}`}>{tr('until {d}', { d: fmtDay(u.expires_at) })}</span> : null}
   </>);
 
   return (
@@ -285,10 +332,10 @@ export default function UsersPage({ me, superadmin, openJobsFor }) {
       </Card>
       {data && <Pager page={data.page} perPage={data.per_page} total={data.total} onPage={setPage} />}
       {editing === null && <CreateForm superadmin={superadmin} defaultMinutes={data?.default_daily_minutes} defaultMonthly={data?.default_monthly_minutes} onClose={() => setEditing(undefined)}
-        onCreated={(u) => { setEditing(undefined); setCreds({ username: u.email, password: u.password }); reload(); }} />}
-      {editing && <EditSheet key={editing.id} user={editing} me={me} superadmin={superadmin} onClose={() => setEditing(undefined)} onSaved={() => { setEditing(undefined); reload(); }}
+        onCreated={(u) => { setEditing(undefined); setCreds({ username: u.email, password: u.password, expires: u.expires_at }); reload(); }} />}
+      {editing && <EditSheet key={editing.id} user={editing} me={me} superadmin={superadmin} onClose={() => { setEditing(undefined); reload(); }} onSaved={() => { setEditing(undefined); reload(); }}
         onCredentials={(c) => { setEditing(undefined); setCreds(c); reload(); }} />}
-      {creds && <Credentials username={creds.username} password={creds.password} onClose={() => setCreds(null)} />}
+      {creds && <Credentials username={creds.username} password={creds.password} expires={creds.expires} onClose={() => setCreds(null)} />}
     </div>
   );
 }

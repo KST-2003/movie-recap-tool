@@ -49,6 +49,13 @@ function AccountBox({ account, onLogout }) {
           <Meter label={tr('Today')} used={mins(account.used_seconds)} limit={account.daily_minutes} />
           <Meter label={tr('This month')} used={mins(account.month_used_seconds)} limit={account.monthly_minutes} />
           <div className="flex justify-between text-[11px] text-ink-soft"><span>{tr('Bought minutes')}</span><span className="text-ink font-medium">{Math.floor(mins(account.credit_seconds))} {tr('min')}</span></div>
+          {account.expires_at && (() => {
+            const days = Math.ceil((new Date(account.expires_at) - Date.now()) / 86400000);
+            return (
+              <div className="flex justify-between gap-2 text-[11px] text-ink-soft"><span>{tr('Valid until')}</span>
+                <span className={`text-right font-medium ${days <= 7 ? 'text-rose-600' : 'text-ink'}`}>{new Date(account.expires_at).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })}{days <= 7 ? ` · ${tr('{n} days left', { n: Math.max(0, days) })}` : ''}</span></div>
+            );
+          })()}
         </div>
       )}
       <div className="mt-auto space-y-3">

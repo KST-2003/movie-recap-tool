@@ -274,6 +274,8 @@ const MY = {
   'Generating the Burmese voice-over': 'မြန်မာအသံသွင်းချက် ဖန်တီးနေသည်',
   'Fitting each line to its scene': 'စာကြောင်းတစ်ကြောင်းစီကို မြင်ကွင်းနှင့် ကိုက်ညီအောင် ညှိနေသည်',
   'Rendering the final video': 'နောက်ဆုံးဗီဒီယို ထုတ်လုပ်နေသည်',
+  'Valid until': 'သက်တမ်းကုန်ရက်',
+  '{n} days left': '{n} ရက်ကျန်',
   'Longer videos can take a few minutes. If you cancel after it has started, the minutes are still used.': 'ဗီဒီယိုရှည်လျှင် မိနစ်အနည်းငယ် ကြာနိုင်ပါသည်။ စတင်ပြီးမှ ပယ်ဖျက်လျှင် မိနစ်များ ပြန်မရပါ။',
   // editor
   'Characters: each keeps one voice for the whole film. Change a voice, then re-render (only that character\'s lines are re-voiced).':
@@ -339,6 +341,7 @@ const SERVER = [
   [/^The Standard voice is not available right now\.$/, "ပုံမှန်အသံကို ယခု မရနိုင်ပါ။"],
   [/^Unknown voice quality\.$/, "မသိသော အသံအရည်အသွေး။"],
   [/^Wrong username or password\.$/, "အသုံးပြုသူအမည် သို့မဟုတ် စကားဝှက် မှားနေပါသည်။"],
+  [/^Your subscription has ended\. Please contact the admin to renew it\.$/, "သင့်အကောင့်သက်တမ်း ကုန်ဆုံးသွားပါပြီ။ သက်တမ်းတိုးရန် အက်မင်ကို ဆက်သွယ်ပါ။"],
   [/^Your account is paused\. Please contact the admin\.$/, "သင့်အကောင့်ကို ခေတ္တရပ်ထားပါသည်။ အက်မင်ကို ဆက်သွယ်ပါ။"],
   [/^Your account is deactivated\. Please contact the admin\.$/, "သင့်အကောင့်ကို ပိတ်ထားပါသည်။ အက်မင်ကို ဆက်သွယ်ပါ။"],
   [/^Your account has been banned\. Please contact the admin\.$/, "သင့်အကောင့်ကို ပိတ်ပင်ထားပါသည်။ အက်မင်ကို ဆက်သွယ်ပါ။"],

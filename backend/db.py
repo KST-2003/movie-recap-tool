@@ -32,6 +32,7 @@ class User(Base):
     status_reason = Column(String(300))                              # shown to the owner only
     credit_seconds = Column(Float, default=0.0, nullable=False)     # BOUGHT video seconds (top-ups): used only after the daily / monthly allowance is used up
     device_limit = Column(Integer, default=0, nullable=False)       # how many different devices may use the login; 0 = any number
+    expires_at = Column(DateTime(timezone=True))                    # the login works until then (months chosen by the admin); empty = no end date
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
 
@@ -41,6 +42,23 @@ def user_role(user: "User") -> str:
 
 
 STATUSES = ("active", "paused", "deactivated", "banned")
+EXPIRED_MESSAGE = "Your subscription has ended. Please contact the admin to renew it."
+
+
+def add_months(start: datetime, months: int) -> datetime:
+    """Calendar months later, same day and time (31 Jan + 1 month = the last day of February)."""
+    import calendar
+    index = start.month - 1 + months
+    year, month = start.year + index // 12, index % 12 + 1
+    return start.replace(year=year, month=month, day=min(start.day, calendar.monthrange(year, month)[1]))
+
+
+def expired(user: "User", now: datetime | None = None) -> bool:
+    """The account's paid time is over. Admins never expire; an account without an end date never does."""
+    if user.expires_at is None or user.is_admin:
+        return False
+    end = user.expires_at if user.expires_at.tzinfo else user.expires_at.replace(tzinfo=timezone.utc)
+    return end <= (now or utcnow())
 
 
 def set_status(user: "User", status: str, reason: str | None = None):
@@ -140,7 +158,7 @@ if "monthly_minutes" not in {c["name"] for c in inspect(engine).get_columns("use
 _user_cols = {c["name"] for c in inspect(engine).get_columns("users")}
 for _col, _ddl in (("is_superadmin", "is_superadmin BOOLEAN NOT NULL DEFAULT 0" if DATABASE_URL.startswith("sqlite") else "is_superadmin BOOLEAN NOT NULL DEFAULT FALSE"),
                    ("status", "status VARCHAR(16) NOT NULL DEFAULT 'active'"), ("status_reason", "status_reason VARCHAR(300)"),
-                   ("device_limit", "device_limit INTEGER NOT NULL DEFAULT 0")):
+                   ("device_limit", "device_limit INTEGER NOT NULL DEFAULT 0"), ("expires_at", "expires_at TIMESTAMP")):
     if _col not in _user_cols:
         with engine.begin() as _conn:
             _conn.execute(text(f"ALTER TABLE users ADD COLUMN {_ddl}"))

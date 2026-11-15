@@ -16,7 +16,7 @@ import capacity
 import usage as usage_log
 from . import settings as runtime_settings
 import storage
-from db import STATUSES as USER_STATUSES, AuditLog, user_role, Job, Session, TopupRequest, User, UserDevice, month_start, set_status, update_job, used_seconds_month, used_seconds_today, utcnow
+from db import STATUSES as USER_STATUSES, add_months, expired, AuditLog, user_role, Job, Session, TopupRequest, User, UserDevice, month_start, set_status, update_job, used_seconds_month, used_seconds_today, utcnow
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 STATUSES = ("queued", "running", "done", "error", "cancelled")
@@ -129,6 +129,7 @@ def _user_row(u: User, used_seconds: float, month_seconds: float = 0.0, devices:
     last = devices[0] if devices else None
     return {"id": u.id, "email": u.email, "daily_minutes": u.daily_minutes, "monthly_minutes": u.monthly_minutes,
             "is_admin": u.is_admin, "is_superadmin": u.is_superadmin, "role": user_role(u), "is_active": u.is_active, "status": u.status, "status_reason": u.status_reason,
+            "expires_at": _iso(u.expires_at), "expired": expired(u),
             "device_limit": u.device_limit, "device_count": len(devices), "credit_minutes": round(max(0.0, u.credit_seconds or 0.0) / 60, 1),
             "last_seen": _iso(last.last_seen) if last else None, "last_ip": last.ip if last else None,
             "last_device": last.name if last else None, "last_browser": last.browser if last else None, "last_os": last.os if last else None,
@@ -179,6 +180,7 @@ class NewUser(BaseModel):
     is_admin: bool = False               # older name of role == "admin"
     role: str | None = None              # "user" | "admin" (superadmin cannot be created here)
     device_limit: int = Field(1, ge=0, le=20)   # 1 = one device only, 0 = any number of devices (the admin chooses per account)
+    months: int = Field(0, ge=0, le=120)        # how long the login works from now (1, 3, 6, 12 ...); 0 = no end date
 
 
 @router.post("/users")
@@ -198,11 +200,13 @@ def create_user(body: NewUser, admin: User = Depends(require_admin)):
         if s.execute(select(User).where(User.email == name)).scalar_one_or_none():
             raise HTTPException(status_code=409, detail="That username is already taken.")
         user = User(email=name, password_hash=auth.hash_password(password), daily_minutes=body.daily_minutes, monthly_minutes=body.monthly_minutes,
-                    is_admin=role == "admin", device_limit=body.device_limit)
+                    is_admin=role == "admin", device_limit=body.device_limit,
+                    expires_at=add_months(utcnow(), body.months) if body.months and role == "user" else None)   # admins have no end date
         s.add(user)
         s.flush()
         _audit(s, admin, "user.create", "user", user.id, user.email, {"daily_minutes": user.daily_minutes, "monthly_minutes": user.monthly_minutes,
-                                                                      "is_admin": user.is_admin, "device_limit": user.device_limit})
+                                                                      "is_admin": user.is_admin, "device_limit": user.device_limit,
+                                                                      "months": body.months if user.expires_at else 0, "expires_at": _iso(user.expires_at)})
         s.commit()
         return {**_user_row(user, 0.0), "password": password}   # the only time the password can be seen: only its hash is stored
 
@@ -217,6 +221,8 @@ class UserPatch(BaseModel):
     is_admin: bool | None = None         # older name of role
     role: str | None = None              # "user" | "admin"
     password: str | None = None
+    extend_months: int | None = Field(None, ge=1, le=120)   # add months: from the end date, or from now when there is none / it has passed
+    no_expiry: bool | None = None            # true = remove the end date (the login never ends)
 
 
 @router.patch("/users/{user_id}")
@@ -257,6 +263,12 @@ def patch_user(user_id: int, body: UserPatch, admin: User = Depends(require_admi
             set_status(user, new_status, reason)
             if new_status == "banned":   # a banned user's videos stop too
                 cancel = [j.id for j in s.execute(select(Job).where(Job.user_id == user.id, Job.status.in_(("queued", "running")))).scalars().all()]
+        if body.no_expiry or body.extend_months:
+            old = user.expires_at if (user.expires_at is None or user.expires_at.tzinfo) else user.expires_at.replace(tzinfo=timezone.utc)
+            new = None if body.no_expiry else add_months(max(old, utcnow()) if old else utcnow(), body.extend_months)
+            if new != old:
+                changes["expires_at"] = {"from": _iso(old), "to": _iso(new), **({"months": body.extend_months} if new else {})}
+                user.expires_at = new
         if body.password is not None:
             user.password_hash = auth.hash_password(body.password)
             changes["password_reset"] = True   # the password itself is never stored in the log

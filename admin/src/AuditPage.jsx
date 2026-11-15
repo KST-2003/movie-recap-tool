@@ -8,6 +8,7 @@ function describe(tr, e) {
   const lines = [];
   if (e.action === 'user.create') {
     lines.push(tr('Created user {email}', { email: e.target_label }));
+    if (d.months) lines.push(tr('{n} month(s), until {d}', { n: d.months, d: new Date(d.expires_at).toLocaleDateString() }));
     lines.push(tr('{n} min/day', { n: d.daily_minutes }) + (d.is_admin ? ` · ${tr('admin')}` : '') + (d.device_limit === 0 ? ` · ${tr('any number of devices')}` : d.device_limit ? ` · ${tr('{n} device(s)', { n: d.device_limit })}` : ''));
   } else if (e.action === 'user.device') {
     lines.push(tr('Removed device of {email}', { email: e.target_label }) + `: ${d.removed || ''}${d.ip ? ` (${d.ip})` : ''}`);
@@ -29,6 +30,7 @@ function describe(tr, e) {
       else if (k === 'is_active') lines.push(v.to ? tr('Account enabled') : tr('Account disabled'));
       else if (k === 'status') lines.push(tr('Status: {from} → {to}', { from: tr(v.from), to: tr(v.to) }));
       else if (k === 'status_reason') lines.push(tr('Reason') + `: ${v.to || '–'}`);
+      else if (k === 'expires_at') lines.push(v.to ? tr('Subscription: +{n} month(s), now until {d}', { n: v.months, d: new Date(v.to).toLocaleDateString() }) : tr('Subscription: end date removed'));
       else if (k === 'device_limit') lines.push(tr('Devices allowed: {from} → {to}', { from: v.from === 0 ? tr('any') : v.from, to: v.to === 0 ? tr('any') : v.to }));
       else if (k === 'keep_result_days') lines.push(tr('Keep finished videos (days)') + `: ${v.from} → ${v.to}`);
       else if (k === 'keep_source_days') lines.push(tr('Keep source videos + voice clips (days)') + `: ${v.from} → ${v.to}`);

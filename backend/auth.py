@@ -14,7 +14,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 
 from config import DATA_DIR, TRUST_PROXY
-from db import Session, User, UserDevice, utcnow
+from db import Session, User, UserDevice, utcnow, EXPIRED_MESSAGE, expired
 
 TOKEN_DAYS = int(os.getenv("TOKEN_DAYS", "14"))
 
@@ -133,6 +133,8 @@ def current_user(request: Request, creds: HTTPAuthorizationCredentials | None = 
             raise HTTPException(status_code=401, detail="Account unavailable.")
         if user.status != "active":
             raise HTTPException(status_code=401, detail=STATUS_MESSAGES.get(user.status, "Account unavailable."))
+        if expired(user):   # the months the admin gave are over: signed out everywhere until renewed
+            raise HTTPException(status_code=401, detail=EXPIRED_MESSAGE)
         if claims.get("pw") and claims["pw"] != _pw_mark(user):
             raise HTTPException(status_code=401, detail="Your password was changed. Please log in again.")
         did = claims.get("did")
