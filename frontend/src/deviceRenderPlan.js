@@ -223,7 +223,9 @@ function drawOverlay(comp, plan, text, logo) {
         if (lines.length <= 3 || size <= 16) break;
         size -= 2;
       }
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      // Left-aligned and centred by OUR measured width: Safari ignored textAlign 'center' here (2026-11-15, owner's Mac + iPhone:
+      // the box was centred, the text started at the middle and ran off the right edge).
+      ctx.textAlign = 'left'; ctx.direction = 'ltr'; ctx.textBaseline = 'middle';
       const lh = Math.round(size * 1.75), pad = Math.round(size * 0.3);
       let y = cap.bottom - lines.length * lh;   // plans from before subtitle styles: bottom-aligned
       if (cap.height) {
@@ -241,8 +243,8 @@ function drawOverlay(comp, plan, text, logo) {
           ctx.beginPath(); ctx.roundRect((W - tw) / 2 - pad, y + 2, tw + pad * 2, lh - 4, 8); ctx.fill();
         }
         ctx.save(); ctx.translate(W / 2, y + lh / 2); ctx.scale(squeeze, 1);
-        if (st.outline) { ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(2, Math.round(size / 11)); ctx.strokeStyle = st.outline; ctx.strokeText(line, 0, 0); }
-        ctx.fillStyle = st.color; ctx.fillText(line, 0, 0);
+        if (st.outline) { ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(2, Math.round(size / 11)); ctx.strokeStyle = st.outline; ctx.strokeText(line, -full / 2, 0); }
+        ctx.fillStyle = st.color; ctx.fillText(line, -full / 2, 0);
         ctx.restore();
         y += lh;
       }
