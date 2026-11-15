@@ -10,14 +10,17 @@ const STATUS_STYLE = {
 };
 const STATUS_HELP = {
   active: 'Can log in and use the app.',
-  paused: 'Temporarily stopped. Signed out at once; turn it back on any time.',
+  paused: 'Suspended: cannot log in. Signed out at once; turn it back on any time. A suspended account can be deleted.',
   deactivated: 'Account closed (for example the plan ended). Signed out at once; can be turned back on.',
   banned: 'Blocked for breaking the rules. Signed out at once and the running videos are cancelled.',
 };
 
+// the status stored as "paused" is called "suspended" on screen (owner's word)
+const statusName = (st) => (st === 'paused' ? 'suspended' : st);
+
 function StatusChip({ status }) {
   const { tr } = useI18n();
-  return <span className={`rounded-full px-2 py-0.5 text-[11px] ${STATUS_STYLE[status] || STATUS_STYLE.active}`}>{tr(status)}</span>;
+  return <span className={`rounded-full px-2 py-0.5 text-[11px] ${STATUS_STYLE[status] || STATUS_STYLE.active}`}>{tr(statusName(status))}</span>;
 }
 
 // Shown ONCE after a login is made or a password is regenerated: the server keeps only a hash, so it cannot be shown again.
@@ -167,6 +170,9 @@ function EditSheet({ user, me, superadmin, onClose, onSaved, onCredentials }) {
     const { data } = await axios.post(`/api/admin/users/${user.id}/reset-password`);
     onCredentials({ username: data.username, password: data.password });
   }); };
+  const suspended = user.status !== 'active' || (expires && daysLeft(expires) <= 0 && !user.is_admin);
+  const canDelete = !self && !user.is_superadmin && (superadmin || !user.is_admin);
+  const remove = () => { if (!window.confirm(tr('Delete the account "{u}" for good? Its videos, top-up requests and devices are deleted too. This cannot be undone.', { u: user.email }))) return; run(async () => { await axios.delete(`/api/admin/users/${user.id}`); onSaved(); }); };
   const removeDevice = (d) => run(async () => { await axios.delete(`/api/admin/users/${user.id}/devices/${d.id}`); await loadDevices(); });
   const removeAll = () => { if (!window.confirm(tr('Sign this login out of all devices?'))) return; run(async () => { await axios.delete(`/api/admin/users/${user.id}/devices`); await loadDevices(); }); };
 
@@ -178,7 +184,7 @@ function EditSheet({ user, me, superadmin, onClose, onSaved, onCredentials }) {
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {['active', 'paused', 'deactivated', 'banned'].map((st) => (
               <button type="button" key={st} disabled={self && st !== 'active'} onClick={() => setStatus(st)}
-                className={`rounded-2xl border px-2 py-2 text-xs capitalize disabled:opacity-40 ${status === st ? 'border-violet-400 bg-violet-500/30 text-ink' : 'border-violet-200 text-ink-soft hover:bg-violet-50'}`}>{tr(st)}</button>
+                className={`rounded-2xl border px-2 py-2 text-xs capitalize disabled:opacity-40 ${status === st ? 'border-violet-400 bg-violet-500/30 text-ink' : 'border-violet-200 text-ink-soft hover:bg-violet-50'}`}>{tr(statusName(st))}</button>
             ))}
           </div>
           <p className="mt-1.5 text-xs text-ink-faint">{tr(STATUS_HELP[status])}</p>
@@ -215,7 +221,7 @@ function EditSheet({ user, me, superadmin, onClose, onSaved, onCredentials }) {
           <div className="rounded-2xl border border-violet-100 p-3">
             <p className="text-sm font-medium">{tr('Subscription')}: {!expires ? <span className="text-ink-soft">{tr('No end date')}</span>
               : daysLeft(expires) > 0 ? <span className="text-violet-600">{tr('until {d} ({n} days left)', { d: fmtDay(expires), n: daysLeft(expires) })}</span>
-                : <span className="text-rose-600">{tr('ended on {d}', { d: fmtDay(expires) })}</span>}</p>
+                : <span className="text-rose-600">{tr('suspended · ended {d}', { d: fmtDay(expires) })}</span>}</p>
             <div className="mt-2"><MonthPicker value={addMonths} onChange={setAddMonths} /></div>
             <div className="mt-2 flex flex-wrap gap-2">
               <button type="button" className={btnPrimary} disabled={busy || locked} onClick={() => extend({ extend_months: addMonths })}>{addMonths === 1 ? tr('Add 1 month') : tr('Add {n} months', { n: addMonths })}</button>
@@ -233,6 +239,13 @@ function EditSheet({ user, me, superadmin, onClose, onSaved, onCredentials }) {
           </div>
         </div>
         <button type="button" className={`${btnGhost} w-full`} onClick={regenerate} disabled={busy}><KeyRound size={14} />{tr('Make a new password')}</button>
+        {canDelete && (
+          <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-3">
+            <button type="button" onClick={remove} disabled={busy || !suspended}
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-2xl bg-rose-500 px-3 py-2 text-sm font-medium text-white hover:bg-rose-600 disabled:opacity-40"><Trash2 size={14} />{tr('Delete account')}</button>
+            <p className="mt-1.5 text-[11px] text-ink-faint">{suspended ? tr('Deletes the login with its videos, top-up requests and devices. This cannot be undone.') : tr('Only a suspended account can be deleted: set the status to Suspended and save first (an account whose time has ended is suspended already).')}</p>
+          </div>
+        )}
         {error && <p className="text-sm text-rose-500">{trs(error)}</p>}
         <div className="flex justify-end gap-2 pt-1">
           <button type="button" className={btnGhost} onClick={onClose}>{tr('Cancel')}</button>
@@ -267,7 +280,7 @@ export default function UsersPage({ me, superadmin, openJobsFor }) {
   const Tags = ({ u }) => (<>
     {u.is_admin && <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2 py-0.5 text-[11px] text-violet-600"><ShieldCheck size={11} />{tr(u.is_superadmin ? 'superadmin' : 'admin')}</span>}
     {u.status !== 'active' && <StatusChip status={u.status} />}
-    {u.expired ? <span className="inline-block rounded-full bg-red-500/15 px-2 py-0.5 text-[11px] text-rose-600">{tr('expired {d}', { d: fmtDay(u.expires_at) })}</span>
+    {u.expired ? <span className="inline-block rounded-full bg-red-500/15 px-2 py-0.5 text-[11px] text-rose-600">{tr('suspended · ended {d}', { d: fmtDay(u.expires_at) })}</span>
       : u.expires_at && !u.is_admin ? <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] ${daysLeft(u.expires_at) <= 7 ? 'bg-amber-500/15 text-amber-700' : 'bg-violet-50 text-ink-soft'}`}>{tr('until {d}', { d: fmtDay(u.expires_at) })}</span> : null}
   </>);
 
@@ -283,7 +296,7 @@ export default function UsersPage({ me, superadmin, openJobsFor }) {
       <div className="mb-3 flex gap-2 overflow-x-auto">
         {FILTERS.map((f) => (
           <button key={f || 'all'} onClick={() => { setStatus(f); setPage(1); }}
-            className={`shrink-0 rounded-full border px-3 py-1 text-xs ${status === f ? 'border-violet-400 bg-violet-500/30 text-ink' : 'border-violet-200 text-ink-soft hover:bg-violet-50'}`}>{f ? tr(f) : tr('All')}</button>
+            className={`shrink-0 rounded-full border px-3 py-1 text-xs ${status === f ? 'border-violet-400 bg-violet-500/30 text-ink' : 'border-violet-200 text-ink-soft hover:bg-violet-50'}`}>{f ? tr(statusName(f)) : tr('All')}</button>
         ))}
       </div>
       <ErrorBox error={error} onRetry={reload} />

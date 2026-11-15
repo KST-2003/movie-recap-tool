@@ -282,6 +282,60 @@ def patch_user(user_id: int, body: UserPatch, admin: User = Depends(require_admi
     return row
 
 
+@router.delete("/users/{user_id}")
+def delete_user(user_id: int, admin: User = Depends(require_admin)):
+    """Delete an account for good. Only a SUSPENDED one: its time has ended, or its status is suspended (paused) / deactivated / banned,
+    so nobody loses a working login by one wrong click. Removes the user's videos and their files, devices, top-up requests and slips.
+    The audit log keeps what was deleted (and earlier top-up approvals keep their amounts there)."""
+    import os
+    import topup
+    if user_id == admin.id:
+        raise HTTPException(status_code=400, detail="You cannot delete your own account.")
+    with Session() as s:
+        user = s.get(User, user_id)
+        if user is None:
+            raise HTTPException(status_code=404, detail="Unknown user")
+        _guard_target(admin, user)
+        if user.is_superadmin:
+            raise HTTPException(status_code=400, detail="The owner account cannot be deleted.")
+        if user.is_admin and not admin.is_superadmin:
+            raise HTTPException(status_code=403, detail="Only the owner (superadmin) can delete an admin account.")
+        if user.status == "active" and not expired(user):
+            raise HTTPException(status_code=400, detail="Suspend this account first, then delete it.")
+        jobs = s.execute(select(Job).where(Job.user_id == user.id)).scalars().all()
+        if any(j.status in ("queued", "running") for j in jobs):
+            raise HTTPException(status_code=409, detail="This user still has a video in progress. Cancel it first.")
+        files = set()
+        for j in jobs:
+            result = (j.data or {}).get("result") or {}
+            files |= {("out", k) for k in (result.get("video_file"), result.get("audio_file"), result.get("subtitle_file")) if k}
+            files |= {("src", k) for k in (j.input_key, j.logo_key) if k}
+            s.delete(j)
+        topups = s.execute(select(TopupRequest).where(TopupRequest.user_id == user.id)).scalars().all()
+        slips = [t.slip_file for t in topups if t.slip_file]
+        for t in topups:
+            s.delete(t)
+        devices = s.execute(select(UserDevice).where(UserDevice.user_id == user.id)).scalars().all()
+        for d in devices:
+            s.delete(d)
+        _audit(s, admin, "user.delete", "user", user.id, user.email, {
+            "status": user.status, "expired": expired(user), "role": user_role(user), "videos": len(jobs), "topups": len(topups),
+            "bought_minutes_left": round(max(0.0, user.credit_seconds or 0.0) / 60, 1), "created_at": _iso(user.created_at), "expires_at": _iso(user.expires_at)})
+        s.delete(user)
+        s.commit()
+    for kind, key in files:   # after the commit: a failed file delete must not keep the account alive
+        try:
+            (storage.delete_output if kind == "out" else storage.delete_source)(key)
+        except Exception as exc:
+            print(f"[admin] delete user {user_id}: could not delete {key}: {exc}", flush=True)
+    for name in slips:
+        try:
+            os.remove(os.path.join(topup.SLIP_DIR, os.path.basename(name)))
+        except OSError:
+            pass
+    return {"deleted": True}
+
+
 @router.post("/users/{user_id}/reset-password")
 def reset_password(user_id: int, admin: User = Depends(require_admin)):
     """Make a new password for the user. Only the admin can do this; every old session of the user stops working."""

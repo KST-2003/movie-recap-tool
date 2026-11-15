@@ -319,9 +319,11 @@ function App() {
   const [aspect, setAspect] = useState('original'); // output format, chosen BEFORE uploading (like CapCut)
   const [fitMode, setFitMode] = useState('blur');     // 'blur' = whole picture over a blurred copy | 'crop' = fill the frame
   const [pan, setPan] = useState({ x: 0.5, y: 0.5 });  // crop mode: which part of the picture stays
-  const previewFx = { videoSpeed, brightness, contrast, saturation, logoSize, logoPosition, logoXY, blurBoxes, logoOnTop, flip: false,
+  const previewFx = { videoSpeed, brightness, contrast, saturation, logoSize, logoPosition, logoXY, blurBoxes, logoOnTop, flip: !!finish.enable_flip,
     aspect, fitMode, panX: pan.x, panY: pan.y };
   const removeLogo = () => { setCustomLogo(null); setLogoXY(null); setLogoInputKey((k) => k + 1); };
+  // the red X next to the video field: forget the chosen (or fetched) video
+  const clearVideo = () => { setVideoFile(null); setLinkInfo(null); if (videoInputRef.current) videoInputRef.current.value = ''; };
   const changePreviewFx = (patch) => {
     if (patch.removeLogo) { removeLogo(); return; }
     const set = { videoSpeed: setVideoSpeed, brightness: setBrightness, contrast: setContrast, saturation: setSaturation,
@@ -791,13 +793,16 @@ function App() {
               <label className="block text-sm font-medium text-ink-soft mb-2">
                 {tr('Upload video')}
               </label>
+              <div className="flex items-center gap-2">
               <input
                 ref={videoInputRef}
                 type="file"
                 accept="video/*"
-                onChange={(e) => setVideoFile(e.target.files[0])}
-                className="w-full text-sm text-ink-soft file:mr-4 file:py-2 file:px-4 file:rounded-2xl file:border-0 file:text-sm file:font-semibold file:bg-violet-500 file:text-white hover:file:bg-violet-500 cursor-pointer"
+                onChange={(e) => setVideoFile(e.target.files[0] || null)}
+                className="min-w-0 flex-1 text-sm text-ink-soft file:mr-4 file:py-2 file:px-4 file:rounded-2xl file:border-0 file:text-sm file:font-semibold file:bg-violet-500 file:text-white hover:file:bg-violet-500 cursor-pointer"
               />
+              {videoFile && !loading && <button type="button" onClick={clearVideo} aria-label={tr('Remove video')} title={tr('Remove video')} className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-rose-500 text-white shadow hover:bg-rose-600 active:scale-95"><svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>}
+              </div>
               <p className="hidden md:block mt-1 text-xs text-ink-faint">{tr('You can also drag a video file and drop it anywhere on this page.')}</p>
               <div className="mt-3">
                 <label className="block text-xs text-ink-soft mb-1">{tr('Or paste a RedNote, YouTube or TikTok link')}</label>
@@ -820,18 +825,16 @@ function App() {
               <label className="block text-sm font-medium text-ink-soft mb-2">
                 {tr('Logo (optional)')}
               </label>
+              <div className="flex items-center gap-2">
               <input
                 key={logoInputKey}
                 type="file"
                 accept="image/*"
                 onChange={(e) => setCustomLogo(e.target.files[0] || null)}
-                className="w-full text-sm text-ink-soft file:mr-4 file:py-2 file:px-4 file:rounded-2xl file:border-0 file:text-sm file:font-semibold file:bg-violet-100 file:text-ink hover:file:bg-violet-200 cursor-pointer"
+                className="min-w-0 flex-1 text-sm text-ink-soft file:mr-4 file:py-2 file:px-4 file:rounded-2xl file:border-0 file:text-sm file:font-semibold file:bg-violet-100 file:text-ink hover:file:bg-violet-200 cursor-pointer"
               />
-              {customLogo && (
-                <button type="button" onClick={removeLogo} className="mt-2 px-3 py-1.5 rounded-lg bg-violet-100 hover:bg-violet-200 text-sm text-ink">
-                  {tr('Remove logo')}
-                </button>
-              )}
+              {customLogo && <button type="button" onClick={removeLogo} aria-label={tr('Remove logo')} title={tr('Remove logo')} className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-rose-500 text-white shadow hover:bg-rose-600 active:scale-95"><svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>}
+              </div>
             </div>
           </div>
           </div>
@@ -844,6 +847,28 @@ function App() {
               {outputKind !== 'voice' && <p className="text-xs text-ink-faint -mt-2">{tr('The sample line in the preview shows the subtitle style. Drag it up or down to place it. "Automatic" puts subtitles over the original ones when they are found.')}</p>}
             </>
           )}
+          {/* the same switches the editor has ("Look & sound"), so the FIRST video already comes out right; they can still be changed after */}
+          <div className="rounded-2xl border border-violet-100 bg-page p-4 space-y-2 text-sm text-ink-soft">
+            <p className="text-sm font-semibold text-ink">{tr('Finishing options')}</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {[
+                ['blur_subtitles', tr('Blur original subtitles')],
+                ['enable_subtitles', tr('Burmese subtitles')],
+                ['remove_watermark', tr('Blur lower-right watermark')],
+                ['enable_flip', tr('Horizontal flip')],
+              ].map(([key, label]) => {
+                const locked = key === 'enable_subtitles' && outputKind === 'subtitles';   // "subtitles only" always has them
+                return (
+                  <label key={key} className={`flex items-center gap-2 ${locked ? 'opacity-60' : 'cursor-pointer'}`}>
+                    <input type="checkbox" disabled={locked || loading} checked={locked ? true : !!finish[key]} className="w-4 h-4 accent-violet-500"
+                      onChange={(e) => (key === 'enable_subtitles' ? setOutputKind(e.target.checked ? 'dub' : 'voice') : setFinish((f) => ({ ...f, [key]: e.target.checked })))} />
+                    {label}
+                  </label>
+                );
+              })}
+            </div>
+            <p className="text-xs text-ink-faint">{tr('You can still change these after the video is made.')}</p>
+          </div>
           {!(sourceUrl && !loading && !resultVideoUrl) && (
             <p className="lg:hidden rounded-2xl border border-dashed border-violet-200 bg-page p-6 text-center text-sm text-ink-soft">
               {!sourceUrl ? tr('Choose a video in step 1 first. Then you can set the look here.') : tr('The look is set while the video is being made. Change it in the editor below the result.')}

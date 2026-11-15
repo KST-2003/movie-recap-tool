@@ -101,9 +101,10 @@ t = login(uname, upw, "device-cccccccc").json()["token"]
 for status in ("paused", "deactivated", "banned"):
     ok(c.patch(f"/api/admin/users/{uid}", headers=A, json={"status": status, "status_reason": "test"}).json()["status"] == status, f"set {status}")
     me = c.get("/api/auth/me", headers=H(t))
-    ok(me.status_code == 401 and status in me.json()["detail"], f"{status}: an open session stops at once ({me.json()['detail']})")
+    word = "suspended" if status == "paused" else status   # the status "paused" is called suspended in every text
+    ok(me.status_code == 401 and word in me.json()["detail"], f"{status}: an open session stops at once ({me.json()['detail']})")
     lg = login(uname, upw, "device-cccccccc")
-    ok(lg.status_code == 403 and status in lg.json()["detail"], f"{status}: login refused with the reason")
+    ok(lg.status_code == 403 and word in lg.json()["detail"], f"{status}: login refused with the reason")
     ok(login(uname, "wrongwrong", "device-cccccccc").json()["detail"] == "Wrong username or password.", f"{status}: a wrong password does not reveal the status")
 ok(c.patch(f"/api/admin/users/{uid}", headers=A, json={"status": "active"}).json()["status"] == "active", "resume")
 ok(login(uname, upw, "device-cccccccc").status_code == 200, "active again: can log in")

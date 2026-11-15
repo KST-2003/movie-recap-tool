@@ -42,7 +42,7 @@ def user_role(user: "User") -> str:
 
 
 STATUSES = ("active", "paused", "deactivated", "banned")
-EXPIRED_MESSAGE = "Your subscription has ended. Please contact the admin to renew it."
+EXPIRED_MESSAGE = "Your account is suspended because its time has ended. Please contact the admin to renew it."
 
 
 def add_months(start: datetime, months: int) -> datetime:

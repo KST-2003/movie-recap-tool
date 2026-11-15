@@ -88,7 +88,7 @@ def clean_device_id(value: str | None) -> str:
 
 
 STATUS_MESSAGES = {
-    "paused": "Your account is paused. Please contact the admin.",
+    "paused": "Your account is suspended. Please contact the admin.",   # the admin app calls this status "suspended"
     "deactivated": "Your account is deactivated. Please contact the admin.",
     "banned": "Your account has been banned. Please contact the admin.",
 }
