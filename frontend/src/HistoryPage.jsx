@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useI18n } from './i18n.jsx';
+import { removeVideo, storedIds } from './deviceStore.js';
 
 // "My videos": every video the user made. The list is kept; the video file only for the keeping time (the owner sets the days).
 const KIND = { recap: 'Recap voice-over', full: 'Full movie voice-over', subtitles: 'Subtitles only', edit: 'Edit / re-render' };
@@ -14,16 +15,17 @@ export default function HistoryPage({ apiBase, refreshKey, onOpen }) {
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
   const [busy, setBusy] = useState('');
+  const [onDevice, setOnDevice] = useState(new Set());   // videos made on this device that are in this browser's storage
 
   const load = () => axios.get(`${apiBase}/api/jobs?page=${page}&per_page=15`)
-    .then((r) => { setData(r.data); setError(''); })
+    .then(async (r) => { setOnDevice(await storedIds()); setData(r.data); setError(''); })
     .catch((e) => setError(trs(e.response?.data?.detail) || e.message));
   useEffect(() => { load(); }, [apiBase, refreshKey, page]);
 
   const remove = async (job) => {
     if (!window.confirm(tr('Delete this video and its files now? This cannot be undone.'))) return;
     setBusy(job.id);
-    try { await axios.delete(`${apiBase}/api/jobs/${job.id}`); await load(); }
+    try { await axios.delete(`${apiBase}/api/jobs/${job.id}`); await removeVideo(job.id); await load(); }
     catch (e) { setError(trs(e.response?.data?.detail) || e.message); }
     finally { setBusy(''); }
   };
@@ -48,7 +50,9 @@ export default function HistoryPage({ apiBase, refreshKey, onOpen }) {
         <ul className="space-y-3 stagger">
           {data.items.map((j) => {
             const ok = j.status === 'done';
-            const left = j.expires_at ? daysLeft(j.expires_at) : null;
+            const here = onDevice.has(j.id);                       // stored in this browser
+            const available = j.video_available || here;
+            const left = j.expires_at ? daysLeft(j.expires_at) : here ? daysLeft(new Date(new Date(j.created_at).getTime() + data.keep_result_days * 86400000).toISOString()) : null;
             return (
               <li key={j.id} className="rounded-2xl border border-violet-100 bg-white p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -65,17 +69,19 @@ export default function HistoryPage({ apiBase, refreshKey, onOpen }) {
                 {j.error && <p className="mt-2 text-xs text-rose-600">{trs(j.error)}</p>}
                 {ok && (
                   <div className="mt-3 flex flex-wrap items-center gap-3">
-                    {j.video_available ? (
+                    {available ? (
                       <>
                         <button type="button" onClick={() => onOpen(j.id)} className="rounded-lg bg-violet-500 px-3 py-1.5 text-xs font-semibold hover:bg-violet-600 text-white">
-                          {j.can_edit ? tr('Open & edit') : tr('Open')}
+                          {(j.can_edit || (here && j.editable)) ? tr('Open & edit') : tr('Open')}
                         </button>
                         <span className={`text-xs ${left <= 3 ? 'text-amber-700' : 'text-ink-soft'}`}>
                           {left <= 1 ? tr('Removed within a day: download it now') : tr('Kept for {n} more days', { n: left })}
                         </span>
                       </>
                     ) : (
-                      <span className="text-xs text-ink-soft">{tr('The video was removed after its keeping time. Upload the original again to make a new one.')}</span>
+                      <span className="text-xs text-ink-soft">{j.device && left === null && Date.now() - new Date(j.created_at).getTime() < data.keep_result_days * 86400000
+                        ? tr('This video was made on another device and its copy did not reach the server.')
+                        : tr('The video was removed after its keeping time. Upload the original again to make a new one.')}</span>
                     )}
                     <button type="button" disabled={busy === j.id} onClick={() => remove(j)} className="ml-auto text-xs text-ink-soft hover:text-rose-600 disabled:opacity-50">{tr('Delete')}</button>
                   </div>

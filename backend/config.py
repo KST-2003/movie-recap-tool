@@ -27,8 +27,8 @@ GLOBAL_DAILY_MINUTES = float(os.getenv("GLOBAL_DAILY_MINUTES", "0"))    # 0 = un
 MAINTENANCE_MODE = os.getenv("MAINTENANCE_MODE", "").lower() in ("1", "true")  # kill switch for new jobs
 
 CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001").split(",") if o.strip()]
-KEEP_RESULT_DAYS = float(os.getenv("KEEP_RESULT_DAYS", "30"))   # finished videos (+ subtitle files); the admin can change it at runtime
-KEEP_SOURCE_DAYS = float(os.getenv("KEEP_SOURCE_DAYS", "7"))    # uploaded source videos, voice clips, work files (needed for editing / re-rendering)
+KEEP_RESULT_DAYS = float(os.getenv("KEEP_RESULT_DAYS", "14"))   # finished videos (+ subtitle files); the admin can change it at runtime
+KEEP_SOURCE_DAYS = float(os.getenv("KEEP_SOURCE_DAYS", "14"))    # uploaded source videos, voice clips, work files (needed for editing / re-rendering)
 TRUST_PROXY = os.getenv("TRUST_PROXY", "").lower() in ("1", "true")   # behind Nginx: take the visitor IP from X-Forwarded-For
 SIGNED_URL_SECONDS = int(os.getenv("SIGNED_URL_SECONDS", "3600"))
 # Failed / cancelled videos: minutes are NOT given back once the video has started (owner's rule 2026-11-14: the tokens are paid).

@@ -646,8 +646,14 @@ def _job_view(job: Job) -> dict:
     if result:
         result = dict(result)
         if result.get("device_plan"):   # made on the user's phone: the picture does not exist on the server, only the sound + plan
-            if result.get("audio_file") and storage.output_exists(result["audio_file"]):
+            have_audio = bool(result.get("audio_file")) and storage.output_exists(result["audio_file"])
+            have_video = bool(result.get("video_file")) and storage.output_exists(result["video_file"])   # the copy the device uploaded
+            if have_audio:
                 result["audio_url"] = _file_url(result["audio_file"], False)
+            if have_video:
+                result["video_url"] = _file_url(result["video_file"], False)
+                result["download_url"] = _file_url(result["video_file"], True)
+            if have_audio or have_video:
                 result["subtitle_url"] = _file_url(result["subtitle_file"], True)
             else:
                 result["expired"] = True
@@ -682,6 +688,8 @@ def _history_row(job: Job) -> dict:
             "minutes": round(float(project.get("source_duration") or (job.charged_seconds or 0)) / 60, 1),
             "created_at": (job.created_at if job.created_at.tzinfo else job.created_at.replace(tzinfo=timezone.utc)).isoformat(), "video_available": video_ok,
             "can_edit": bool(video_ok and project and storage.source_exists(job.input_key)),
+            # made on the user's device: the video may (also) be in that browser's storage; "editable" does not need the server copy
+            "device": bool(result.get("device_plan")), "editable": bool(project and storage.source_exists(job.input_key)),
             "expires_at": (finished + timedelta(days=runtime_settings.keep_result_days())).isoformat() if video_ok else None,
             "error": friendly_error(job.error) if job.status == "error" else None}
 
@@ -771,6 +779,53 @@ def device_log(job_id: str, body: DeviceLog, user: User = Depends(auth.current_u
         job.data = data
         s.commit()
     print(f"[job {job_id}] device render {'OK' if body.ok else 'FAILED'}: {body.seconds}s speed {body.speed} {body.error or ''} {info}", flush=True)
+    return {"ok": True}
+
+
+DEVICE_VIDEO_MAX_MB = int(os.getenv("DEVICE_VIDEO_MAX_MB", "600"))
+
+
+@app.post("/api/jobs/{job_id}/device-video")
+def device_video(job_id: str, video: UploadFile = File(...), user: User = Depends(auth.current_user)):
+    """The finished video of a device render, uploaded by the device that drew it, so "My videos" can open it from any device
+    for the keeping time. Accepted only for the user's own finished device-render job, and only when it really is a video of
+    about the planned length (it is served back to that user only)."""
+    with Session() as s:
+        job = s.get(Job, job_id)
+        if job is None or job.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Unknown job")
+        plan = ((job.data or {}).get("result") or {}).get("device_plan")
+        if job.status != "done" or not plan:
+            raise HTTPException(status_code=409, detail="This video was not made on a device.")
+    path = save_upload(video, OUTPUT_DIR, DEVICE_VIDEO_MAX_MB)
+    final = os.path.join(OUTPUT_DIR, f"recap_output_{job_id}.mp4")
+    try:
+        probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name:format=duration",
+                                "-of", "json", path], capture_output=True, text=True, timeout=60)
+        info = json.loads(probe.stdout or "{}")
+        codec = ((info.get("streams") or [{}])[0]).get("codec_name")
+        seconds = float((info.get("format") or {}).get("duration") or 0)
+        want = float(plan.get("duration") or 0)
+        if codec != "h264" or seconds <= 0 or abs(seconds - want) > max(3.0, 0.03 * want):
+            raise HTTPException(status_code=400, detail="This file is not the finished video.")
+        os.replace(path, final)
+    except HTTPException:
+        storage.delete_local(path)
+        raise
+    except Exception:
+        storage.delete_local(path)
+        raise HTTPException(status_code=400, detail="This file is not the finished video.")
+    key = storage.put_output(final)
+    with Session() as s:
+        job = s.get(Job, job_id)
+        data = dict(job.data or {})
+        if data.get("user_deleted") or not data.get("result"):   # deleted while the upload was running
+            storage.delete_output(key)
+            raise HTTPException(status_code=404, detail="Unknown job")
+        data["result"] = {**data["result"], "video_file": key}
+        job.data = data
+        s.commit()
+    print(f"[job {job_id}] device-made video stored on the server ({seconds:.0f}s)", flush=True)
     return {"ok": True}
 
 

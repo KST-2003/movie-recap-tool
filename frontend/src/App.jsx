@@ -16,6 +16,7 @@ import TopUpPage from './TopUpPage.jsx';
 import PostBanner from './PostBanner.jsx';
 import { LangSwitch, useI18n } from './i18n.jsx';
 import { deviceCapability, renderFromPlan } from './deviceRenderPlan.js';
+import { loadVideo, markUploaded, saveVideo } from './deviceStore.js';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
@@ -453,6 +454,7 @@ function App() {
     setLoading(true);
     setErrorMessage('');
     setNotes('');
+    setCopyNote('');
     setResultVideoUrl('');
     setTimeline([]);
     setProject(null);
@@ -543,6 +545,29 @@ function App() {
     setErrorMessage(userText ? trs(userText) : tr('We could not complete this just now. Our team has been notified. Please try again a little later.'));
   };
 
+  // A video drawn on this device is kept in two places for the keeping time: this browser's storage (opens at once, no download)
+  // and the server (so "My videos" works on other devices and after the browser cleared its storage).
+  const [copyNote, setCopyNote] = useState('');
+  const uploadDeviceVideo = async (id, blob) => {
+    try {
+      const form = new FormData();
+      form.append('video', blob, `recat_${id}.mp4`);
+      await axios.post(`${API_BASE}/api/jobs/${id}/device-video`, form, {
+        onUploadProgress: (e) => { if (e.total) setCopyNote(tr('Saving a copy to My videos: {n}%', { n: Math.round((e.loaded / e.total) * 100) })); },
+      });
+      await markUploaded(id);
+      setCopyNote(tr('Saved to My videos.'));
+      setUsageKey((k) => k + 1);
+    } catch (e) {
+      setCopyNote(tr('The copy for My videos could not be uploaded. Download the video now to keep it.'));
+    }
+  };
+  const keepDeviceVideo = async (id, blob) => {
+    setCopyNote(tr('Saving a copy to My videos: {n}%', { n: 0 }));
+    await saveVideo(id, blob);
+    await uploadDeviceVideo(id, blob);
+  };
+
   // Draw the video on this device from the server's plan. Returns the video's blob URL, or null after handing the job to the server.
   const finishOnDevice = async (job, result) => {
     const signal = { aborted: false };
@@ -567,6 +592,7 @@ function App() {
       try { out = await run(); } catch (e) { if (signal.aborted) throw e; out = await run(); }   // the first run after choosing a file sometimes fails once
       ok = true; stats = out.stats;
       axios.post(`${API_BASE}/api/jobs/${job.id}/device-log`, { ok: true, seconds: stats.seconds, speed: stats.speed, info: { cores: deviceCap?.cores, memory: deviceCap?.memory, fps: deviceCap?.fps, ua: deviceCap?.ua, decode_s: stats.decodeSeconds, draw_s: stats.drawSeconds, encode_s: stats.encodeSeconds, frames: stats.frames, samples: stats.samples, source: stats.source, output: stats.output } }).catch(() => {});
+      keepDeviceVideo(job.id, out.blob);   // not awaited: the result is shown at once, the copies are saved behind it
       return URL.createObjectURL(out.blob);
     } catch (e) {
       if (cancelled.current) { const err = new Error('Cancelled'); err.cancelled = true; throw err; }
@@ -637,6 +663,7 @@ function App() {
     setLoading(true);
     setErrorMessage('');
     setNotes('');
+    setCopyNote('');
     try {
       const { data } = await axios.post(`${API_BASE}/api/jobs/${jobId}/rerender`, { segments: lines, speaker_voices: speakerVoices || undefined, blur_windows: blurWindows || undefined, caption_style: captionStyle || undefined, ...finish, device_render: lastDevice.current && !!videoFile });
       setProgress({ pct: 0, stage: tr('Queued') });
@@ -653,12 +680,21 @@ function App() {
     try {
       const { data: job } = await axios.get(`${API_BASE}/api/jobs/${id}`);
       const result = job.result;
-      setDeviceJob(false);   // a stored video was made by the server: its edits are too
-      if (result?.device_plan) { setErrorMessage(tr('This video was made on your device and is not stored on the server. Upload the video again to make it again.')); setView('create'); return; }
-      if (!result || result.expired) { setErrorMessage(tr('This result has expired. Please generate it again.')); setView('create'); return; }
+      setDeviceJob(false);
+      setCopyNote('');
+      const local = result?.device_plan ? await loadVideo(id) : null;   // made on this device: its copy is in this browser
+      if (result?.device_plan && !local && !result.video_url) { setErrorMessage(tr('This video was made on another device and its copy did not reach the server. Upload the video again to make it again.')); setView('create'); return; }
+      if (!result || (result.expired && !local)) { setErrorMessage(tr('This result has expired. Please generate it again.')); setView('create'); return; }
       setErrorMessage('');
-      setResultVideoUrl(absUrl(result.video_url));
-      setResultDownloadUrl(absUrl(result.download_url));
+      if (local) {
+        const url = URL.createObjectURL(local.blob);
+        setResultVideoUrl(url); setResultDownloadUrl(url);
+        if (!result.video_url) uploadDeviceVideo(id, local.blob);   // the upload did not finish last time: try again now
+      } else {
+        setResultVideoUrl(absUrl(result.video_url));
+        setResultDownloadUrl(absUrl(result.download_url));
+      }
+      lastDevice.current = false;
       setSubtitleUrl(absUrl(result.subtitle_url));
       setTimeline((result.timeline || []).filter((scene) => scene.text));
       setProject(result.project || null);
@@ -1178,6 +1214,7 @@ function App() {
                 {tr('Download subtitles (.srt)')}
               </a>}
               {notes && <p className="text-xs text-ink-soft">{notes}</p>}
+              {copyNote && <p className="text-xs text-violet-600">{copyNote}</p>}
               {project && (
                 <Editor key={jobId} project={project} videoRef={videoRef} busy={loading} voices={voices} looks={looks} playingVoice={playing} onPlaySample={playSample} onPreviewLine={previewLine} previewing={previewing} onApply={applyEdits} finish={finish} onFinish={(patch) => setFinish((f) => ({ ...f, ...patch }))} hasBackground={bgKept} />
               )}

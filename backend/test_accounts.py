@@ -140,13 +140,13 @@ with Session() as s:
 h = c.get("/api/jobs", headers=H(tok)).json()
 row = next(r for r in h["items"] if r["id"] == "h1")
 ok(h["total"] == 2 and row["title"] == "movie.mp4" and row["minutes"] == 1.5 and row["video_available"] and row["can_edit"] and row["expires_at"], "history lists my videos with expiry")
-ok(h["keep_result_days"] == 30 and h["keep_source_days"] == 7, "default keeping time 30 / 7 days")
+ok(h["keep_result_days"] == 14 and h["keep_source_days"] == 14, "default keeping time 14 / 14 days")
 other = login("anyone", two["password"], "device-any-0x").json()["token"]
 ok(c.get("/api/jobs", headers=H(other)).json()["total"] == 0, "nobody sees another user's history")
 old = time.time() - 10 * 86400
 os.utime(src, (old, old))
-storage.cleanup()
-ok(not os.path.exists(src) and os.path.exists(res) and os.path.exists(f"{tmp}/out/r1.srt"), "after 10 days: source removed, video + subtitles kept")
+storage.cleanup(result_days=30, source_days=7)   # different keeping times, as an admin may set them
+ok(not os.path.exists(src) and os.path.exists(res) and os.path.exists(f"{tmp}/out/r1.srt"), "after 10 days (30 / 7): source removed, video + subtitles kept")
 row = next(r for r in c.get("/api/jobs", headers=H(tok)).json()["items"] if r["id"] == "h1")
 ok(row["video_available"] and not row["can_edit"], "history: video still playable, editing no longer possible")
 older = time.time() - 40 * 86400
