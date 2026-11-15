@@ -326,12 +326,12 @@ function App() {
   const lastDevice = useRef(false);                      // the shown result was drawn on this device (re-renders then do the same)
   useEffect(() => { deviceCapability().then(setDeviceCap).catch(() => {}); }, []);
   useEffect(() => {
-    if (!token || !deviceCap?.ok) return undefined;
+    if (!token) return undefined;   // also tells the page when the admin turned maintenance mode on
     const load = () => axios.get(`${API_BASE}/api/queue`).then((r) => setQueue(r.data)).catch(() => {});
     load();
     const id = setInterval(load, 20000);
     return () => clearInterval(id);
-  }, [token, deviceCap]);
+  }, [token]);
   const [resolution, setResolution] = useState('720'); // output size: 720 renders faster (recommended)
   const [aspect, setAspect] = useState('original'); // output format, chosen BEFORE uploading (like CapCut)
   const [fitMode, setFitMode] = useState('blur');     // 'blur' = whole picture over a blurred copy | 'crop' = fill the frame
@@ -711,6 +711,9 @@ function App() {
 
   if (!token) return <AuthScreen onAuth={onAuth} notice={notice} />;
 
+  // the admin turned maintenance mode on: the Create page shows a notice instead of the form (a video in progress or just finished stays on screen)
+  const maintenance = !!queue?.maintenance && !loading && !resultVideoUrl;
+
   return (
     <Shell view={view} setView={setView} account={account} onLogout={() => logout()}>
       {splash && <Splash onDone={() => setSplash(false)} />}
@@ -726,7 +729,14 @@ function App() {
         <VoiceLibrary voices={voices} looks={looks} selected={voiceType} playing={playing} onPlay={playSample}
           onSelect={(v) => { setVoiceType(v.name); setVoiceGender(v.gender); }} onClose={() => setShowLibrary(false)} apiBase={API_BASE} />
       )}
-      <div className={view === 'create' ? '' : 'hidden'}>
+      {view === 'create' && maintenance && (
+        <div className="max-w-3xl mx-auto rounded-[2rem] border border-white bg-white p-8 sm:p-12 text-center shadow-card animate-rise">
+          <Mascot className="mx-auto h-40 w-40 sm:h-52 sm:w-52" />
+          <h1 className="mt-4 text-2xl sm:text-3xl font-bold text-ink">{tr('Under Maintenance')}</h1>
+          <p className="mt-2 text-sm sm:text-base text-ink-soft">{tr('Please try again later.')}</p>
+        </div>
+      )}
+      <div className={view === 'create' && !maintenance ? '' : 'hidden'}>
       {/* top banner: our own "What are we recapping today?" card first, then the pictures the admin posted (Posts), swiped sideways.
           Every slide is 16:9, the shape the admin uploads. */}
       <PostBanner apiBase={API_BASE} className={`max-w-3xl mx-auto mb-5 ${step > 1 ? 'max-lg:hidden' : ''}`}>

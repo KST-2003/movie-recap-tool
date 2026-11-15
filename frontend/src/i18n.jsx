@@ -275,6 +275,8 @@ const MY = {
   'Fitting each line to its scene': 'စာကြောင်းတစ်ကြောင်းစီကို မြင်ကွင်းနှင့် ကိုက်ညီအောင် ညှိနေသည်',
   'Rendering the final video': 'နောက်ဆုံးဗီဒီယို ထုတ်လုပ်နေသည်',
   'Valid until': 'သက်တမ်းကုန်ရက်',
+  'Under Maintenance': 'ပြုပြင်ထိန်းသိမ်းနေပါသည်',
+  'Please try again later.': 'နောက်မှ ထပ်မံကြိုးစားပါ။',
   'Saving a copy to My videos: {n}%': 'ကျွန်ုပ်၏ဗီဒီယိုများသို့ မိတ္တူသိမ်းနေသည် - {n}%',
   'Saved to My videos.': 'ကျွန်ုပ်၏ဗီဒီယိုများတွင် သိမ်းပြီးပါပြီ။',
   'The copy for My videos could not be uploaded. Download the video now to keep it.': 'ကျွန်ုပ်၏ဗီဒီယိုများအတွက် မိတ္တူကို မတင်နိုင်ပါ။ သိမ်းထားလိုပါက ဗီဒီယိုကို ယခု ဒေါင်းလုဒ်လုပ်ပါ။',

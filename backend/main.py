@@ -754,7 +754,8 @@ def queue_status(user: User = Depends(auth.current_user)):
     avg = sum(runs) / len(runs) if runs else DEFAULT_JOB_SECONDS
     waiting = max(queued + running - WORKERS + 1, 0)
     wait = int(waiting * avg / WORKERS)
-    return {"busy": wait >= 60, "wait_seconds": wait, "queued": queued, "running": running}
+    return {"busy": wait >= 60, "wait_seconds": wait, "queued": queued, "running": running,
+            "maintenance": bool(runtime_settings.maintenance())}   # the Create page then shows "Under maintenance" instead of the form
 
 
 class DeviceLog(BaseModel):
