@@ -131,6 +131,18 @@ class Post(Base):
     updated_at = Column(DateTime(timezone=True), default=utcnow)
 
 
+class Review(Base):
+    """A user's optional rating of one finished video (1-5 stars + words). Read by admins only. Kept when the video's files expire."""
+    __tablename__ = "reviews"
+    id = Column(Integer, primary_key=True)
+    job_id = Column(String(32), unique=True, index=True, nullable=False)
+    user_id = Column(Integer, index=True, nullable=False)
+    user_label = Column(String(255))                   # the login name when it was written (still readable after the account is deleted)
+    stars = Column(Integer, nullable=False)
+    text = Column(String(1000))
+    created_at = Column(DateTime(timezone=True), default=utcnow, index=True)
+
+
 class TopupRequest(Base):
     """A user asks for bought minutes and sends the payment slip; the admin checks the slip and approves (the minutes are added) or rejects."""
     __tablename__ = "topup_requests"

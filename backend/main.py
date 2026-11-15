@@ -31,6 +31,7 @@ import jobs_queue
 import looks
 import storage
 import topup
+import reviews
 from common import media_duration, tts_provider
 from db import Job, Session, User, active_jobs, failure_wait_seconds, keeps_minutes, month_start, refund_credit, user_role, used_seconds_month, used_seconds_today, utcnow
 from voices import VOICES, VOICE_NAMES
@@ -62,6 +63,8 @@ app.include_router(topup.router)
 import posts  # noqa: E402  (banners made in the admin dashboard)
 app.include_router(posts.admin_router)
 app.include_router(posts.router)
+app.include_router(reviews.router)
+app.include_router(reviews.admin_router)
 
 SAMPLES_DIR = "voice_samples"
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -642,6 +645,7 @@ def _job_view(job: Job) -> dict:
         view.update(_queue_info(job))
     elif job.status == "running":
         view.update(_time_left(job))
+    view["review_wanted"] = reviews.wanted(job)   # the app then offers the optional star rating under the result
     result = (job.data or {}).get("result")
     if result:
         result = dict(result)

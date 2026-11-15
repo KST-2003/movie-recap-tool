@@ -17,6 +17,7 @@ import PostBanner from './PostBanner.jsx';
 import { LangSwitch, useI18n } from './i18n.jsx';
 import { deviceCapability, renderFromPlan } from './deviceRenderPlan.js';
 import { loadVideo, markUploaded, saveVideo } from './deviceStore.js';
+import ReviewBox, { reviewSkipped } from './ReviewBox.jsx';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
@@ -548,6 +549,7 @@ function App() {
   // A video drawn on this device is kept in two places for the keeping time: this browser's storage (opens at once, no download)
   // and the server (so "My videos" works on other devices and after the browser cleared its storage).
   const [copyNote, setCopyNote] = useState('');
+  const [reviewJob, setReviewJob] = useState('');   // id of the finished video the optional star rating is offered for ('' = none)
   const uploadDeviceVideo = async (id, blob) => {
     try {
       const form = new FormData();
@@ -648,6 +650,7 @@ function App() {
     setProject(result.project || null);
     setBgKept(!!result.background_kept);
     setJobId(job.id);
+    setReviewJob(job.review_wanted && !reviewSkipped(job.id) ? job.id : '');
     setNotes(
       [
         result.subtitles_detected ? tr('Source subtitles detected and blurred.') : tr('No source subtitles found, nothing blurred.'),
@@ -700,6 +703,7 @@ function App() {
       setProject(result.project || null);
       setBgKept(!!result.background_kept);
       setJobId(job.id);
+      setReviewJob(job.review_wanted && !reviewSkipped(job.id) ? job.id : '');
       setNotes((result.warnings || []).map(trs).join(' '));
       setView('create');
       window.scrollTo?.({ top: 0 });
@@ -1226,6 +1230,7 @@ function App() {
               </a>}
               {notes && <p className="text-xs text-ink-soft">{notes}</p>}
               {copyNote && <p className="text-xs text-violet-600">{copyNote}</p>}
+              {reviewJob && reviewJob === jobId && !loading && <ReviewBox key={`review-${reviewJob}`} apiBase={API_BASE} jobId={reviewJob} onClose={() => setReviewJob('')} />}
               {project && (
                 <Editor key={jobId} project={project} videoRef={videoRef} busy={loading} voices={voices} looks={looks} playingVoice={playing} onPlaySample={playSample} onPreviewLine={previewLine} previewing={previewing} onApply={applyEdits} finish={finish} onFinish={(patch) => setFinish((f) => ({ ...f, ...patch }))} hasBackground={bgKept} />
               )}

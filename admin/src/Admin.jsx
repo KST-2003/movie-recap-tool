@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  LayoutDashboard, Users, Wallet, ListVideo, Mic, Settings as SettingsIcon, Menu, X, LogOut, ExternalLink, ScrollText, Megaphone,
+  LayoutDashboard, Users, Wallet, ListVideo, Mic, Settings as SettingsIcon, Menu, X, LogOut, ExternalLink, ScrollText, Megaphone, Star,
 } from 'lucide-react';
 import { LangSwitch, useI18n } from './i18n.jsx';
 import { btnGhost, useApi } from './ui.jsx';
@@ -12,6 +12,7 @@ import AuditPage from './AuditPage.jsx';
 import SettingsPage from './SettingsPage.jsx';
 import TopupsPage from './TopupsPage.jsx';
 import PostsPage from './PostsPage.jsx';
+import ReviewsPage from './ReviewsPage.jsx';
 
 // Admin dashboard shell: sidebar (desktop) / slide-in drawer (phone), header with language switch, and the page switch.
 // Pages are one file each in this folder, shared pieces are in ui.jsx, Burmese texts in strings.js (used by i18n.jsx).
@@ -25,6 +26,7 @@ const NAV = [
   { id: 'topups', label: 'Top-ups', icon: Wallet },
   { id: 'jobs', label: 'Jobs', icon: ListVideo },
   { id: 'posts', label: 'Posts', icon: Megaphone },
+  { id: 'reviews', label: 'Reviews', icon: Star },
   { id: 'tts', label: 'Voice models', icon: Mic },
   { id: 'audit', label: 'Audit log', icon: ScrollText },
   { id: 'settings', label: 'Settings', icon: SettingsIcon, superOnly: true },
@@ -96,6 +98,7 @@ export default function Admin({ account, onLogout }) {
           {page === 'topups' && <TopupsPage onChanged={reloadOv} />}
           {page === 'jobs' && <JobsPage userFilter={userFilter} clearUser={() => setUserFilter(null)} />}
           {page === 'posts' && <PostsPage />}
+          {page === 'reviews' && <ReviewsPage />}
           {page === 'tts' && <TtsPage />}
           {page === 'audit' && <AuditPage />}
           {page === 'settings' && superadmin && <SettingsPage />}
