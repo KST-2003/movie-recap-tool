@@ -730,10 +730,10 @@ function App() {
           onSelect={(v) => { setVoiceType(v.name); setVoiceGender(v.gender); }} onClose={() => setShowLibrary(false)} apiBase={API_BASE} />
       )}
       {view === 'create' && maintenance && (
-        <div className="max-w-3xl mx-auto rounded-[2rem] border border-white bg-white p-8 sm:p-12 text-center shadow-card animate-rise">
-          <Mascot className="mx-auto h-40 w-40 sm:h-52 sm:w-52" />
-          <h1 className="mt-4 text-2xl sm:text-3xl font-bold text-ink">{tr('Under Maintenance')}</h1>
-          <p className="mt-2 text-sm sm:text-base text-ink-soft">{tr('Please try again later.')}</p>
+        <div className="max-w-3xl mx-auto rounded-[2rem] border border-white bg-white p-4 sm:p-8 text-center shadow-card animate-rise">
+          {/* the owner's picture (docs/Recat Under Maintenance.png, cropped): it already says "Recat · Under Maintenance" */}
+          <img src="/recat-maintenance.webp" alt={tr('Under Maintenance')} draggable={false} className="mx-auto w-full max-w-sm select-none animate-floaty" />
+          <p className="mt-2 text-sm sm:text-base font-medium text-ink-soft">{tr('Please try again later.')}</p>
         </div>
       )}
       <div className={view === 'create' && !maintenance ? '' : 'hidden'}>
