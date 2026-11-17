@@ -1,5 +1,7 @@
 // Helpers for the Capacitor shell (iPhone / Android app). On the normal website `isNative` is false and nothing here is used.
 import { Capacitor } from '@capacitor/core';
+import { App as CapApp } from '@capacitor/app';
+import { CapacitorUpdater } from '@capgo/capacitor-updater';
 import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 
@@ -32,4 +34,22 @@ export async function saveToDevice(url, filename, title) {
     // the shared copy is only needed while the share sheet is open
     setTimeout(() => { Filesystem.deleteFile({ path, directory: Directory.Cache }).catch(() => {}); }, 120000);
   }
+}
+
+// ---- OTA (over-the-air) web updates: see backend/ota.py and frontend/scripts/publish-ota.mjs ----
+// The plugin checks our server by itself (capacitor.config.json -> CapacitorUpdater.updateUrl) and downloads a new bundle; the app must say it started
+// fine with notifyAppReady(), otherwise the plugin goes back to the previous bundle after appReadyTimeout.
+export async function initOta() {
+  if (!isNative) return;
+  try { await CapacitorUpdater.notifyAppReady(); } catch (e) { console.warn('OTA: notifyAppReady failed', e); }
+}
+
+/** "1.1.0 (build 3) · bundle ota-20261117-1500" for the account box (support: which web bundle runs). null on the website. */
+export async function nativeVersionLabel() {
+  if (!isNative) return null;
+  try {
+    const [info, cur] = await Promise.all([CapApp.getInfo(), CapacitorUpdater.current()]);
+    const bundle = cur?.bundle?.version;
+    return `${info.version} (${info.build})${bundle && bundle !== 'builtin' ? ` · ${bundle}` : ''}`;
+  } catch (e) { return null; }
 }

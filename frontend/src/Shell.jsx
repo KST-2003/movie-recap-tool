@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { LangSwitch, useI18n } from './i18n.jsx';
 import Mascot, { Brand } from './Mascot.jsx';
-import { isNative } from './native.js';
+import { isNative, nativeVersionLabel } from './native.js';
 
 // App frame (Recat look): white sidebar on wide screens; on phones a small top bar + a bottom tab bar, the account sheet
 // (allowance meters, language, log out) opens from the round button at the top right.
@@ -49,6 +49,8 @@ function Meter({ label, used, limit }) {
 
 function AccountBox({ account, onLogout, onDeleteAccount }) {
   const { tr } = useI18n();
+  const [appVersion, setAppVersion] = useState(null);   // phone app only: app version + OTA bundle
+  useEffect(() => { nativeVersionLabel().then(setAppVersion); }, []);
   return (
     <>
       {account && (
@@ -74,6 +76,7 @@ function AccountBox({ account, onLogout, onDeleteAccount }) {
         {account && !account.is_admin && onDeleteAccount && (
           <button type="button" onClick={onDeleteAccount} className="block text-xs font-medium text-rose-600/80 hover:text-rose-700 hover:underline">{tr('Delete my account')}</button>
         )}
+        {appVersion && <p className="text-[10px] text-ink-faint">Recat {appVersion}</p>}
       </div>
     </>
   );

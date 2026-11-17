@@ -25,6 +25,14 @@
       "style": "LIGHT",
       "backgroundColor": "#F7F4FF",
       "overlaysWebView": false
+    },
+    "CapacitorUpdater": {
+      "autoUpdate": "atBackground",
+      "updateUrl": "https://movie-recap.bronicon.co/api/ota/update",
+      "statsUrl": "",
+      "channelUrl": "",
+      "appReadyTimeout": 15000,
+      "resetWhenUpdate": true
     }
   }
 }
