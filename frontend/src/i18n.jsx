@@ -4,6 +4,12 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 // {name} placeholders are filled by tr(text, { name: value }).
 // NOTE: written by an AI assistant: have a native Burmese speaker review the wording before launch.
 const MY = {
+  "Delete my account": "ကျွန်ုပ်၏အကောင့်ကို ဖျက်ရန်",
+  "This permanently deletes your account and everything in it: your videos, presets and settings. Minutes you have left are lost and cannot be refunded. This cannot be undone.": "သင့်အကောင့်နှင့် အထဲက အရာအားလုံး (ဗီဒီယိုများ၊ ပရီဆက်များ၊ ဆက်တင်များ) ကို အပြီးဖျက်မည်။ ကျန်သောမိနစ်များ ဆုံးရှုံးမည်ဖြစ်ပြီး ပြန်အမ်းမည်မဟုတ်ပါ။ ပြန်လည်ပြင်၍ မရပါ။",
+  "Enter your password to confirm": "အတည်ပြုရန် စကားဝှက်ထည့်ပါ",
+  "Deleting…": "ဖျက်နေသည်…",
+  "We could not delete the account just now. Please try again a little later.": "အကောင့်ကို ယခု မဖျက်နိုင်ပါ။ ခဏနေမှ ထပ်ကြိုးစားပါ။",
+  "Your account was deleted. Thank you for using Recat.": "သင့်အကောင့်ကို ဖျက်ပြီးပါပြီ။ Recat ကို အသုံးပြုသည့်အတွက် ကျေးဇူးတင်ပါသည်။",
   "Use previous settings": "ယခင်ဆက်တင်များ သုံးမည်",
   "Settings from your last video are applied.": "နောက်ဆုံးဗီဒီယိုရဲ့ ဆက်တင်များကို ထည့်ပေးပြီးပါပြီ။",
   "Presets": "ပရီဆက်များ",
@@ -397,6 +403,11 @@ const MY = {
 
 // Texts that come from the server (progress steps, warnings, errors). [pattern, Burmese with $1, $2 ... captures].
 const SERVER = [
+  [/^That password is not correct\.$/, "စကားဝှက် မမှန်ပါ။"],
+  [/^A video is still being made\. Cancel it or wait until it finishes, then delete your account\.$/, "ဗီဒီယိုတစ်ခု ပြုလုပ်နေဆဲဖြစ်သည်။ ပယ်ဖျက်ပါ သို့မဟုတ် ပြီးသည်အထိစောင့်ပြီးမှ အကောင့်ကို ဖျက်ပါ။"],
+  [/^Admin accounts are deleted by the owner\. Please contact them\.$/, "Admin အကောင့်များကို ပိုင်ရှင်က ဖျက်ပေးပါသည်။ ဆက်သွယ်ပါ။"],
+  [/^Your available minutes are not enough for this video\.$/, "သင့်မိနစ်များ ဤဗီဒီယိုအတွက် မလုံလောက်ပါ။"],
+  [/^Your available minutes are not enough for this edit\.$/, "သင့်မိနစ်များ ဤပြင်ဆင်မှုအတွက် မလုံလောက်ပါ။"],
   [/^Your available minutes are not enough for this edit\. Please top up minutes to make it\.$/, "သင့်မိနစ်များ ဤပြင်ဆင်မှုအတွက် မလုံလောက်ပါ။ မိနစ်ဖြည့်ပါ။"],
   [/^You can keep up to (\d+) presets\. Delete one to make a new one\.$/, "ပရီဆက် $1 ခုအထိ သိမ်းနိုင်သည်။ အသစ်လုပ်ရန် တစ်ခုဖျက်ပါ။"],
   [/^Your available minutes are not enough for this video\. Please top up minutes to make it\.$/, "သင့်မိနစ်များ ဤဗီဒီယိုအတွက် မလုံလောက်ပါ။ ဗီဒီယိုပြုလုပ်ရန် မိနစ်ဖြည့်ပါ။"],

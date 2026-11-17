@@ -282,13 +282,56 @@ def patch_user(user_id: int, body: UserPatch, admin: User = Depends(require_admi
     return row
 
 
+def _audit_self(s, user: User, action: str, details: dict):
+    """Audit row for something a user did to their OWN account (the actor is the user, not an admin)."""
+    s.add(AuditLog(admin_id=user.id, admin_email=user.email, action=action, target_type="user", target_id=str(user.id), target_label=user.email, details=details))
+
+
+def purge_user_data(s, user: User, busy_message: str):
+    """Delete everything that belongs to `user` EXCEPT the account row itself (the caller audits, deletes the row and commits): videos, top-up
+    requests, devices, the user's own presets. Returns (jobs, topups, files, slips); give the file lists to remove_user_files AFTER the commit."""
+    from db import Preset
+    jobs = s.execute(select(Job).where(Job.user_id == user.id)).scalars().all()
+    if any(j.status in ("queued", "running") for j in jobs):
+        raise HTTPException(status_code=409, detail=busy_message)
+    files = set()
+    for j in jobs:
+        result = (j.data or {}).get("result") or {}
+        files |= {("out", k) for k in (result.get("video_file"), result.get("audio_file"), result.get("subtitle_file")) if k}
+        files |= {("src", k) for k in (j.input_key, j.logo_key) if k}
+        s.delete(j)
+    topups = s.execute(select(TopupRequest).where(TopupRequest.user_id == user.id)).scalars().all()
+    slips = [t.slip_file for t in topups if t.slip_file]
+    for t in topups:
+        s.delete(t)
+    for d in s.execute(select(UserDevice).where(UserDevice.user_id == user.id)).scalars().all():
+        s.delete(d)
+    for pr in s.execute(select(Preset).where(Preset.user_id == user.id)).scalars().all():
+        s.delete(pr)
+    return jobs, topups, files, slips
+
+
+def remove_user_files(files, slips, user_id):
+    """After the commit: a failed file delete must not keep the account alive."""
+    import os
+    import topup
+    for kind, key in files:
+        try:
+            (storage.delete_output if kind == "out" else storage.delete_source)(key)
+        except Exception as exc:
+            print(f"[account] delete user {user_id}: could not delete {key}: {exc}", flush=True)
+    for name in slips:
+        try:
+            os.remove(os.path.join(topup.SLIP_DIR, os.path.basename(name)))
+        except OSError:
+            pass
+
+
 @router.delete("/users/{user_id}")
 def delete_user(user_id: int, admin: User = Depends(require_admin)):
     """Delete an account for good. Only a SUSPENDED one: its time has ended, or its status is suspended (paused) / deactivated / banned,
     so nobody loses a working login by one wrong click. Removes the user's videos and their files, devices, top-up requests and slips.
     The audit log keeps what was deleted (and earlier top-up approvals keep their amounts there)."""
-    import os
-    import topup
     if user_id == admin.id:
         raise HTTPException(status_code=400, detail="You cannot delete your own account.")
     with Session() as s:
@@ -302,37 +345,13 @@ def delete_user(user_id: int, admin: User = Depends(require_admin)):
             raise HTTPException(status_code=403, detail="Only the owner (superadmin) can delete an admin account.")
         if user.status == "active" and not expired(user):
             raise HTTPException(status_code=400, detail="Suspend this account first, then delete it.")
-        jobs = s.execute(select(Job).where(Job.user_id == user.id)).scalars().all()
-        if any(j.status in ("queued", "running") for j in jobs):
-            raise HTTPException(status_code=409, detail="This user still has a video in progress. Cancel it first.")
-        files = set()
-        for j in jobs:
-            result = (j.data or {}).get("result") or {}
-            files |= {("out", k) for k in (result.get("video_file"), result.get("audio_file"), result.get("subtitle_file")) if k}
-            files |= {("src", k) for k in (j.input_key, j.logo_key) if k}
-            s.delete(j)
-        topups = s.execute(select(TopupRequest).where(TopupRequest.user_id == user.id)).scalars().all()
-        slips = [t.slip_file for t in topups if t.slip_file]
-        for t in topups:
-            s.delete(t)
-        devices = s.execute(select(UserDevice).where(UserDevice.user_id == user.id)).scalars().all()
-        for d in devices:
-            s.delete(d)
+        jobs, topups, files, slips = purge_user_data(s, user, "This user still has a video in progress. Cancel it first.")
         _audit(s, admin, "user.delete", "user", user.id, user.email, {
             "status": user.status, "expired": expired(user), "role": user_role(user), "videos": len(jobs), "topups": len(topups),
             "bought_minutes_left": round(max(0.0, user.credit_seconds or 0.0) / 60, 1), "created_at": _iso(user.created_at), "expires_at": _iso(user.expires_at)})
         s.delete(user)
         s.commit()
-    for kind, key in files:   # after the commit: a failed file delete must not keep the account alive
-        try:
-            (storage.delete_output if kind == "out" else storage.delete_source)(key)
-        except Exception as exc:
-            print(f"[admin] delete user {user_id}: could not delete {key}: {exc}", flush=True)
-    for name in slips:
-        try:
-            os.remove(os.path.join(topup.SLIP_DIR, os.path.basename(name)))
-        except OSError:
-            pass
+    remove_user_files(files, slips, user_id)
     return {"deleted": True}
 
 

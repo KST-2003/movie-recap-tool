@@ -15,6 +15,7 @@ import UsageDashboard from './UsageDashboard.jsx';
 import HistoryPage from './HistoryPage.jsx';
 import TopUpPage from './TopUpPage.jsx';
 import PresetsPage from './PresetsPage.jsx';
+import DeleteAccountDialog from './DeleteAccountDialog.jsx';
 import PresetPicker from './PresetPicker.jsx';
 import PostBanner from './PostBanner.jsx';
 import { LangSwitch, useI18n } from './i18n.jsx';
@@ -206,6 +207,7 @@ function App() {
   const [view, setView] = useState('create');   // sidebar page: create | usage
   const [usageKey, setUsageKey] = useState(0);   // bumped when a job ends so the usage page reloads
   const [account, setAccount] = useState(null); // { email, daily_minutes, remaining_seconds }
+  const [showDelete, setShowDelete] = useState(false);   // the "Delete my account" dialog
   const [notice, setNotice] = useState('');   // why the user was signed out (paused, device removed, ...)
   if (token) axios.defaults.headers.common.Authorization = `Bearer ${token}`;
 
@@ -618,7 +620,8 @@ function App() {
     const status = error.response?.status;
     const detail = error.response?.data?.detail;
     const userText = typeof detail === 'string' && [400, 402, 413, 429, 503].includes(status) ? detail : (!error.response && error.message && /busy|refunded|minutes/i.test(error.message) ? error.message : '');
-    setErrorMessage(userText ? trs(userText) : tr('We could not complete this just now. Our team has been notified. Please try again a little later.'));
+    const shown = isNative ? userText.replace(/\s*Please top up minutes to make it\./, '') : userText;   // the store app has no top-up: no call to buy
+    setErrorMessage(shown ? trs(shown) : tr('We could not complete this just now. Our team has been notified. Please try again a little later.'));
   };
 
   // A video drawn on this device is kept in two places for the keeping time: this browser's storage (opens at once, no download)
@@ -794,7 +797,8 @@ function App() {
   const maintenance = !!queue?.maintenance && !loading && !resultVideoUrl;
 
   return (
-    <Shell view={view} setView={setView} account={account} onLogout={() => logout()}>
+    <Shell view={view} setView={setView} account={account} onLogout={() => logout()} onDeleteAccount={() => setShowDelete(true)}>
+      {showDelete && <DeleteAccountDialog apiBase={API_BASE} onClose={() => setShowDelete(false)} onDeleted={() => { setShowDelete(false); logout(tr('Your account was deleted. Thank you for using Recat.')); }} />}
       {splash && <Splash onDone={() => setSplash(false)} />}
       {dragOver && view === 'create' && (
         <div className="fixed inset-0 z-50 pointer-events-none flex items-center justify-center bg-ink/80 p-6 text-white">
@@ -1337,7 +1341,7 @@ function App() {
       </div>
       </div>
       {view === 'history' && <HistoryPage apiBase={API_BASE} refreshKey={usageKey} onOpen={openJob} />}
-      {view === 'topup' && <TopUpPage apiBase={API_BASE} onChanged={refreshAccount} />}
+      {view === 'topup' && !isNative && <TopUpPage apiBase={API_BASE} onChanged={refreshAccount} />}
       {view === 'usage' && <UsageDashboard apiBase={API_BASE} refreshKey={usageKey} />}
       {view === 'presets' && <PresetsPage apiBase={API_BASE} onUse={(p) => { applyPreset(p); setView('create'); }} />}
     </Shell>

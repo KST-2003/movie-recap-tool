@@ -190,6 +190,35 @@ def me(user: User = Depends(auth.current_user)):
     return {"id": user.id, "email": user.email, "is_admin": user.is_admin, "is_superadmin": user.is_superadmin, "role": user_role(user), **_quota(user)}
 
 
+
+class DeleteAccountBody(BaseModel):
+    password: str = Field(max_length=200)
+
+
+@app.delete("/api/account")
+def delete_my_account(body: DeleteAccountBody, user: User = Depends(auth.current_user)):
+    """The user deletes their OWN account for good (required by the App Store and Google Play): needs the password, refused while a video is
+    being made. Removes the account, videos and their files, devices, presets, top-up requests and slips; reviews stay but lose the login name.
+    Bought minutes that are left are lost (no refund). Admin accounts are deleted by the owner, not here."""
+    from admin.routes import purge_user_data, remove_user_files, _audit_self
+    from db import Review
+    with Session() as s:
+        u = s.get(User, user.id)
+        if u is None:
+            raise HTTPException(status_code=404, detail="Unknown user")
+        if u.is_admin or u.is_superadmin:
+            raise HTTPException(status_code=400, detail="Admin accounts are deleted by the owner. Please contact them.")
+        if not auth.verify_password(body.password, u.password_hash):
+            raise HTTPException(status_code=403, detail="That password is not correct.")
+        jobs, topups, files, slips = purge_user_data(s, u, "A video is still being made. Cancel it or wait until it finishes, then delete your account.")
+        for r in s.execute(select(Review).where(Review.user_id == u.id)).scalars().all():
+            r.user_label = "(deleted account)"
+        _audit_self(s, u, "user.self_delete", {"videos": len(jobs), "topups": len(topups), "bought_minutes_left": round(max(0.0, u.credit_seconds or 0.0) / 60, 1)})
+        s.delete(u)
+        s.commit()
+    remove_user_files(files, slips, user.id)
+    return {"deleted": True}
+
 @app.get("/api/usage")
 def usage(user: User = Depends(auth.current_user)):
     """The signed-in user's own usage: totals, 30 days of minutes, and their recent videos (for their dashboard)."""

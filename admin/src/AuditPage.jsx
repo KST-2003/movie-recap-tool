@@ -13,6 +13,9 @@ function describe(tr, e) {
   } else if (e.action === 'user.delete') {
     lines.push(tr('Deleted user {email}', { email: e.target_label }));
     lines.push(`${tr(d.expired ? 'suspended' : d.status === 'paused' ? 'suspended' : d.status)} · ${tr('{n} videos', { n: d.videos })} · ${tr('{n} top-up requests', { n: d.topups })}${d.bought_minutes_left ? ` · ${tr('Bought minutes')}: ${d.bought_minutes_left}` : ''}`);
+  } else if (e.action === 'user.self_delete') {
+    lines.push(tr('{email} deleted their own account', { email: e.target_label }));
+    lines.push(`${tr('{n} videos', { n: d.videos })} · ${tr('{n} top-up requests', { n: d.topups })}${d.bought_minutes_left ? ` · ${tr('Bought minutes')}: ${d.bought_minutes_left}` : ''}`);
   } else if (e.action === 'user.device') {
     lines.push(tr('Removed device of {email}', { email: e.target_label }) + `: ${d.removed || ''}${d.ip ? ` (${d.ip})` : ''}`);
   } else if (e.action === 'topup.approve' || e.action === 'topup.reject') {
@@ -65,7 +68,7 @@ export default function AuditPage() {
     <div>
       <p className="mb-3 text-sm text-ink-soft">{tr('Every change made from this dashboard: who did it, what changed, and when. Passwords are never recorded.')}</p>
       <div className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:px-0">
-        {['', ...(data?.actions || ['user.create', 'user.update', 'user.device', 'topup.approve', 'topup.reject', 'credit.adjust', 'job.cancel', 'user.delete', 'post.create', 'post.update', 'post.delete', 'preset.create', 'preset.update', 'preset.delete', 'settings.update'])].map((a) => (
+        {['', ...(data?.actions || ['user.create', 'user.update', 'user.device', 'topup.approve', 'topup.reject', 'credit.adjust', 'job.cancel', 'user.delete', 'user.self_delete', 'post.create', 'post.update', 'post.delete', 'preset.create', 'preset.update', 'preset.delete', 'settings.update'])].map((a) => (
           <button key={a || 'all'} onClick={() => { setAction(a); setPage(1); }}
             className={`flex-shrink-0 rounded-full px-3 py-1.5 text-xs ${action === a ? 'bg-violet-500 text-white' : 'bg-violet-50 text-ink-soft hover:bg-violet-100'}`}>{tr(a || 'all')}</button>
         ))}

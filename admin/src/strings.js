@@ -2,6 +2,7 @@
 // Merged into MY by i18n.jsx (a key that already exists there keeps its old text).
 // NOTE: written by an AI assistant: have a native Burmese speaker review the wording before launch.
 export const ADMIN_MY = {
+  "{email} deleted their own account": "{email} သည် ကိုယ့်အကောင့်ကို ကိုယ်တိုင်ဖျက်ခဲ့သည်",
   "Presets": "ပရီဆက်များ",
   "New preset": "ပရီဆက်အသစ်",
   "Edit preset": "ပရီဆက်ပြင်ရန်",

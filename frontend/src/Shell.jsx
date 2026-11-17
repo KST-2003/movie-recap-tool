@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { LangSwitch, useI18n } from './i18n.jsx';
 import Mascot, { Brand } from './Mascot.jsx';
+import { isNative } from './native.js';
 
 // App frame (Recat look): white sidebar on wide screens; on phones a small top bar + a bottom tab bar, the account sheet
 // (allowance meters, language, log out) opens from the round button at the top right.
@@ -22,6 +23,10 @@ function Icon({ name, className = 'h-5 w-5' }) {
   return <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{ICONS[name]}</svg>;
 }
 
+// The store app (Capacitor) has no Top up page and shows no bought-minutes balance for now: Apple / Google want their own in-app purchase for
+// digital goods, so the bank-QR top-up stays on the website until that is decided. (App.jsx also hides the page itself.)
+const NAV_SHOWN = isNative ? NAV.filter(([key]) => key !== 'topup') : NAV;
+
 const mins = (seconds) => Math.max(0, seconds || 0) / 60;
 
 function Meter({ label, used, limit }) {
@@ -42,7 +47,7 @@ function Meter({ label, used, limit }) {
   );
 }
 
-function AccountBox({ account, onLogout }) {
+function AccountBox({ account, onLogout, onDeleteAccount }) {
   const { tr } = useI18n();
   return (
     <>
@@ -50,7 +55,7 @@ function AccountBox({ account, onLogout }) {
         <div className="space-y-3 rounded-2xl bg-page border border-violet-100 p-3">
           <Meter label={tr('Today')} used={mins(account.used_seconds)} limit={account.daily_minutes} />
           <Meter label={tr('This month')} used={mins(account.month_used_seconds)} limit={account.monthly_minutes} />
-          <div className="flex justify-between text-[11px] text-ink-soft"><span>{tr('Bought minutes')}</span><span className="text-ink font-medium">{Math.floor(mins(account.credit_seconds))} {tr('min')}</span></div>
+          {!isNative && <div className="flex justify-between text-[11px] text-ink-soft"><span>{tr('Bought minutes')}</span><span className="text-ink font-medium">{Math.floor(mins(account.credit_seconds))} {tr('min')}</span></div>}
           {account.expires_at && (() => {
             const days = Math.ceil((new Date(account.expires_at) - Date.now()) / 86400000);
             return (
@@ -66,12 +71,15 @@ function AccountBox({ account, onLogout }) {
           <LangSwitch />
           <button type="button" onClick={onLogout} className="text-xs font-medium text-ink-soft hover:text-violet-600">{tr('Log out')}</button>
         </div>
+        {account && !account.is_admin && onDeleteAccount && (
+          <button type="button" onClick={onDeleteAccount} className="block text-xs font-medium text-rose-600/80 hover:text-rose-700 hover:underline">{tr('Delete my account')}</button>
+        )}
       </div>
     </>
   );
 }
 
-export default function Shell({ view, setView, account, onLogout, children }) {
+export default function Shell({ view, setView, account, onLogout, onDeleteAccount, children }) {
   const { tr } = useI18n();
   const [open, setOpen] = useState(false);
   useEffect(() => {
@@ -89,7 +97,7 @@ export default function Shell({ view, setView, account, onLogout, children }) {
       <aside className="hidden lg:flex flex-col gap-6 w-64 shrink-0 h-full p-5 bg-white/80 backdrop-blur border-r border-violet-100 overflow-y-auto">
         <Brand />
         <nav className="flex flex-col gap-1.5">
-          {NAV.map(([key, label]) => (
+          {NAV_SHOWN.map(([key, label]) => (
             <button key={key} type="button" onClick={() => setView(key)} aria-current={view === key ? 'page' : undefined}
               className={`group flex items-center gap-3 px-3 py-2.5 rounded-2xl text-sm font-medium text-left ${view === key
                 ? 'bg-gradient-to-r from-violet-500 to-violet-400 text-white shadow-pop'
@@ -99,7 +107,7 @@ export default function Shell({ view, setView, account, onLogout, children }) {
             </button>
           ))}
         </nav>
-        <AccountBox account={account} onLogout={onLogout} />
+        <AccountBox account={account} onLogout={onLogout} onDeleteAccount={() => { setOpen(false); onDeleteAccount?.(); }} />
       </aside>
 
       {/* Phones: top bar */}
@@ -117,7 +125,7 @@ export default function Shell({ view, setView, account, onLogout, children }) {
               <Brand size="text-lg" icon="h-9 w-9" />
               <button type="button" aria-label={tr('Close menu')} onClick={() => setOpen(false)} className="h-8 w-8 rounded-full bg-violet-50 text-ink-soft">✕</button>
             </div>
-            <AccountBox account={account} onLogout={onLogout} />
+            <AccountBox account={account} onLogout={onLogout} onDeleteAccount={() => { setOpen(false); onDeleteAccount?.(); }} />
           </div>
         </div>
       )}
@@ -126,7 +134,7 @@ export default function Shell({ view, setView, account, onLogout, children }) {
 
       {/* Phones: bottom tab bar */}
       <nav className="lg:hidden fixed inset-x-0 bottom-0 z-30 flex items-stretch justify-around gap-1 rounded-t-[1.75rem] border-t border-violet-100 bg-white/95 px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-10px_30px_-12px_rgba(139,92,246,0.3)] backdrop-blur">
-        {NAV.map(([key, label, short]) => (
+        {NAV_SHOWN.map(([key, label, short]) => (
           <button key={key} type="button" onClick={() => setView(key)} aria-label={tr(label)} aria-current={view === key ? 'page' : undefined}
             className={`flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-2xl py-1.5 text-[11px] font-medium ${view === key ? 'bg-violet-100 text-violet-600' : 'text-ink-faint'}`}>
             <Icon name={key} className={`h-5 w-5 transition-transform duration-300 ${view === key ? 'scale-110 -translate-y-0.5' : ''}`} />
