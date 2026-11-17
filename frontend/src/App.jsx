@@ -14,6 +14,8 @@ import Shell from './Shell.jsx';
 import UsageDashboard from './UsageDashboard.jsx';
 import HistoryPage from './HistoryPage.jsx';
 import TopUpPage from './TopUpPage.jsx';
+import PresetsPage from './PresetsPage.jsx';
+import PresetPicker from './PresetPicker.jsx';
 import PostBanner from './PostBanner.jsx';
 import { LangSwitch, useI18n } from './i18n.jsx';
 import { deviceCapability, renderFromPlan } from './deviceRenderPlan.js';
@@ -456,6 +458,50 @@ function App() {
     requestAnimationFrame(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   };
 
+  // Presets: saved settings for a new video (Presets page); the Preset button on the Create form fills the form with one of them.
+  const [presets, setPresets] = useState(null);       // { mine, shared }
+  const [activePreset, setActivePreset] = useState('');
+  useEffect(() => {
+    if (!token || view !== 'create') return;
+    axios.get(`${API_BASE}/api/presets`).then((r) => setPresets(r.data)).catch(() => {});
+  }, [token, view]);
+  const applyPreset = (p) => {
+    const st = p.settings || {};
+    if (st.aspect) setAspect(st.aspect);
+    if (st.fitMode) setFitMode(st.fitMode);
+    if (st.resolution) setResolution(st.resolution);
+    if (st.videoSpeed != null) setVideoSpeed(st.videoSpeed);
+    if (st.brightness != null) setBrightness(st.brightness);
+    if (st.contrast != null) setContrast(st.contrast);
+    if (st.saturation != null) setSaturation(st.saturation);
+    if (st.logoPosition) setLogoPosition(st.logoPosition);
+    if (st.logoSize != null) setLogoSize(st.logoSize);
+    if (st.logoOnTop != null) setLogoOnTop(st.logoOnTop);
+    setFinish((f) => ({ ...f, ...(st.blurSubtitles != null ? { blur_subtitles: st.blurSubtitles } : {}), ...(st.watermark != null ? { remove_watermark: st.watermark } : {}), ...(st.flip != null ? { enable_flip: st.flip } : {}) }));
+    if (st.outputKind) setOutputKind(st.outputKind);
+    const quality = st.voiceQuality === 'standard' && !standardOk ? 'premium' : (st.voiceQuality || voiceQuality);
+    setVoiceQuality(quality);
+    if (st.voiceType) {
+      setVoiceType(st.voiceType);
+      const v = voices.find((x) => x.name === st.voiceType);
+      setVoiceGender(v ? v.gender : (st.voiceType === 'Charon' ? 'male' : 'female'));
+    }
+    if (st.filmMode) setFilmMode(st.filmMode);
+    if (st.bgMode) setBgMode(st.bgMode === 'separate' && !separationOk ? 'original' : st.bgMode);
+    if (st.emotionOn != null) setEmotionOn(st.emotionOn);
+    if (st.softMusic != null) setSoftMusic(st.softMusic);
+    setCaptionStyle({ ...DEFAULT_CAPTION_STYLE, ...(st.captionStyle || {}) });
+    setActivePreset(`${p.id}${(presets?.shared || []).some((x) => x.id === p.id) ? 's' : 'm'}`);
+  };
+
+  // what the editor's "Apply changes & re-render" costs for the video on screen: the first 3 are free, then a share of its minutes
+  const [editPrice, setEditPrice] = useState(null);
+  useEffect(() => {
+    setEditPrice(null);
+    if (!jobId || !project) return;
+    axios.get(`${API_BASE}/api/jobs/${jobId}/edit-price`).then((r) => setEditPrice(r.data)).catch(() => {});
+  }, [jobId, project]);
+
   // Handle Form Submission
   const handleGenerateRecap = async (e) => {
     e.preventDefault();
@@ -623,7 +669,7 @@ function App() {
     setDeviceJob(false);
     setProgress({ pct: 0, stage: tr('Your device could not make it, so the server is doing it') });
     const lines = (result.project?.segments || []).map((g) => ({ id: g.id, start: g.start, text: g.text, source_text: g.source_text || '', tempo: g.tempo || null, speaker: g.speaker || null }));
-    const { data } = await axios.post(`${API_BASE}/api/jobs/${job.id}/rerender`, { segments: lines, device_render: false });
+    const { data } = await axios.post(`${API_BASE}/api/jobs/${job.id}/rerender`, { segments: lines, device_render: false, fallback: true });
     await followJob(data.job_id);
     return null;
   };
@@ -782,6 +828,7 @@ function App() {
           </div>
         )}
         <form ref={formRef} onSubmit={handleGenerateRecap} className="flex flex-col gap-6 scroll-mt-20">
+          <PresetPicker presets={presets} active={activePreset} onPick={applyPreset} onClear={() => setActivePreset('')} onManage={() => setView('presets')} />
           {/* Phones: the form is split into 4 steps (one on screen at a time, free to jump); wide screens show everything */}
           <ol className="flex items-center gap-1.5" aria-label={tr('Steps')}>
             {STEP_NAMES.map((name, i) => {
@@ -1247,7 +1294,7 @@ function App() {
               {copyNote && <p className="text-xs text-violet-600">{copyNote}</p>}
               {reviewJob && reviewJob === jobId && !loading && <ReviewBox key={`review-${reviewJob}`} apiBase={API_BASE} jobId={reviewJob} onClose={() => setReviewJob('')} />}
               {project && (
-                <Editor key={jobId} project={project} videoRef={videoRef} busy={loading} voices={voices} looks={looks} playingVoice={playing} onPlaySample={playSample} onPreviewLine={previewLine} previewing={previewing} onApply={applyEdits} finish={finish} onFinish={(patch) => setFinish((f) => ({ ...f, ...patch }))} hasBackground={bgKept} />
+                <Editor key={jobId} project={project} videoRef={videoRef} busy={loading} voices={voices} looks={looks} playingVoice={playing} onPlaySample={playSample} onPreviewLine={previewLine} previewing={previewing} onApply={applyEdits} finish={finish} onFinish={(patch) => setFinish((f) => ({ ...f, ...patch }))} hasBackground={bgKept} editPrice={editPrice} />
               )}
               {!project && timeline.length > 0 && (
                 <ul className="w-full text-xs text-ink-soft space-y-1">
@@ -1268,6 +1315,7 @@ function App() {
       {view === 'history' && <HistoryPage apiBase={API_BASE} refreshKey={usageKey} onOpen={openJob} />}
       {view === 'topup' && <TopUpPage apiBase={API_BASE} onChanged={refreshAccount} />}
       {view === 'usage' && <UsageDashboard apiBase={API_BASE} refreshKey={usageKey} />}
+      {view === 'presets' && <PresetsPage apiBase={API_BASE} onUse={(p) => { applyPreset(p); setView('create'); }} />}
     </Shell>
   );
 }

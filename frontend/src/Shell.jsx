@@ -9,9 +9,11 @@ const ICONS = {
   history: <><rect x="3" y="5" width="18" height="14" rx="3" /><path d="M10 9.5v5l4.5-2.5z" /></>,
   topup: <><rect x="3" y="6" width="18" height="13" rx="3" /><path d="M3 10.5h18M7 15h3" /></>,
   usage: <path d="M5 19V11M12 19V5M19 19v-6" />,
+  presets: <><path d="M4 7h10M18 7h2M4 17h2M10 17h10" /><circle cx="16" cy="7" r="2" /><circle cx="8" cy="17" r="2" /></>,
 };
 const NAV = [
   ['create', 'Create video', 'Create'],
+  ['presets', 'Presets', 'Presets'],
   ['history', 'My videos', 'Videos'],
   ['topup', 'Top up', 'Top up'],
   ['usage', 'My usage', 'Usage'],
