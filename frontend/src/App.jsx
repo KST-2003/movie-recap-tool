@@ -14,6 +14,9 @@ import Shell from './Shell.jsx';
 import UsageDashboard from './UsageDashboard.jsx';
 import HistoryPage from './HistoryPage.jsx';
 import TopUpPage from './TopUpPage.jsx';
+import PresetsPage from './PresetsPage.jsx';
+import DeleteAccountDialog from './DeleteAccountDialog.jsx';
+import PresetPicker from './PresetPicker.jsx';
 import PostBanner from './PostBanner.jsx';
 import { LangSwitch, useI18n } from './i18n.jsx';
 import { deviceCapability, renderFromPlan } from './deviceRenderPlan.js';
@@ -204,6 +207,7 @@ function App() {
   const [view, setView] = useState('create');   // sidebar page: create | usage
   const [usageKey, setUsageKey] = useState(0);   // bumped when a job ends so the usage page reloads
   const [account, setAccount] = useState(null); // { email, daily_minutes, remaining_seconds }
+  const [showDelete, setShowDelete] = useState(false);   // the "Delete my account" dialog
   const [notice, setNotice] = useState('');   // why the user was signed out (paused, device removed, ...)
   if (token) axios.defaults.headers.common.Authorization = `Bearer ${token}`;
 
@@ -446,15 +450,73 @@ function App() {
     };
   }, [token, view, loading]);
 
-  // Phones: the Create form is shown one step at a time (the user can go back / forward or tap a step at any time; nothing is
-  // unmounted, hidden steps keep their values). Wide screens (lg+) show the whole form and ignore `step`.
+  // The Create form is shown one step at a time on every screen size (back / forward or tap a step at any time; nothing is
+  // unmounted, hidden steps keep their values).
   const [step, setStep] = useState(1);
   const formRef = useRef(null);
-  const stepCls = (n) => (step === n ? 'contents' : 'max-lg:hidden lg:contents');
+  const stepCls = (n) => (step === n ? 'contents' : 'hidden');
   const goStep = (n) => {
     setStep(Math.min(STEP_NAMES.length, Math.max(1, n)));
-    if (window.matchMedia?.('(max-width: 1023px)').matches) requestAnimationFrame(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    requestAnimationFrame(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   };
+
+  // Presets: saved settings for a new video (Presets page); the Preset button on the Create form fills the form with one of them.
+  const [presets, setPresets] = useState(null);       // { mine, shared }
+  const [activePreset, setActivePreset] = useState('');
+  useEffect(() => {
+    if (!token || view !== 'create') return;
+    axios.get(`${API_BASE}/api/presets`).then((r) => setPresets(r.data)).catch(() => {});
+  }, [token, view]);
+  // "Use previous settings": everything chosen for the user's last new video (the server reads it from that video's settings)
+  const [prevSettings, setPrevSettings] = useState(null);
+  const [prevNote, setPrevNote] = useState(false);
+  useEffect(() => {
+    if (!token || view !== 'create') return;
+    axios.get(`${API_BASE}/api/presets/last`).then((r) => setPrevSettings(r.data?.settings && Object.keys(r.data.settings).length ? r.data : null)).catch(() => {});
+  }, [token, view, jobId]);
+  const usePrevious = () => {
+    if (!prevSettings) return;
+    applyPreset({ id: 0, settings: prevSettings.settings });
+    setActivePreset('');
+    setPrevNote(true);
+    setTimeout(() => setPrevNote(false), 4000);
+  };
+  const applyPreset = (p) => {
+    const st = p.settings || {};
+    if (st.aspect) setAspect(st.aspect);
+    if (st.fitMode) setFitMode(st.fitMode);
+    if (st.resolution) setResolution(st.resolution);
+    if (st.videoSpeed != null) setVideoSpeed(st.videoSpeed);
+    if (st.brightness != null) setBrightness(st.brightness);
+    if (st.contrast != null) setContrast(st.contrast);
+    if (st.saturation != null) setSaturation(st.saturation);
+    if (st.logoPosition) setLogoPosition(st.logoPosition);
+    if (st.logoSize != null) setLogoSize(st.logoSize);
+    if (st.logoOnTop != null) setLogoOnTop(st.logoOnTop);
+    setFinish((f) => ({ ...f, ...(st.blurSubtitles != null ? { blur_subtitles: st.blurSubtitles } : {}), ...(st.watermark != null ? { remove_watermark: st.watermark } : {}), ...(st.flip != null ? { enable_flip: st.flip } : {}) }));
+    if (st.outputKind) setOutputKind(st.outputKind);
+    const quality = st.voiceQuality === 'standard' && !standardOk ? 'premium' : (st.voiceQuality || voiceQuality);
+    setVoiceQuality(quality);
+    if (st.voiceType) {
+      setVoiceType(st.voiceType);
+      const v = voices.find((x) => x.name === st.voiceType);
+      setVoiceGender(v ? v.gender : (st.voiceType === 'Charon' ? 'male' : 'female'));
+    }
+    if (st.filmMode) setFilmMode(st.filmMode);
+    if (st.bgMode) setBgMode(st.bgMode === 'separate' && !separationOk ? 'original' : st.bgMode);
+    if (st.emotionOn != null) setEmotionOn(st.emotionOn);
+    if (st.softMusic != null) setSoftMusic(st.softMusic);
+    setCaptionStyle({ ...DEFAULT_CAPTION_STYLE, ...(st.captionStyle || {}) });
+    setActivePreset(`${p.id}${(presets?.shared || []).some((x) => x.id === p.id) ? 's' : 'm'}`);
+  };
+
+  // what the editor's "Apply changes & re-render" costs for the video on screen: the first 3 are free, then a share of its minutes
+  const [editPrice, setEditPrice] = useState(null);
+  useEffect(() => {
+    setEditPrice(null);
+    if (!jobId || !project) return;
+    axios.get(`${API_BASE}/api/jobs/${jobId}/edit-price`).then((r) => setEditPrice(r.data)).catch(() => {});
+  }, [jobId, project]);
 
   // Handle Form Submission
   const handleGenerateRecap = async (e) => {
@@ -558,7 +620,8 @@ function App() {
     const status = error.response?.status;
     const detail = error.response?.data?.detail;
     const userText = typeof detail === 'string' && [400, 402, 413, 429, 503].includes(status) ? detail : (!error.response && error.message && /busy|refunded|minutes/i.test(error.message) ? error.message : '');
-    setErrorMessage(userText ? trs(userText) : tr('We could not complete this just now. Our team has been notified. Please try again a little later.'));
+    const shown = isNative ? userText.replace(/\s*Please top up minutes to make it\./, '') : userText;   // the store app has no top-up: no call to buy
+    setErrorMessage(shown ? trs(shown) : tr('We could not complete this just now. Our team has been notified. Please try again a little later.'));
   };
 
   // A video drawn on this device is kept in two places for the keeping time: this browser's storage (opens at once, no download)
@@ -623,7 +686,7 @@ function App() {
     setDeviceJob(false);
     setProgress({ pct: 0, stage: tr('Your device could not make it, so the server is doing it') });
     const lines = (result.project?.segments || []).map((g) => ({ id: g.id, start: g.start, text: g.text, source_text: g.source_text || '', tempo: g.tempo || null, speaker: g.speaker || null }));
-    const { data } = await axios.post(`${API_BASE}/api/jobs/${job.id}/rerender`, { segments: lines, device_render: false });
+    const { data } = await axios.post(`${API_BASE}/api/jobs/${job.id}/rerender`, { segments: lines, device_render: false, fallback: true });
     await followJob(data.job_id);
     return null;
   };
@@ -734,7 +797,8 @@ function App() {
   const maintenance = !!queue?.maintenance && !loading && !resultVideoUrl;
 
   return (
-    <Shell view={view} setView={setView} account={account} onLogout={() => logout()}>
+    <Shell view={view} setView={setView} account={account} onLogout={() => logout()} onDeleteAccount={() => setShowDelete(true)}>
+      {showDelete && <DeleteAccountDialog apiBase={API_BASE} onClose={() => setShowDelete(false)} onDeleted={() => { setShowDelete(false); logout(tr('Your account was deleted. Thank you for using Recat.')); }} />}
       {splash && <Splash onDone={() => setSplash(false)} />}
       {dragOver && view === 'create' && (
         <div className="fixed inset-0 z-50 pointer-events-none flex items-center justify-center bg-ink/80 p-6 text-white">
@@ -759,7 +823,7 @@ function App() {
       <div className={view === 'create' && !maintenance ? '' : 'hidden'}>
       {/* top banner: our own "What are we recapping today?" card first, then the pictures the admin posted (Posts), swiped sideways.
           Every slide is 16:9, the shape the admin uploads. */}
-      <PostBanner apiBase={API_BASE} className={`max-w-3xl mx-auto mb-5 ${step > 1 ? 'max-lg:hidden' : ''}`}>
+      <PostBanner apiBase={API_BASE} className={`max-w-3xl mx-auto mb-5 ${step > 1 ? 'hidden' : ''}`}>
         <div className="relative flex h-full w-full flex-col justify-center overflow-hidden bg-gradient-to-br from-violet-500 via-purple-400 to-pink-300 p-5 pr-32 sm:p-10 sm:pr-64 text-white">
           <div aria-hidden="true" className="pointer-events-none absolute -right-10 -top-16 h-56 w-56 sm:h-96 sm:w-96 rounded-full border border-white/20" />
           <div aria-hidden="true" className="pointer-events-none absolute -right-24 -top-28 h-80 w-80 sm:h-[34rem] sm:w-[34rem] rounded-full border border-white/15" />
@@ -782,8 +846,19 @@ function App() {
           </div>
         )}
         <form ref={formRef} onSubmit={handleGenerateRecap} className="flex flex-col gap-6 scroll-mt-20">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <PresetPicker presets={presets} active={activePreset} onPick={(p) => { applyPreset(p); setPrevNote(false); }} onClear={() => setActivePreset('')} onManage={() => setView('presets')} />
+            {prevSettings && (
+              <button type="button" onClick={usePrevious} disabled={loading}
+                className="flex items-center gap-2 rounded-2xl border border-violet-200 bg-white px-3.5 py-2 text-sm font-semibold text-violet-600 shadow-card hover:bg-violet-50 disabled:opacity-50">
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5M12 7v5l3 2" /></svg>
+                {tr('Use previous settings')}
+              </button>
+            )}
+            {prevNote && <span role="status" className="text-xs text-emerald-700">{tr('Settings from your last video are applied.')}</span>}
+          </div>
           {/* Phones: the form is split into 4 steps (one on screen at a time, free to jump); wide screens show everything */}
-          <ol className="lg:hidden flex items-center gap-1.5" aria-label={tr('Steps')}>
+          <ol className="flex items-center gap-1.5" aria-label={tr('Steps')}>
             {STEP_NAMES.map((name, i) => {
               const n = i + 1; const on = step === n; const done = n < step;
               return (
@@ -791,7 +866,7 @@ function App() {
                   <button type="button" onClick={() => goStep(n)} aria-current={on ? 'step' : undefined}
                     className={`w-full flex items-center justify-center gap-1.5 rounded-full px-2 py-2 text-xs font-semibold transition-all duration-300 ${on ? 'bg-violet-500 text-white shadow-pop' : done ? 'bg-violet-100 text-violet-600' : 'bg-page text-ink-faint border border-violet-100'}`}>
                     <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] ${on ? 'bg-white/25' : done ? 'bg-violet-500 text-white' : 'bg-violet-100 text-ink-soft'}`}>{done ? '✓' : n}</span>
-                    {on && <span className="truncate">{tr(name)}</span>}
+                    <span className={`truncate ${on ? '' : 'max-sm:hidden'}`}>{tr(name)}</span>
                   </button>
                 </li>
               );
@@ -894,7 +969,7 @@ function App() {
               {videoFile && !loading && <button type="button" onClick={clearVideo} aria-label={tr('Remove video')} title={tr('Remove video')} className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-rose-500 text-white shadow hover:bg-rose-600 active:scale-95"><svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>}
               </div>
               <p className="hidden md:block mt-1 text-xs text-ink-faint">{tr('You can also drag a video file and drop it anywhere on this page.')}</p>
-              <div className="mt-3">
+              {!isNative && <div className="mt-3">
                 <label className="block text-xs text-ink-soft mb-1">{tr('Or paste a RedNote, YouTube or TikTok link')}</label>
                 <div className="flex gap-2">
                   <input type="text" inputMode="url" value={linkText} onChange={(e) => setLinkText(e.target.value)} disabled={!!linkBusy || loading}
@@ -908,7 +983,7 @@ function App() {
                 {!linkBusy && linkInfo && linkInfo.file === videoFile && (
                   <p className="mt-1 text-xs text-emerald-700 break-words">{tr('From {site}: {title}', { site: linkInfo.site, title: linkInfo.title || tr('video') })}</p>
                 )}
-              </div>
+              </div>}
             </div>
 
             <div>
@@ -964,7 +1039,7 @@ function App() {
             </>
           )}
           {!(sourceUrl && !loading && !resultVideoUrl) && (
-            <p className="lg:hidden rounded-2xl border border-dashed border-violet-200 bg-page p-6 text-center text-sm text-ink-soft">
+            <p className="rounded-2xl border border-dashed border-violet-200 bg-page p-6 text-center text-sm text-ink-soft">
               {!sourceUrl ? tr('Choose a video in step 1 first. Then you can set the look here.') : tr('The look is set while the video is being made. Change it in the editor below the result.')}
             </p>
           )}
@@ -1173,7 +1248,7 @@ function App() {
             {loading ? tr('⚡ Processing…') : tr('✨ Generate video')}
           </button>
           </div>
-          <div className="lg:hidden flex items-center gap-3">
+          <div className="flex items-center gap-3">
             {step > 1 && <button type="button" onClick={() => goStep(step - 1)} className="flex-1 rounded-2xl border border-violet-200 bg-white py-3 text-sm font-semibold text-ink-soft">← {tr('Back')}</button>}
             {step < STEP_NAMES.length && <button type="button" onClick={() => goStep(step + 1)} className="flex-[2] rounded-2xl bg-violet-500 py-3 text-sm font-semibold text-white shadow-pop">{tr('Next')} →</button>}
           </div>
@@ -1247,7 +1322,7 @@ function App() {
               {copyNote && <p className="text-xs text-violet-600">{copyNote}</p>}
               {reviewJob && reviewJob === jobId && !loading && <ReviewBox key={`review-${reviewJob}`} apiBase={API_BASE} jobId={reviewJob} onClose={() => setReviewJob('')} />}
               {project && (
-                <Editor key={jobId} project={project} videoRef={videoRef} busy={loading} voices={voices} looks={looks} playingVoice={playing} onPlaySample={playSample} onPreviewLine={previewLine} previewing={previewing} onApply={applyEdits} finish={finish} onFinish={(patch) => setFinish((f) => ({ ...f, ...patch }))} hasBackground={bgKept} />
+                <Editor key={jobId} project={project} videoRef={videoRef} busy={loading} voices={voices} looks={looks} playingVoice={playing} onPlaySample={playSample} onPreviewLine={previewLine} previewing={previewing} onApply={applyEdits} finish={finish} onFinish={(patch) => setFinish((f) => ({ ...f, ...patch }))} hasBackground={bgKept} editPrice={editPrice} />
               )}
               {!project && timeline.length > 0 && (
                 <ul className="w-full text-xs text-ink-soft space-y-1">
@@ -1266,8 +1341,9 @@ function App() {
       </div>
       </div>
       {view === 'history' && <HistoryPage apiBase={API_BASE} refreshKey={usageKey} onOpen={openJob} />}
-      {view === 'topup' && <TopUpPage apiBase={API_BASE} onChanged={refreshAccount} />}
+      {view === 'topup' && !isNative && <TopUpPage apiBase={API_BASE} onChanged={refreshAccount} />}
       {view === 'usage' && <UsageDashboard apiBase={API_BASE} refreshKey={usageKey} />}
+      {view === 'presets' && <PresetsPage apiBase={API_BASE} onUse={(p) => { applyPreset(p); setView('create'); }} />}
     </Shell>
   );
 }

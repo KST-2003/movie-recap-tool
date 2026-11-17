@@ -11,7 +11,9 @@
     "predev": "node scripts/copy-ort.mjs",
     "prebuild": "node scripts/copy-ort.mjs",
     "build:native": "node scripts/build-native.mjs",
-    "cap:sync": "npm run build:native && cap sync"
+    "cap:sync": "npm run build:native && cap sync",
+    "ota:publish": "node scripts/publish-ota.mjs",
+    "ota:off": "OTA_DISABLE=1 node scripts/publish-ota.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.2",
@@ -22,6 +24,7 @@
     "@capacitor/share": "^8.0.3",
     "@capacitor/splash-screen": "^8.0.2",
     "@capacitor/status-bar": "^8.0.4",
+    "@capgo/capacitor-updater": "^8.54.2",
     "@fontsource/fredoka": "^5.3.0",
     "@fontsource/poppins": "^5.3.0",
     "@fontsource/space-mono": "^5.3.0",

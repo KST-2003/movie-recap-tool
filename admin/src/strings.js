@@ -2,6 +2,26 @@
 // Merged into MY by i18n.jsx (a key that already exists there keeps its old text).
 // NOTE: written by an AI assistant: have a native Burmese speaker review the wording before launch.
 export const ADMIN_MY = {
+  "{email} deleted their own account": "{email} သည် ကိုယ့်အကောင့်ကို ကိုယ်တိုင်ဖျက်ခဲ့သည်",
+  "Presets": "ပရီဆက်များ",
+  "New preset": "ပရီဆက်အသစ်",
+  "Edit preset": "ပရီဆက်ပြင်ရန်",
+  "Submitted": "တင်ပြီး",
+  "Submit to users": "အသုံးပြုသူများထံ တင်ရန်",
+  "Withdraw (back to draft)": "ပြန်ရုပ်သိမ်းရန် (မူကြမ်းသို့)",
+  "Presets made here are for everybody. Users see only the ones you Submit; drafts stay with the admins. Users can also keep up to 5 presets of their own.": "ဤနေရာတွင် ပြုလုပ်သော ပရီဆက်များသည် လူတိုင်းအတွက်ဖြစ်သည်။ သင် တင်လိုက်သည်များကိုသာ အသုံးပြုသူများ မြင်ရမည်။ မူကြမ်းများကို admin များသာ မြင်ရမည်။ အသုံးပြုသူတိုင်း ကိုယ်ပိုင်ပရီဆက် ၅ ခုအထိ သိမ်းနိုင်သည်။",
+  "No presets yet. Make the first one with \"New preset\".": "ပရီဆက် မရှိသေးပါ။ \"ပရီဆက်အသစ်\" ဖြင့် ပထမတစ်ခု ပြုလုပ်ပါ။",
+  "Delete the preset \"{t}\"? Users will not see it any more.": "ပရီဆက် \"{t}\" ကို ဖျက်မလား။ အသုံးပြုသူများ မမြင်တော့ပါ။",
+  "Created preset \"{t}\"": "ပရီဆက် \"{t}\" ကို ပြုလုပ်ခဲ့သည်",
+  "Changed preset \"{t}\"": "ပရီဆက် \"{t}\" ကို ပြောင်းခဲ့သည်",
+  "Deleted preset \"{t}\"": "ပရီဆက် \"{t}\" ကို ဖျက်ခဲ့သည်",
+  "Settings changed": "ဆက်တင်များ ပြောင်းသည်",
+  "Preset name": "ပရီဆက်အမည်",
+  "Preview": "နမူနာကြည့်ရန်",
+  "Save preset": "ပရီဆက်သိမ်းရန်",
+  "Draft (only admins see it)": "မူကြမ်း (admin များသာ မြင်ရမည်)",
+  "Submitted (all users can use it)": "တင်ပြီး (အသုံးပြုသူအားလုံး သုံးနိုင်မည်)",
+
   // navigation + shell
   'Overview': 'ခြုံငုံသုံးသပ်ချက်',
   'Users': 'အသုံးပြုသူများ',

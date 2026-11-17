@@ -32,7 +32,7 @@ const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
  *  - tap a block to edit its text, voice speed or delete it; "Split" adds a line at the playhead
  * Edits are applied with one re-render; only changed lines are re-voiced.
  */
-export default function Editor({ project, videoRef, busy, onApply, finish = null, onFinish = () => {}, hasBackground = false, voices = [], looks = [], playingVoice = null, onPlaySample = () => {}, onPreviewLine = null, previewing = null }) {
+export default function Editor({ project, videoRef, busy, onApply, finish = null, onFinish = () => {}, hasBackground = false, editPrice = null, voices = [], looks = [], playingVoice = null, onPlaySample = () => {}, onPreviewLine = null, previewing = null }) {
   const { tr, lang } = useI18n();
   const duration = project.source_duration;
   const model = project.voice_model || DEFAULT_MODEL;
@@ -239,7 +239,7 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
     const m = meta[l.key];
     const same = m && m.text === l.text;
     const dur = same ? m.audio_dur : predict(l.text); // unchanged line: real length; edited line: predicted, no TTS call
-    return dur / (l.tempo ?? (same ? m.applied_tempo : null) ?? 1);
+    return dur / (l.tempo ?? (same ? m.applied_tempo : null) ?? 1);   // `same && x` is `false` for an edited line, and `false ?? 1` stays false = dur / 0 = Infinity
   };
 
   const width = duration * pps;
@@ -511,11 +511,19 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
           onClick={() => onApply([...lines].sort((a, b) => a.start - b.start).map((l) => ({ id: l.id ?? null, speaker: l.speaker, start: Number(l.start), text: l.text, source_text: l.source_text, tempo: l.tempo })), voicesChanged ? speakerVoices : undefined, blurDirty ? normBlur(blurs) : undefined, capDirty ? cap : undefined)}
           className="px-4 py-2 rounded-2xl bg-violet-500 hover:bg-violet-600 font-semibold text-sm disabled:opacity-40 text-white">
           {busy ? tr('Re-rendering…') : tr('Apply changes & re-render')}
+          {!busy && editPrice && <span className="ml-1.5 text-xs font-normal opacity-90">· {editPrice.cost_minutes > 0 ? tr('uses {n} min', { n: editPrice.cost_minutes }) : tr('free')}</span>}
         </button>
         {dirty && !busy && (
           <button type="button" onClick={() => { setCap(initialCap); setLines(initial); setSelected(initial[0]?.key ?? null); setSpeakerVoices(Object.fromEntries(speakerIds.map((s) => [s, project.speakers[s].voice]))); setMovedTo({}); setBlurs(initialBlur); setBlurSel(null); if (finish) onFinish(initialFinish.current); }} className="px-3 py-2 rounded-2xl bg-violet-100 hover:bg-violet-200 text-sm">{tr('Reset')}</button>
         )}
         {dirty && !busy && <span className="self-center text-xs text-amber-700">{tr('Not applied yet: press "Apply changes & re-render" to hear it.')}</span>}
+        {editPrice && (
+          <span className={`self-center text-xs ${editPrice.cost_minutes > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+            {editPrice.cost_minutes > 0
+              ? tr('Free re-renders used up: each one now uses {n} min ({p}% of this video).', { n: editPrice.cost_minutes, p: Math.round(editPrice.percent) })
+              : tr('{n} of {t} free re-renders left for this video.', { n: editPrice.free_left, t: editPrice.free_total })}
+          </span>
+        )}
         <span className="self-center text-xs text-ink-faint">{tr('Only changed lines are re-voiced. Estimated length ≈ {t}.', { t: fmt(total) })}</span>
       </div>
     </fieldset>

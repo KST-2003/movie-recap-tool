@@ -1,6 +1,6 @@
 import json
 import shutil
-from config import (ALLOW_SIGNUP, CORS_ORIGINS, DEFAULT_DAILY_MINUTES,
+from config import (ALLOW_SIGNUP, CORS_ORIGINS, DEFAULT_DAILY_MINUTES, FREE_RERENDERS, RERENDER_PERCENT,
                     LOGOS_DIR, MAX_ACTIVE_JOBS_PER_USER, MAX_UPLOAD_MB, MAX_VIDEO_MINUTES,
                     OUTPUT_DIR, SIGNED_URL_SECONDS, UPLOAD_DIR)
 
@@ -63,6 +63,11 @@ app.include_router(topup.router)
 import posts  # noqa: E402  (banners made in the admin dashboard)
 app.include_router(posts.admin_router)
 app.include_router(posts.router)
+import ota  # noqa: E402  (OTA web-bundle updates for the phone app)
+app.include_router(ota.router)
+import presets  # noqa: E402  (saved settings for a new video: users' own + admin-made)
+app.include_router(presets.admin_router)
+app.include_router(presets.router)
 app.include_router(reviews.router)
 app.include_router(reviews.admin_router)
 
@@ -186,6 +191,35 @@ def login(body: Credentials, request: Request):
 def me(user: User = Depends(auth.current_user)):
     return {"id": user.id, "email": user.email, "is_admin": user.is_admin, "is_superadmin": user.is_superadmin, "role": user_role(user), **_quota(user)}
 
+
+
+class DeleteAccountBody(BaseModel):
+    password: str = Field(max_length=200)
+
+
+@app.delete("/api/account")
+def delete_my_account(body: DeleteAccountBody, user: User = Depends(auth.current_user)):
+    """The user deletes their OWN account for good (required by the App Store and Google Play): needs the password, refused while a video is
+    being made. Removes the account, videos and their files, devices, presets, top-up requests and slips; reviews stay but lose the login name.
+    Bought minutes that are left are lost (no refund). Admin accounts are deleted by the owner, not here."""
+    from admin.routes import purge_user_data, remove_user_files, _audit_self
+    from db import Review
+    with Session() as s:
+        u = s.get(User, user.id)
+        if u is None:
+            raise HTTPException(status_code=404, detail="Unknown user")
+        if u.is_admin or u.is_superadmin:
+            raise HTTPException(status_code=400, detail="Admin accounts are deleted by the owner. Please contact them.")
+        if not auth.verify_password(body.password, u.password_hash):
+            raise HTTPException(status_code=403, detail="That password is not correct.")
+        jobs, topups, files, slips = purge_user_data(s, u, "A video is still being made. Cancel it or wait until it finishes, then delete your account.")
+        for r in s.execute(select(Review).where(Review.user_id == u.id)).scalars().all():
+            r.user_label = "(deleted account)"
+        _audit_self(s, u, "user.self_delete", {"videos": len(jobs), "topups": len(topups), "bought_minutes_left": round(max(0.0, u.credit_seconds or 0.0) / 60, 1)})
+        s.delete(u)
+        s.commit()
+    remove_user_files(files, slips, user.id)
+    return {"deleted": True}
 
 @app.get("/api/usage")
 def usage(user: User = Depends(auth.current_user)):
@@ -870,6 +904,32 @@ class RerenderBody(BaseModel):
     bg_volume: float | None = Field(default=None, ge=0.0, le=1.5)   # level of the film's own music/effects under the voice
     caption_style: CaptionStyle | None = None        # subtitle font / size / colours / position; None = keep
     blur_windows: list[list[float]] | None = Field(default=None, max_length=400)   # [[start, end]] SOURCE seconds when the subtitle blur is ON (the editor's blur track); [] = never
+    fallback: bool = False                           # the app re-renders on the server because the user's device failed: always free, not counted
+
+
+def rerender_quote(s, user_id: int, job: Job, project: dict) -> dict:
+    """What the next editor re-render of this video costs: the first FREE_RERENDERS are free, then RERENDER_PERCENT % of the video's minutes
+    (rounded up, at least 1 minute). Counted per source video; the server fallback of a failed device render is not counted."""
+    import math
+    rows = s.execute(select(Job).where(Job.user_id == user_id, Job.input_key == job.input_key,
+                                       Job.status.in_(("queued", "running", "done")))).scalars().all()
+    used = sum(1 for j in rows if (j.params or {}).get("edit") and not (j.params or {}).get("fallback"))
+    free_left = max(0, FREE_RERENDERS - used)
+    minutes = float(project.get("source_duration") or 0) / 60.0
+    cost_min = 0 if free_left > 0 else max(1, math.ceil(RERENDER_PERCENT / 100.0 * minutes - 1e-9))
+    return {"used": used, "free_total": FREE_RERENDERS, "free_left": free_left, "cost_seconds": cost_min * 60, "cost_minutes": cost_min,
+            "percent": RERENDER_PERCENT}
+
+
+@app.get("/api/jobs/{job_id}/edit-price")
+def edit_price(job_id: str, user: User = Depends(auth.current_user)):
+    """What "Apply changes & re-render" will cost right now (shown on the editor's button)."""
+    with Session() as s:
+        job = s.get(Job, job_id)
+        project = ((job.data or {}).get("result") or {}).get("project") if job and job.user_id == user.id else None
+        if not project:
+            raise HTTPException(status_code=404, detail="Unknown job")
+        return rerender_quote(s, user.id, job, project)
 
 
 @app.post("/api/jobs/{job_id}/rerender")
@@ -937,9 +997,23 @@ def rerender(job_id: str, body: RerenderBody, user: User = Depends(auth.current_
                       "cuts": project.get("cuts", []), "voice_model": project.get("voice_model"),
                       "tts_model": project.get("tts_model")}
     new_id = uuid.uuid4().hex[:12]
+    if body.fallback:
+        params["fallback"] = True
     with Session() as s:
+        cost = 0.0 if body.fallback else float(rerender_quote(s, user.id, job, project)["cost_seconds"])
+        charged = credit_part = 0.0
+        if cost > 0:   # after the free re-renders: allowance first, then bought minutes (same order as a new video)
+            used, month_used = used_seconds_today(s, user.id), used_seconds_month(s, user.id)
+            free = max(0.0, min(user.daily_minutes * 60 - used, user.monthly_minutes * 60 - month_used))
+            credit_part = max(0.0, cost - free)
+            charged = cost - credit_part
+            if credit_part > 0:
+                taken = s.execute(update(User).where(User.id == user.id, User.credit_seconds >= credit_part - 1e-6)
+                                  .values(credit_seconds=User.credit_seconds - credit_part)).rowcount
+                if not taken:
+                    raise HTTPException(status_code=402, detail="Your available minutes are not enough for this edit. Please top up minutes to make it.")
         s.add(Job(id=new_id, user_id=user.id, status="queued", params=params, data={},
-                  input_key=job.input_key, logo_key=job.logo_key, charged_seconds=0.0))
+                  input_key=job.input_key, logo_key=job.logo_key, charged_seconds=charged, credit_seconds=credit_part))
         s.commit()
     jobs_queue.enqueue(new_id)
     return {"job_id": new_id}

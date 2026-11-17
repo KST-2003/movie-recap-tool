@@ -23,6 +23,8 @@ DEFAULT_MONTHLY_MINUTES = int(os.getenv("DEFAULT_MONTHLY_MINUTES", "2000"))   # 
 MAX_VIDEO_MINUTES = float(os.getenv("MAX_VIDEO_MINUTES", "10"))         # per video: a longer upload is cut to its first minutes (main.keep_first_seconds)
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "1024"))
 MAX_ACTIVE_JOBS_PER_USER = int(os.getenv("MAX_ACTIVE_JOBS_PER_USER", "2"))
+FREE_RERENDERS = int(os.getenv("FREE_RERENDERS", "3"))                   # editor re-renders of ONE video that cost nothing
+RERENDER_PERCENT = float(os.getenv("RERENDER_PERCENT", "40"))          # after those: this % of the video's minutes per re-render (rounded up, at least 1 minute)
 GLOBAL_DAILY_MINUTES = float(os.getenv("GLOBAL_DAILY_MINUTES", "0"))    # 0 = unlimited; protects the API bill
 MAINTENANCE_MODE = os.getenv("MAINTENANCE_MODE", "").lower() in ("1", "true")  # kill switch for new jobs
 

@@ -26,3 +26,8 @@ frontend/public/models/
 # speech-removal models (downloaded by hand, see backend/spleeter_separate.py)
 backend/models/
 frontend/dist-app/
+
+# admin: copies of the user app's preset builder (scripts/sync-preset.mjs)
+admin/src/preset/
+admin/public/fonts/
+admin/public/preset-sample.mp4

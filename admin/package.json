@@ -4,8 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "sync": "node scripts/sync-preset.mjs",
+    "dev": "node scripts/sync-preset.mjs && vite",
+    "build": "node scripts/sync-preset.mjs && vite build",
     "preview": "vite preview"
   },
   "dependencies": {

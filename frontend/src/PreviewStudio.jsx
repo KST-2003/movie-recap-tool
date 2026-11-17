@@ -28,7 +28,8 @@ export function frameSize(aspect, src) {
   return a <= b ? [short, Math.round((short * b) / a)] : [Math.round((short * a) / b), short];
 }
 
-export default function PreviewStudio({ src, logoFile, fx, onChange }) {
+// simple = the preset builder: only what a preset stores (format, grading, speed, flip, subtitle sample); no logo file, blur boxes or layers.
+export default function PreviewStudio({ src, logoFile, fx, onChange, simple = false }) {
   const { tr } = useI18n();
   const stageRef = useRef(null);
   const cap = fx.captionStyle;   // subtitle style chosen before generating: a sample line is drawn in the frame
@@ -304,13 +305,13 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
         <button type="button" onClick={looping ? stop : playWindow} className="px-3 py-1.5 rounded-lg bg-violet-500 hover:bg-violet-600 text-sm text-white">
           {looping ? tr('■ Stop') : tr('▶ Play 5 s (loop)')}
         </button>
-        <button
+        {!simple && <button
           type="button"
           disabled={fx.blurBoxes.length >= 6}
           onClick={() => onChange({ blurBoxes: [...fx.blurBoxes, { x: 0.1, y: 0.75, w: 0.8, h: 0.12 }] })}
           className="px-3 py-1.5 rounded-lg bg-violet-100 hover:bg-violet-200 text-sm text-ink disabled:opacity-40"
-        >{tr('+ Blur box')}</button>
-        <div className="relative">
+        >{tr('+ Blur box')}</button>}
+        {!simple && <div className="relative">
           <button type="button" onClick={() => setLayersOpen((o) => !o)} aria-expanded={layersOpen} title={tr('Layers')}
             className={`px-3 py-1.5 rounded-lg text-sm flex items-center gap-1.5 ${layersOpen ? 'bg-violet-500 text-white' : 'bg-violet-100 hover:bg-violet-200 text-ink'}`}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -335,20 +336,21 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
               {!logoUrl && <p className="text-ink-faint">{tr('Upload a logo to change this.')}</p>}
             </div>
           )}
-        </div>
+        </div>}
         {fx.logoXY && (
           <button type="button" onClick={() => onChange({ logoXY: null })} className="px-3 py-1.5 rounded-lg bg-violet-100 hover:bg-violet-200 text-sm text-ink">
             {tr('Reset logo position')}
           </button>
         )}
       </div>
-      <p className="text-xs text-ink-faint">
+      {!simple && <p className="text-xs text-ink-faint">
         {tr('Drag the logo or a blur box to move it; drag its round corner (or use the Logo size slider) to resize. Automatic blur of the original subtitles and watermark is still added when you generate.')}
         {cropFit && ` ${tr('Drag the picture to choose which part stays in the frame.')}`}
-      </p>
+      </p>}
+      {simple && cropFit && <p className="text-xs text-ink-faint">{tr('Drag the picture to choose which part stays in the frame.')}</p>}
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        {SLIDERS.map(([label, key, min, max, step]) => (
+        {SLIDERS.filter(([, key]) => !simple || key !== 'logoSize').map(([label, key, min, max, step]) => (
           <label key={key} className="text-xs text-ink-soft">
             {tr(label)}: <span className="text-ink">{Number(fx[key]).toFixed(2)}</span>
             <input
@@ -358,11 +360,11 @@ export default function PreviewStudio({ src, logoFile, fx, onChange }) {
             />
           </label>
         ))}
-        <label className="text-xs text-ink-soft">
+        {!simple && <label className="text-xs text-ink-soft">
           {tr('Logo position')}
           <Select size="sm" className="mt-1 w-full" value={fx.logoPosition} onChange={(v) => onChange({ logoPosition: v, logoXY: null })}
             options={['top-right', 'top-left', 'bottom-right', 'bottom-left', 'center'].map((p) => ({ value: p, label: tr(p) }))} />
-        </label>
+        </label>}
       </div>
     </div>
   );

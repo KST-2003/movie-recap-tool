@@ -180,7 +180,7 @@ describe('job states', () => {
     await startVideo();
     expect(await screen.findByRole('link', { name: /Download video/ }, { timeout: 9000 })).toBeTruthy();
     expect(renderFromPlan).toHaveBeenCalledTimes(2);
-    expect(axios.post).toHaveBeenCalledWith(expect.stringContaining('/api/jobs/job1/rerender'), { segments: [], device_render: false });
+    expect(axios.post).toHaveBeenCalledWith(expect.stringContaining('/api/jobs/job1/rerender'), expect.objectContaining({ segments: [], device_render: false, fallback: true }));
     fetchMock.mockRestore();
   }, 15000);
   it.each([false, true])('reopens a history result (expired: %s)', async (expired) => {
@@ -204,7 +204,7 @@ describe('job states', () => {
     const user = await startVideo();
     const line = await screen.findByPlaceholderText('Burmese text for this line', {}, { timeout: 6000 });
     await user.clear(line); await user.type(line, 'Changed');
-    await user.click(screen.getByRole('button', { name: 'Apply changes & re-render' }));
+    await user.click(screen.getByRole('button', { name: /Apply changes & re-render/ }));
     expect(await screen.findByText('Rerender refused')).toBeTruthy();
   }, 12000);
 });

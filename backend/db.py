@@ -131,6 +131,20 @@ class Post(Base):
     updated_at = Column(DateTime(timezone=True), default=utcnow)
 
 
+class Preset(Base):
+    """Saved settings for a new video. A user's own preset (user_id set, private, at most MAX_USER_PRESETS) or one made by an admin
+    for everybody (user_id empty, `status` published = users can pick it)."""
+    __tablename__ = "presets"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)              # empty = made by an admin for all users
+    name = Column(String(60), nullable=False)
+    settings = Column(JSON, nullable=False)            # whitelisted form settings (presets.clean_settings)
+    status = Column(String(12), default="published", index=True, nullable=False)   # admin presets only: draft | published
+    created_by = Column(String(255))
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow)
+
+
 class Review(Base):
     """A user's optional rating of one finished video (1-5 stars + words). Read by admins only. Kept when the video's files expire."""
     __tablename__ = "reviews"
