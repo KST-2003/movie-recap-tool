@@ -239,7 +239,7 @@ export default function Editor({ project, videoRef, busy, onApply, finish = null
     const m = meta[l.key];
     const same = m && m.text === l.text;
     const dur = same ? m.audio_dur : predict(l.text); // unchanged line: real length; edited line: predicted, no TTS call
-    return dur / (l.tempo ?? (same && m.applied_tempo) ?? 1);
+    return dur / (l.tempo ?? (same ? m.applied_tempo : null) ?? 1);
   };
 
   const width = duration * pps;

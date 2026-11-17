@@ -65,7 +65,7 @@ export default function CaptionStyleControls({ cap, onChange, sampleText, showSa
                   <input type="range" min={0.6} max={1.8} step={0.05} value={cap.size} onChange={(e) => set({ size: Number(e.target.value) })} className="w-full accent-violet-500" />
                 </label>
                 <label className="block">{tr('Box opacity')}: <span className="text-ink">{Math.round(cap.bg_opacity * 100)}%</span>
-                  <input type="range" min={0} max={1} step={0.05} value={cap.bg_opacity} onChange={(e) => set({ bg_opacity: Number(e.target.value) })} className="w-full accent-violet-500" />
+                  <input type="range" min={0} max={1} step={0.01} value={cap.bg_opacity} onChange={(e) => set({ bg_opacity: Number(e.target.value) })} className="w-full accent-violet-500" />
                 </label>
               </div>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-ink-soft">
