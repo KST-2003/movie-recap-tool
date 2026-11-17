@@ -969,7 +969,7 @@ function App() {
               {videoFile && !loading && <button type="button" onClick={clearVideo} aria-label={tr('Remove video')} title={tr('Remove video')} className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-rose-500 text-white shadow hover:bg-rose-600 active:scale-95"><svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>}
               </div>
               <p className="hidden md:block mt-1 text-xs text-ink-faint">{tr('You can also drag a video file and drop it anywhere on this page.')}</p>
-              <div className="mt-3">
+              {!isNative && <div className="mt-3">
                 <label className="block text-xs text-ink-soft mb-1">{tr('Or paste a RedNote, YouTube or TikTok link')}</label>
                 <div className="flex gap-2">
                   <input type="text" inputMode="url" value={linkText} onChange={(e) => setLinkText(e.target.value)} disabled={!!linkBusy || loading}
@@ -983,7 +983,7 @@ function App() {
                 {!linkBusy && linkInfo && linkInfo.file === videoFile && (
                   <p className="mt-1 text-xs text-emerald-700 break-words">{tr('From {site}: {title}', { site: linkInfo.site, title: linkInfo.title || tr('video') })}</p>
                 )}
-              </div>
+              </div>}
             </div>
 
             <div>
