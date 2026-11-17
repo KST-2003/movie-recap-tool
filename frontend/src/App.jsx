@@ -465,6 +465,20 @@ function App() {
     if (!token || view !== 'create') return;
     axios.get(`${API_BASE}/api/presets`).then((r) => setPresets(r.data)).catch(() => {});
   }, [token, view]);
+  // "Use previous settings": everything chosen for the user's last new video (the server reads it from that video's settings)
+  const [prevSettings, setPrevSettings] = useState(null);
+  const [prevNote, setPrevNote] = useState(false);
+  useEffect(() => {
+    if (!token || view !== 'create') return;
+    axios.get(`${API_BASE}/api/presets/last`).then((r) => setPrevSettings(r.data?.settings && Object.keys(r.data.settings).length ? r.data : null)).catch(() => {});
+  }, [token, view, jobId]);
+  const usePrevious = () => {
+    if (!prevSettings) return;
+    applyPreset({ id: 0, settings: prevSettings.settings });
+    setActivePreset('');
+    setPrevNote(true);
+    setTimeout(() => setPrevNote(false), 4000);
+  };
   const applyPreset = (p) => {
     const st = p.settings || {};
     if (st.aspect) setAspect(st.aspect);
@@ -828,7 +842,17 @@ function App() {
           </div>
         )}
         <form ref={formRef} onSubmit={handleGenerateRecap} className="flex flex-col gap-6 scroll-mt-20">
-          <PresetPicker presets={presets} active={activePreset} onPick={applyPreset} onClear={() => setActivePreset('')} onManage={() => setView('presets')} />
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <PresetPicker presets={presets} active={activePreset} onPick={(p) => { applyPreset(p); setPrevNote(false); }} onClear={() => setActivePreset('')} onManage={() => setView('presets')} />
+            {prevSettings && (
+              <button type="button" onClick={usePrevious} disabled={loading}
+                className="flex items-center gap-2 rounded-2xl border border-violet-200 bg-white px-3.5 py-2 text-sm font-semibold text-violet-600 shadow-card hover:bg-violet-50 disabled:opacity-50">
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5M12 7v5l3 2" /></svg>
+                {tr('Use previous settings')}
+              </button>
+            )}
+            {prevNote && <span role="status" className="text-xs text-emerald-700">{tr('Settings from your last video are applied.')}</span>}
+          </div>
           {/* Phones: the form is split into 4 steps (one on screen at a time, free to jump); wide screens show everything */}
           <ol className="flex items-center gap-1.5" aria-label={tr('Steps')}>
             {STEP_NAMES.map((name, i) => {

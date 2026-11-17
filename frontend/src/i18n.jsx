@@ -4,6 +4,8 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 // {name} placeholders are filled by tr(text, { name: value }).
 // NOTE: written by an AI assistant: have a native Burmese speaker review the wording before launch.
 const MY = {
+  "Use previous settings": "ယခင်ဆက်တင်များ သုံးမည်",
+  "Settings from your last video are applied.": "နောက်ဆုံးဗီဒီယိုရဲ့ ဆက်တင်များကို ထည့်ပေးပြီးပါပြီ။",
   "Presets": "ပရီဆက်များ",
   "Preset": "ပရီဆက်",
   "Preset: {name}": "ပရီဆက် - {name}",

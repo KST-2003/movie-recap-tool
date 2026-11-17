@@ -126,4 +126,19 @@ with Session() as s:
     j = s.get(Job, r.json()["job_id"]); u = s.query(User).filter_by(email="amy").one()
     ok(r.status_code == 200 and j.credit_seconds == 60 and abs(u.credit_seconds - 30) < 1e-6, "paid with bought minutes when the allowance is gone")
 ok(c.get("/api/jobs/orig00000001/edit-price", headers=H["bob"]).status_code == 404, "someone else's video: 404")
+
+# ---- previous settings ----
+ok(c.get("/api/presets/last", headers=H["bob"]).json()["settings"] is None, "no previous video: nothing")
+with Session() as s:
+    bob = s.query(User).filter_by(email="bob").one()
+    s.add(Job(id="prev00000001", user_id=bob.id, status="done", params={"aspect": "9:16", "fit_mode": "crop", "resolution": 1080, "output": "dub", "enable_subtitles": False, "mode": "full",
+             "voice_quality": "premium", "voice_type": "Kore", "enable_flip": True, "brightness": 0.2, "caption_style": {"font": "serif", "color": "#ffffff"}, "background": "separate", "filename": "a.mp4"},
+             data={}, input_key="x", charged_seconds=60))
+    s.add(Job(id="prev00000002", user_id=bob.id, status="done", params={"edit": {"segments": []}, "aspect": "1:1"}, data={}, input_key="x"))   # a re-render must not count
+    s.commit()
+last = c.get("/api/presets/last", headers=H["bob"]).json()
+st = last["settings"]
+ok(st["aspect"] == "9:16" and st["resolution"] == "1080" and st["outputKind"] == "voice" and st["filmMode"] == "full" and st["flip"] is True, "last NEW video's settings, re-renders skipped")
+ok(st["voiceType"] == "Kore" and st["captionStyle"]["font"] == "serif" and last["title"] == "a.mp4", "voice, caption style and title")
+ok(c.get("/api/presets/last", headers=H["amy"]).json()["settings"] is None, "another user does not get them")
 print("ALL OK")

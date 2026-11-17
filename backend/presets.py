@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 
 import auth
 from admin.routes import _audit, _iso, require_admin
-from db import Preset, Session, User, utcnow
+from db import Job, Preset, Session, User, utcnow
 
 MAX_USER_PRESETS = 5
 STATUSES = ("draft", "published")
@@ -100,6 +100,37 @@ admin_router = APIRouter(prefix="/api/admin/presets", dependencies=[Depends(requ
 
 
 # ---------- users ----------
+
+
+def settings_from_params(params: dict) -> dict:
+    """The preset-shaped settings of a finished upload's job params ("use my previous settings"). Anything that does not pass the same checks as a preset is left out."""
+    p = params or {}
+    raw = {"aspect": p.get("aspect"), "fitMode": p.get("fit_mode"), "resolution": str(p.get("resolution") or "") or None, "videoSpeed": p.get("video_speed"),
+           "brightness": p.get("brightness"), "contrast": p.get("contrast"), "saturation": p.get("saturation"), "logoPosition": p.get("logo_position"),
+           "logoSize": p.get("logo_size"), "logoOnTop": p.get("logo_above_subtitle"), "blurSubtitles": p.get("blur_subtitles"), "watermark": p.get("remove_watermark"),
+           "flip": p.get("enable_flip"), "voiceQuality": p.get("voice_quality"), "voiceType": p.get("voice_type"), "filmMode": p.get("mode"),
+           "outputKind": "subtitles" if p.get("output") == "subtitles" else ("dub" if p.get("enable_subtitles", True) else "voice"),
+           "bgMode": p.get("background") or None, "emotionOn": p.get("emotion"), "softMusic": p.get("soft_music"), "captionStyle": p.get("caption_style")}
+    out = {}
+    for k, v in raw.items():
+        if v is None:
+            continue
+        try:
+            out.update(clean_settings({k: v}))
+        except HTTPException:
+            pass
+    return out
+
+
+@router.get("/api/presets/last")
+def last_settings(user: User = Depends(auth.current_user)):
+    """The settings of the user's most recent NEW video (not an editor re-render): "Use previous settings" on the Create page."""
+    with Session() as s:
+        jobs = s.execute(select(Job).where(Job.user_id == user.id, Job.status != "cancelled").order_by(Job.created_at.desc()).limit(40)).scalars().all()
+        job = next((j for j in jobs if not (j.params or {}).get("edit") and (j.params or {}).get("aspect")), None)
+        if job is None:
+            return {"settings": None}
+        return {"settings": settings_from_params(job.params), "title": (job.params or {}).get("filename") or "", "created_at": _iso(job.created_at)}
 
 @router.get("/api/presets")
 def my_presets(user: User = Depends(auth.current_user)):
