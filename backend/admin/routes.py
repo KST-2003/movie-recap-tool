@@ -521,31 +521,40 @@ def costs():
     since = utcnow() - timedelta(days=30)
     table, rate = usage_log.prices(), runtime_settings.usd_thb()
     per_model: dict[str, dict] = {}
+    by_minute: dict[str, dict] = {}   # model -> tokens + video minutes of NEW videos only (re-renders have no minutes), for "THB per video minute"
     recent = []
     with Session() as s:
-        rows = s.execute(select(Job.id, Job.status, Job.charged_seconds, Job.created_at, Job.params, Job.data)
+        rows = s.execute(select(Job.id, Job.status, Job.charged_seconds, Job.credit_seconds, Job.created_at, Job.params, Job.data)
                          .where(Job.created_at >= since).order_by(Job.created_at.desc())).all()
         measured = capacity.measured_cost_per_minute(s)
-    for jid, status, charged, created, params, data in rows:
+    for jid, status, charged, credit, created, params, data in rows:
         u = (data or {}).get("usage")
         if not u:
             continue
+        minutes = ((charged or 0) + (credit or 0)) / 60   # the allowance part + the part paid with bought minutes
         for model, v in u.items():
             m = per_model.setdefault(model, {"model": model, "calls": 0, "in": 0, "audio_in": 0, "out": 0, "audio_out": 0, "chars": 0, "est": 0})
             for k in ("calls", "in", "audio_in", "out", "audio_out", "chars", "est"):
                 m[k] += v.get(k, 0)
+            if minutes > 0:
+                b = by_minute.setdefault(model, {"min": 0.0, "usage": {k: 0 for k in ("in", "audio_in", "out", "audio_out", "chars")}})
+                b["min"] += minutes
+                for k in b["usage"]:
+                    b["usage"][k] += v.get(k, 0)
         if len(recent) < 20:
             c = usage_log.cost_thb(u, table, rate)
-            recent.append({"id": jid, "created_at": _iso(created), "status": status, "minutes": round((charged or 0) / 60, 1),
+            recent.append({"id": jid, "created_at": _iso(created), "status": status, "minutes": round(minutes, 1),
                            "edit": bool((params or {}).get("edit")), "cost_thb": round(c["thb"], 2), "complete": c["complete"],
                            "estimated": c["estimated"], "unpriced": c["unpriced"]})
     models = []
     for model, m in sorted(per_model.items(), key=lambda kv: -kv[1]["calls"]):
         c = usage_log.cost_thb({model: m}, table, rate)
-        models.append({**m, "thb": round(c["thb"], 2), "priced": c["complete"]})
+        b = by_minute.get(model)
+        per_min = usage_log.cost_thb({model: b["usage"]}, table, rate)["thb"] / b["min"] if b else None   # this model's cost / minutes of the videos that used it
+        models.append({**m, "thb": round(c["thb"], 2), "priced": c["complete"], "thb_per_video_min": round(per_min, 3) if per_min is not None else None})
     for model in table:   # models with a price but no usage yet are still editable
         if model not in per_model:
-            models.append({"model": model, "calls": 0, "in": 0, "audio_in": 0, "out": 0, "audio_out": 0, "chars": 0, "est": 0, "thb": 0.0, "priced": True})
+            models.append({"model": model, "calls": 0, "in": 0, "audio_in": 0, "out": 0, "audio_out": 0, "chars": 0, "est": 0, "thb": 0.0, "priced": True, "thb_per_video_min": None})
     return {"usd_thb": rate, "prices": table, "assumed": sorted(usage_log.ASSUMED), "models": models, "recent": recent,
             "measured_cost_per_minute": round(measured, 3) if measured else None,
             "configured_cost_per_minute": runtime_settings.cost_per_minute_thb(), "total_thb_30d": round(sum(m["thb"] for m in models), 2)}

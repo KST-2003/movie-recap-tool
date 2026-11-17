@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html { color-scheme: light; scroll-behavior: smooth; }
+body {
+  margin: 0;
+  color: #2B2440;
+  background-color: #F7F4FF;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+:lang(my) { line-height: 1.8; }
+::selection { background: #C4A6FF; color: #2B2440; }
+* { scrollbar-color: #C4A6FF transparent; scrollbar-width: thin; }
+a, button { transition: transform 0.15s ease, background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease; }
+button:not(:disabled):active { transform: scale(0.96); }
+a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid #8B5CF6; outline-offset: 3px; }
+
+.btn-candy { background-image: linear-gradient(90deg, #8B5CF6, #C084FC, #F472B6, #8B5CF6); background-size: 200% 100%; }
+.text-candy { background-image: linear-gradient(90deg, #8B5CF6, #C084FC, #F472B6, #8B5CF6); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; }
+.glass { background: rgba(255, 255, 255, 0.72); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+.dots { background-image: radial-gradient(rgba(139, 92, 246, 0.16) 1.5px, transparent 1.5px); background-size: 22px 22px; }
+
+/* scroll reveal: content rises in once when it enters the screen (see components/Reveal.jsx) */
+.reveal { opacity: 0; transform: translateY(26px) scale(0.985); transition: opacity 0.7s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.reveal.in { opacity: 1; transform: none; }
+
+/* page entrance */
+@keyframes pageIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.page-in { animation: pageIn 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+
+/* long legal text */
+.prose-recat h2 { font-family: Fredoka, Poppins, sans-serif; font-weight: 600; font-size: 1.35rem; margin: 2.2rem 0 0.6rem; color: #2B2440; }
+.prose-recat h3 { font-weight: 600; margin: 1.4rem 0 0.4rem; color: #2B2440; }
+.prose-recat p, .prose-recat li { color: #6B6385; line-height: 1.75; }
+.prose-recat p { margin: 0.6rem 0; }
+.prose-recat ul { margin: 0.6rem 0; padding-left: 1.3rem; list-style: disc; }
+.prose-recat li { margin: 0.3rem 0; }
+.prose-recat a { color: #7C3AED; text-decoration: underline; text-underline-offset: 3px; }
+.prose-recat strong { color: #2B2440; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+  .reveal { opacity: 1; transform: none; }
+}
+
+@keyframes grow { from { width: 0; } to { width: 100%; } }
+@keyframes spinSlow { to { transform: rotate(360deg); } }

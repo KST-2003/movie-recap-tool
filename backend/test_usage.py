@@ -105,6 +105,11 @@ H = {"Authorization": f"Bearer {tok}"}
 r = c.get("/api/admin/costs", headers=H).json()
 ok(r["usd_thb"] == 35 and r["measured_cost_per_minute"] == 0.2 and any(x["model"] == "gemini-3.8-flash-tts" and x["calls"] >= 50 for x in r["models"]), "/costs: models with usage, measured cost per minute")
 ok(len(r["recent"]) >= 1 and r["recent"][0]["complete"], "/costs: recent videos priced")
+tts = next(x for x in r["models"] if x["model"] == "gemini-3.8-flash-tts")
+ok(tts["thb_per_video_min"] is not None and tts["thb_per_video_min"] > 0, f"/costs: real THB per video minute per model ({tts['thb_per_video_min']})")
+live = {x["model"]: x for x in r["models"]}
+ok(all(m in live for m in ("gemini-3.8-live", "gemini-3.8-live-extended-thinking", "gemini-3.1-flash-live-preview", "gemini-2.5-flash-native-audio-latest")), "/costs: Live models are in the price table")
+ok(r["prices"]["gemini-3.8-live"] == {"in": 0.75, "audio_in": 3.0, "out": 4.5, "audio_out": 12.0}, "Live prices = Google's table (text in 0.75, voice in 3, text out 4.5, voice out 12)")
 jobs = c.get("/api/admin/jobs", headers=H).json()["items"]
 ok(any(j["id"] == "d1" and abs(j["cost_thb"] - 2.0) < 0.01 for j in jobs), "jobs list shows the real cost of a video")
 before = r["total_thb_30d"]

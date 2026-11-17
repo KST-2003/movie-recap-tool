@@ -1,0 +1,30 @@
+{
+  "appId": "co.bronicon.recat",
+  "appName": "Recat Studio",
+  "webDir": "dist-app",
+  "backgroundColor": "#F7F4FF",
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "capacitor"
+  },
+  "ios": {
+    "contentInset": "automatic",
+    "backgroundColor": "#F7F4FF"
+  },
+  "android": {
+    "backgroundColor": "#F7F4FF",
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": true,
+      "launchShowDuration": 0,
+      "backgroundColor": "#1B1033"
+    },
+    "StatusBar": {
+      "style": "LIGHT",
+      "backgroundColor": "#F7F4FF",
+      "overlaysWebView": false
+    }
+  }
+}

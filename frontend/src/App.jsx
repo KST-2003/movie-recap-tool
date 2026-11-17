@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { isNative, saveToDevice } from './native.js';
 import axios from 'axios';
 import Editor from './Editor.jsx';
 import Mascot from './Mascot.jsx';
@@ -20,6 +21,20 @@ import { loadVideo, markUploaded, saveVideo } from './deviceStore.js';
 import ReviewBox, { reviewSkipped } from './ReviewBox.jsx';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+
+// A download link that also works inside the phone app (where <a download> does nothing): there it saves the file and opens the share sheet.
+function DownloadLink({ href, filename, className, children }) {
+  const [busy, setBusy] = React.useState(false);
+  const onClick = async (e) => {
+    if (!isNative) return;   // the website keeps the normal browser download
+    e.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    try { await saveToDevice(href, filename); } catch (err) { console.warn('save failed', err); } finally { setBusy(false); }
+  };
+  return <a href={href} download={isNative ? undefined : ''} onClick={onClick} className={`${className} ${busy ? 'opacity-60' : ''}`}>{children}</a>;
+}
+
 
 // A random id this browser keeps, so the owner's "one device per login" rule can tell devices apart.
 const deviceId = () => {
@@ -1214,20 +1229,20 @@ function App() {
                 )}
               </div>
               {loading && <ProcessingPanel upload={upload} progress={progress} elapsed={elapsed} deviceJob={deviceJob} subsOnly={(project ? project.output : outputKind) === 'subtitles'} />}
-              {resultVideoUrl && <a
+              {resultVideoUrl && <DownloadLink
                 href={resultDownloadUrl}
-                download
+                filename="recat-video.mp4"
                 className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-2xl text-sm transition-all shadow-md"
               >
                 {tr('📥 Download video (MP4)')}
-              </a>}
-              {resultVideoUrl && <a
+              </DownloadLink>}
+              {resultVideoUrl && <DownloadLink
                 href={subtitleUrl}
-                download
+                filename="recat-subtitles.srt"
                 className="px-6 py-2.5 bg-violet-100 hover:bg-violet-200 text-ink font-semibold rounded-2xl text-sm transition-all"
               >
                 {tr('Download subtitles (.srt)')}
-              </a>}
+              </DownloadLink>}
               {notes && <p className="text-xs text-ink-soft">{notes}</p>}
               {copyNote && <p className="text-xs text-violet-600">{copyNote}</p>}
               {reviewJob && reviewJob === jobId && !loading && <ReviewBox key={`review-${reviewJob}`} apiBase={API_BASE} jobId={reviewJob} onClose={() => setReviewJob('')} />}

@@ -4,7 +4,18 @@ import { useI18n } from './i18n.jsx';
 import { errText, fmtTime, Card, btnPrimary, field, useApi } from './ui.jsx';
 
 // Real cost from token counts: Google's USD prices per 1M tokens (editable) x the USD->THB rate. History is re-priced when a price changes.
-const FIELDS = [['in', 'Text in'], ['out', 'Text out'], ['audio_out', 'Voice out'], ['chars', 'Characters']];
+const FIELDS = [['in', 'Text in'], ['audio_in', 'Voice in'], ['out', 'Text out'], ['audio_out', 'Voice out'], ['chars', 'Characters']];
+// List price of ONE minute of speech from the default price alone (text input left out): voice output is ~25 tokens per second (measured,
+// the same for every Gemini voice model); Azure bills characters, ~10 Burmese characters per second (BURMESE_CPS).
+const VOICE_TOKENS_PER_MIN = 25 * 60;
+const AZURE_CHARS_PER_MIN = 10 * 60;
+const voiceMinuteThb = (p, rate) => {
+  if (!p) return null;
+  if (p.audio_out) return (p.audio_out * VOICE_TOKENS_PER_MIN / 1e6) * rate;
+  if (p.chars) return (p.chars * AZURE_CHARS_PER_MIN / 1e6) * rate;
+  return null;
+};
+const money = (v) => (v == null ? '–' : v.toFixed(2));
 const n = (v) => Number(v || 0).toLocaleString('en-US', { maximumFractionDigits: 1 });
 
 export default function CostsCard({ onSaved }) {
@@ -37,8 +48,10 @@ export default function CostsCard({ onSaved }) {
       </div>
       {unpriced.length > 0 && <p className="mb-3 rounded-2xl bg-amber-500/10 p-3 text-sm text-amber-700">{tr('No price for: {m}. Videos using them are priced only in part, so the budget falls back to the estimate. Add the price below.', { m: unpriced.join(', ') })}</p>}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px] text-xs">
+        <table className="w-full min-w-[820px] text-xs">
           <thead className="text-left text-ink-soft"><tr><th className="py-1.5 pr-2">{tr('Model')}</th><th className="px-2">{tr('Calls')}</th><th className="px-2">{tr('Tokens in / out / voice')}</th><th className="px-2">THB</th>
+            <th className="px-2" title={tr('Cost of one minute of speech at the price below (voice only, no text input)')}>{tr('THB / voice min (price)')}</th>
+            <th className="px-2" title={tr('This model\'s real cost divided by the minutes of the videos that used it')}>{tr('THB / video min (real)')}</th>
             {FIELDS.map(([k, l]) => <th key={k} className="px-2">{tr(l)} $/1M</th>)}</tr></thead>
           <tbody className="divide-y divide-violet-100">
             {data.models.map((m) => (
@@ -47,6 +60,8 @@ export default function CostsCard({ onSaved }) {
                 <td className="px-2">{n(m.calls)}</td>
                 <td className="px-2 text-ink-soft">{n(m.in + m.audio_in)} / {n(m.out)} / {n(m.audio_out)}{m.chars > 0 && ` · ${n(m.chars)} ${tr('chars')}`}</td>
                 <td className="px-2">{n(m.thb)}</td>
+                <td className="px-2">{money(voiceMinuteThb(prices[m.model], Number(rate) || data.usd_thb))}</td>
+                <td className="px-2">{money(m.thb_per_video_min)}</td>
                 {FIELDS.map(([k]) => <td key={k} className="px-2"><input className={`${field} !px-2 !py-1 w-20`} type="number" min="0" step="0.01" value={prices[m.model]?.[k] ?? ''} onChange={(e) => set(m.model, k, e.target.value)} /></td>)}
               </tr>
             ))}

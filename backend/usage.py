@@ -21,7 +21,7 @@ _flushed: dict[str, float] = {}
 AUDIO_TOKENS_PER_SECOND = 25.0
 CHARS_PER_TOKEN = 3.0
 
-# USD per 1M tokens. Source: Google's AI Studio pricing page, read on 2026-11-09 (Standard tier). "in" = text input, "audio_in" falls
+# USD per 1M tokens. Source: Google's AI Studio pricing page (https://aistudio.google.com/docs/pricing), read on 2026-11-09 and re-checked 2026-11-16 (Standard tier). "in" = text input, "audio_in" falls
 # back to "in", "out" = text output incl. thinking, "audio_out" = voice. The cloud/ rows are ASSUMED equal to the AI Studio price of the
 # same model (not listed on that page): check Cloud's own pricing page. Claude is not listed: enter its price in the dashboard.
 DEFAULT_PRICES = {
@@ -31,6 +31,11 @@ DEFAULT_PRICES = {
     "gemini-3.8-flash-tts": {"in": 0.50, "audio_out": 9.00},
     "gemini-3.8-flash-lite-tts": {"in": 0.50, "audio_out": 6.00},
     "gemini-2.5-pro-preview-tts": {"in": 1.00, "audio_out": 20.00},
+    # Live API models (tested 2026-11-16, not wired into the voice pool yet). Google's table: ONE shared row for the three Live models.
+    "gemini-3.8-live": {"in": 0.75, "audio_in": 3.00, "out": 4.50, "audio_out": 12.00},
+    "gemini-3.8-live-extended-thinking": {"in": 0.75, "audio_in": 3.00, "out": 4.50, "audio_out": 12.00},
+    "gemini-3.1-flash-live-preview": {"in": 0.75, "audio_in": 3.00, "out": 4.50, "audio_out": 12.00},
+    "gemini-2.5-flash-native-audio-latest": {"in": 0.50, "audio_in": 3.00, "out": 2.00, "audio_out": 12.00},   # page row: ...-native-audio-preview-12-2025
     "cloud/gemini-2.5-flash-tts": {"in": 0.50, "audio_out": 10.00},
     "cloud/gemini-2.5-pro-tts": {"in": 1.00, "audio_out": 20.00},
     "azure/neural": {"chars": 16.00},   # USD per 1M CHARACTERS: assumed (the pricing page did not show it): check Azure Cost Management
