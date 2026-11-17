@@ -446,14 +446,14 @@ function App() {
     };
   }, [token, view, loading]);
 
-  // Phones: the Create form is shown one step at a time (the user can go back / forward or tap a step at any time; nothing is
-  // unmounted, hidden steps keep their values). Wide screens (lg+) show the whole form and ignore `step`.
+  // The Create form is shown one step at a time on every screen size (back / forward or tap a step at any time; nothing is
+  // unmounted, hidden steps keep their values).
   const [step, setStep] = useState(1);
   const formRef = useRef(null);
-  const stepCls = (n) => (step === n ? 'contents' : 'max-lg:hidden lg:contents');
+  const stepCls = (n) => (step === n ? 'contents' : 'hidden');
   const goStep = (n) => {
     setStep(Math.min(STEP_NAMES.length, Math.max(1, n)));
-    if (window.matchMedia?.('(max-width: 1023px)').matches) requestAnimationFrame(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    requestAnimationFrame(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   };
 
   // Handle Form Submission
@@ -759,7 +759,7 @@ function App() {
       <div className={view === 'create' && !maintenance ? '' : 'hidden'}>
       {/* top banner: our own "What are we recapping today?" card first, then the pictures the admin posted (Posts), swiped sideways.
           Every slide is 16:9, the shape the admin uploads. */}
-      <PostBanner apiBase={API_BASE} className={`max-w-3xl mx-auto mb-5 ${step > 1 ? 'max-lg:hidden' : ''}`}>
+      <PostBanner apiBase={API_BASE} className={`max-w-3xl mx-auto mb-5 ${step > 1 ? 'hidden' : ''}`}>
         <div className="relative flex h-full w-full flex-col justify-center overflow-hidden bg-gradient-to-br from-violet-500 via-purple-400 to-pink-300 p-5 pr-32 sm:p-10 sm:pr-64 text-white">
           <div aria-hidden="true" className="pointer-events-none absolute -right-10 -top-16 h-56 w-56 sm:h-96 sm:w-96 rounded-full border border-white/20" />
           <div aria-hidden="true" className="pointer-events-none absolute -right-24 -top-28 h-80 w-80 sm:h-[34rem] sm:w-[34rem] rounded-full border border-white/15" />
@@ -783,7 +783,7 @@ function App() {
         )}
         <form ref={formRef} onSubmit={handleGenerateRecap} className="flex flex-col gap-6 scroll-mt-20">
           {/* Phones: the form is split into 4 steps (one on screen at a time, free to jump); wide screens show everything */}
-          <ol className="lg:hidden flex items-center gap-1.5" aria-label={tr('Steps')}>
+          <ol className="flex items-center gap-1.5" aria-label={tr('Steps')}>
             {STEP_NAMES.map((name, i) => {
               const n = i + 1; const on = step === n; const done = n < step;
               return (
@@ -791,7 +791,7 @@ function App() {
                   <button type="button" onClick={() => goStep(n)} aria-current={on ? 'step' : undefined}
                     className={`w-full flex items-center justify-center gap-1.5 rounded-full px-2 py-2 text-xs font-semibold transition-all duration-300 ${on ? 'bg-violet-500 text-white shadow-pop' : done ? 'bg-violet-100 text-violet-600' : 'bg-page text-ink-faint border border-violet-100'}`}>
                     <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] ${on ? 'bg-white/25' : done ? 'bg-violet-500 text-white' : 'bg-violet-100 text-ink-soft'}`}>{done ? '✓' : n}</span>
-                    {on && <span className="truncate">{tr(name)}</span>}
+                    <span className={`truncate ${on ? '' : 'max-sm:hidden'}`}>{tr(name)}</span>
                   </button>
                 </li>
               );
@@ -964,7 +964,7 @@ function App() {
             </>
           )}
           {!(sourceUrl && !loading && !resultVideoUrl) && (
-            <p className="lg:hidden rounded-2xl border border-dashed border-violet-200 bg-page p-6 text-center text-sm text-ink-soft">
+            <p className="rounded-2xl border border-dashed border-violet-200 bg-page p-6 text-center text-sm text-ink-soft">
               {!sourceUrl ? tr('Choose a video in step 1 first. Then you can set the look here.') : tr('The look is set while the video is being made. Change it in the editor below the result.')}
             </p>
           )}
@@ -1173,7 +1173,7 @@ function App() {
             {loading ? tr('⚡ Processing…') : tr('✨ Generate video')}
           </button>
           </div>
-          <div className="lg:hidden flex items-center gap-3">
+          <div className="flex items-center gap-3">
             {step > 1 && <button type="button" onClick={() => goStep(step - 1)} className="flex-1 rounded-2xl border border-violet-200 bg-white py-3 text-sm font-semibold text-ink-soft">← {tr('Back')}</button>}
             {step < STEP_NAMES.length && <button type="button" onClick={() => goStep(step + 1)} className="flex-[2] rounded-2xl bg-violet-500 py-3 text-sm font-semibold text-white shadow-pop">{tr('Next')} →</button>}
           </div>
