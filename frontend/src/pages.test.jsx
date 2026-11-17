@@ -49,6 +49,17 @@ describe('history', () => {
     await waitFor(() => expect(axios.get).toHaveBeenCalledWith('/api/jobs?page=2&per_page=15'));
     confirm.mockRestore();
   });
+  it('reports a deletion error while retaining the video', async () => {
+    const row = { id: 'job1', title: 'Sample', status: 'done', video_available: true, created_at: '2026-01-01T00:00:00Z', expires_at: '2099-01-01T00:00:00Z', kind: 'recap', minutes: 1, aspect: 'original' };
+    axios.get.mockResolvedValue({ data: { items: [row], total: 1, per_page: 15, keep_result_days: 14, keep_source_days: 7 } });
+    axios.delete.mockRejectedValue({ response: { data: { detail: 'Cannot delete' } } });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<HistoryPage apiBase="" onOpen={vi.fn()} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+    expect(await screen.findByText('Cannot delete')).toBeTruthy();
+    expect(screen.getByText('Sample')).toBeTruthy();
+    confirm.mockRestore();
+  });
 });
 
 describe('usage', () => {
@@ -67,6 +78,14 @@ describe('usage', () => {
     expect(await screen.findByText('No videos yet.')).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Show table' }));
     expect(screen.getByRole('button', { name: 'Show chart' })).toBeTruthy();
+  });
+  it('shows populated usage and recent video data', async () => {
+    const days = Array.from({ length: 30 }, (_, i) => ({ date: `2026-01-${String(i + 1).padStart(2, '0')}`, minutes: i === 0 ? 5 : 0 }));
+    axios.get.mockResolvedValue({ data: { resets: { day: '2026-01-02', month: '2026-02-01' }, minutes_by_kind: { recap: 5 }, month_used_seconds: 300, used_seconds: 300, daily_minutes: 30, monthly_minutes: 100, month_videos: 1, total_videos: 1, days, recent: [{ id: 'j1', created_at: '2026-01-01', kind: 'recap', aspect: 'original', minutes: 5, status: 'done' }] } });
+    render(<UsageDashboard apiBase="" />);
+    expect(await screen.findByText('Recent videos')).toBeTruthy();
+    expect(screen.getAllByText('Recap voice-over').length).toBeGreaterThan(0);
+    expect(screen.queryByText('No videos yet.')).toBeNull();
   });
 });
 
@@ -114,5 +133,11 @@ describe('top up', () => {
     expect(await screen.findByText(/Sent. The admin/)).toBeTruthy();
     expect(axios.post.mock.calls[0][1].get('minutes')).toBe('30');
     await waitFor(() => expect(changed).toHaveBeenCalledOnce());
+  });
+  it('shows a rejected top-up and its reason', async () => {
+    axios.get.mockResolvedValue({ data: { credit_minutes: 0, packs: [], price_per_minute: 5, qr_url: null, requests: [{ id: 1, created_at: '2026-01-01', minutes: 30, amount_thb: 150, status: 'rejected', admin_note: 'Unreadable slip' }] } });
+    render(<TopUpPage apiBase="" />);
+    expect(await screen.findByText(/Unreadable slip/)).toBeTruthy();
+    expect(screen.getByText('rejected')).toBeTruthy();
   });
 });

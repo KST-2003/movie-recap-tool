@@ -8,6 +8,7 @@ import Shell from './Shell.jsx';
 import CaptionStyleControls from './CaptionStyleControls.jsx';
 import PreviewStudio from './PreviewStudio.jsx';
 import { DEFAULT_CAPTION_STYLE } from './captionFonts.js';
+import { LangProvider, LangSwitch, useI18n } from './i18n.jsx';
 
 vi.mock('./captionFonts.js', async (importOriginal) => ({ ...(await importOriginal()), loadCaptionFont: async () => 'sans-serif' }));
 beforeAll(() => { Element.prototype.scrollIntoView = vi.fn(); });
@@ -34,6 +35,15 @@ describe('dropdown', () => {
     expect(change).toHaveBeenCalledWith('b');
     rerender(<Select value="a" onChange={change} options={options} disabled />);
     expect(screen.getByRole('button').disabled).toBe(true);
+  });
+  it('closes with Escape without changing selection and keeps focus', async () => {
+    const change = vi.fn(); const user = userEvent.setup();
+    render(<Select value="a" onChange={change} options={options} />);
+    const button = screen.getByRole('button'); button.focus();
+    await user.keyboard('{Enter}{Escape}');
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(document.activeElement).toBe(button);
+    expect(change).not.toHaveBeenCalled();
   });
 });
 
@@ -120,4 +130,27 @@ describe('video preview controls', () => {
     await user.click(screen.getByRole('button', { name: 'Remove logo' }));
     expect(change).toHaveBeenCalledWith({ removeLogo: true });
   });
+  it('removes a blur box and adjusts logo size', async () => {
+    const user = userEvent.setup(); const change = vi.fn();
+    const fx = { aspect: 'original', fitMode: 'blur', videoSpeed: 1, brightness: 0, contrast: 1, saturation: 1, logoSize: 0.15, logoPosition: 'top-right', blurBoxes: [{ x: 0.1, y: 0.2, w: 0.3, h: 0.4 }] };
+    render(<PreviewStudio src="blob:video" fx={fx} onChange={change} />);
+    await user.click(screen.getByRole('button', { name: '×' }));
+    expect(change).toHaveBeenCalledWith({ blurBoxes: [] });
+    fireEvent.change(screen.getByLabelText(/Logo size/), { target: { value: '0.3' } });
+    expect(change).toHaveBeenCalledWith({ logoSize: 0.3 });
+  });
+});
+
+it('switches and persists the interface language', async () => {
+  localStorage.setItem('lang', 'en');
+  function Label() { const { tr } = useI18n(); return <p>{tr('My videos')}</p>; }
+  render(<LangProvider><LangSwitch /><Label /></LangProvider>);
+  const buttons = screen.getAllByRole('button');
+  await userEvent.click(buttons[0]);
+  expect(document.documentElement.lang).toBe('my');
+  expect(localStorage.getItem('lang')).toBe('my');
+  expect(screen.queryByText('My videos')).toBeNull();
+  await userEvent.click(screen.getByRole('button', { name: 'English' }));
+  expect(screen.getByText('My videos')).toBeTruthy();
+  localStorage.removeItem('lang');
 });

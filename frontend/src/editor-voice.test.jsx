@@ -25,6 +25,12 @@ describe('voice library', () => {
     await user.type(screen.getByPlaceholderText(/Search:/), 'missing');
     expect(screen.getByText('Nothing found.')).toBeTruthy();
   });
+  it('offers stop for a playing sample', async () => {
+    const play = vi.fn();
+    render(<VoiceLibrary voices={voices} looks={[]} selected="Kore" playing="Kore" onSelect={vi.fn()} onClose={vi.fn()} onPlay={play} />);
+    await userEvent.click(screen.getByRole('button', { name: /Stop/ }));
+    expect(play).toHaveBeenCalledWith({ name: 'Kore', sample_url: '/kore.wav' });
+  });
 });
 
 describe('editor', () => {
@@ -51,5 +57,39 @@ describe('editor', () => {
     expect(apply.mock.calls[0][1]).toEqual({ A: 'Charon' });
     await user.click(screen.getByRole('button', { name: 'Reset' }));
     expect(screen.getByRole('button', { name: 'Apply changes & re-render' }).disabled).toBe(true);
+  });
+  it('splits a line at the playhead, edits it, and deletes it', async () => {
+    const user = userEvent.setup(); const apply = vi.fn(); const video = document.createElement('video');
+    render(<Editor project={project} videoRef={{ current: video }} onApply={apply} voices={voices} />);
+    video.currentTime = 4; fireEvent.seeked(video);
+    await user.click(screen.getByRole('button', { name: /Split \/ add line/ }));
+    await user.type(screen.getByPlaceholderText('Burmese text for this line'), 'New line');
+    await user.click(screen.getByRole('button', { name: 'Apply changes & re-render' }));
+    expect(apply.mock.calls[0][0]).toEqual([expect.objectContaining({ id: 1, start: 0 }), expect.objectContaining({ id: null, start: 4, text: 'New line' })]);
+    await user.click(screen.getByRole('button', { name: 'Delete line' }));
+    expect(screen.getByPlaceholderText('Burmese text for this line').value).toBe('Original line');
+  });
+  it('splits and deletes a subtitle blur window', async () => {
+    const user = userEvent.setup(); const apply = vi.fn(); const video = document.createElement('video');
+    const p = { ...project, fx: { subtitle_rect: [0, 0, 10, 10], subtitle_windows: null } };
+    render(<Editor project={p} videoRef={{ current: video }} onApply={apply} voices={voices} finish={{ blur_subtitles: true }} />);
+    video.currentTime = 4; fireEvent.seeked(video);
+    await user.click(screen.getByRole('button', { name: /Split blur/ }));
+    await user.click(screen.getByRole('button', { name: 'Delete blur' }));
+    await user.click(screen.getByRole('button', { name: 'Apply changes & re-render' }));
+    expect(apply.mock.calls[0][2]).toEqual([[0, 4]]);
+  });
+  it('reassigns a line to a different character', async () => {
+    const user = userEvent.setup(); const apply = vi.fn();
+    const p = { ...project, speakers: { A: { voice: 'Kore', gender: 'female' }, B: { voice: 'Charon', gender: 'male' } } };
+    render(<Editor project={p} videoRef={{ current: null }} onApply={apply} voices={voices} />);
+    await user.click(screen.getByRole('button', { name: 'B' }));
+    await user.click(screen.getByRole('button', { name: 'Apply changes & re-render' }));
+    expect(apply.mock.calls[0][0][0].speaker).toBe('B');
+  });
+  it('disables edits while a rerender is running', () => {
+    render(<Editor project={project} videoRef={{ current: null }} busy onApply={vi.fn()} voices={voices} />);
+    expect(screen.getByRole('button', { name: 'Re-rendering…' }).disabled).toBe(true);
+    expect(screen.getByPlaceholderText('Burmese text for this line').closest('fieldset').disabled).toBe(true);
   });
 });

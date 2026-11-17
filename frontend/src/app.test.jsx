@@ -60,6 +60,16 @@ describe('login', () => {
 });
 
 describe('video creation', () => {
+  it('switches between standard and high quality voices', async () => {
+    localStorage.setItem('token', 'test-token'); const user = userEvent.setup(); render(<App />);
+    const standard = await screen.findByRole('button', { name: /^Standard / });
+    const premium = screen.getByRole('button', { name: /^High quality / });
+    expect(standard.getAttribute('aria-pressed')).toBe('true');
+    await user.click(premium);
+    expect(premium.getAttribute('aria-pressed')).toBe('true');
+    await user.click(standard);
+    expect(standard.getAttribute('aria-pressed')).toBe('true');
+  });
   it('accepts and removes a video and logo', async () => {
     localStorage.setItem('token', 'test-token'); const user = userEvent.setup();
     const { container } = render(<App />);
@@ -111,6 +121,23 @@ describe('job states', () => {
     await userEvent.click(screen.getAllByRole('button', { name: 'Cancel' })[0]);
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith(expect.stringContaining('/api/jobs/job1/cancel')));
   });
+  it('cancels a job requested while upload is still in progress', async () => {
+    let uploadDone;
+    axios.post.mockImplementation((url) => url.endsWith('/cancel') ? Promise.resolve({ data: {} }) : new Promise((resolve) => { uploadDone = resolve; }));
+    await startVideo();
+    await userEvent.click(screen.getAllByRole('button', { name: 'Cancel' })[0]);
+    uploadDone({ data: { job_id: 'job1' } });
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(expect.stringContaining('/api/jobs/job1/cancel')));
+    await waitFor(() => expect(screen.queryByText('Working on your video')).toBeNull());
+  });
+  it('shows an error if the server job fails', async () => {
+    const baseGet = axios.get.getMockImplementation();
+    axios.post.mockResolvedValue({ data: { job_id: 'job1' } });
+    axios.get.mockImplementation((url) => url.endsWith('/api/jobs/job1')
+      ? Promise.resolve({ data: { id: 'job1', status: 'error', progress: 30, error: 'Processing failed' } }) : baseGet(url));
+    await startVideo();
+    expect(await screen.findByText(/We could not complete this just now/, {}, { timeout: 6000 })).toBeTruthy();
+  }, 10000);
   it('displays a job submission error', async () => {
     axios.post.mockRejectedValue({ response: { status: 400, data: { detail: 'Upload rejected' } } });
     await startVideo();
@@ -156,4 +183,28 @@ describe('job states', () => {
     expect(axios.post).toHaveBeenCalledWith(expect.stringContaining('/api/jobs/job1/rerender'), { segments: [], device_render: false });
     fetchMock.mockRestore();
   }, 15000);
+  it.each([false, true])('reopens a history result (expired: %s)', async (expired) => {
+    localStorage.setItem('token', 'test-token');
+    const baseGet = axios.get.getMockImplementation();
+    const row = { id: 'job1', title: 'Saved video', status: 'done', video_available: true, created_at: '2026-01-01T00:00:00Z', expires_at: '2099-01-01T00:00:00Z', kind: 'recap', minutes: 1, aspect: 'original' };
+    axios.get.mockImplementation((url) => url.includes('/api/jobs?')
+      ? Promise.resolve({ data: { items: [row], total: 1, per_page: 15, keep_result_days: 14, keep_source_days: 7 } })
+      : url.endsWith('/api/jobs/job1') ? Promise.resolve({ data: { id: 'job1', result: expired ? { expired: true } : { video_url: '/video.mp4', download_url: '/download.mp4', subtitle_url: '/captions.srt', timeline: [] } } }) : baseGet(url));
+    window.scrollTo = vi.fn(); const user = userEvent.setup(); render(<App />);
+    await user.click(screen.getAllByRole('button', { name: 'My videos' }).at(-1));
+    await user.click(await screen.findByRole('button', { name: 'Open' }));
+    if (expired) expect(await screen.findByText('This result has expired. Please generate it again.')).toBeTruthy();
+    else expect(await screen.findByRole('link', { name: /Download video/ })).toBeTruthy();
+  });
+  it('shows an error when an editor rerender request fails', async () => {
+    const baseGet = axios.get.getMockImplementation();
+    axios.post.mockImplementation((url) => url.endsWith('/rerender') ? Promise.reject({ response: { status: 400, data: { detail: 'Rerender refused' } } }) : Promise.resolve({ data: { job_id: 'job1' } }));
+    axios.get.mockImplementation((url) => url.endsWith('/api/jobs/job1')
+      ? Promise.resolve({ data: { id: 'job1', status: 'done', progress: 100, result: { video_url: '/video.mp4', download_url: '/download.mp4', subtitle_url: '/captions.srt', timeline: [], project: { source_duration: 10, output: 'dub', segments: [{ id: 1, start: 0, text: 'Original', audio_dur: 2, applied_tempo: 1 }] } } } }) : baseGet(url));
+    const user = await startVideo();
+    const line = await screen.findByPlaceholderText('Burmese text for this line', {}, { timeout: 6000 });
+    await user.clear(line); await user.type(line, 'Changed');
+    await user.click(screen.getByRole('button', { name: 'Apply changes & re-render' }));
+    expect(await screen.findByText('Rerender refused')).toBeTruthy();
+  }, 12000);
 });
