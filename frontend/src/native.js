@@ -4,6 +4,7 @@ import { App as CapApp } from '@capacitor/app';
 import { CapacitorUpdater } from '@capgo/capacitor-updater';
 import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
+import { StatusBar, Style } from '@capacitor/status-bar';
 
 export const isNative = Capacitor.isNativePlatform();
 
@@ -52,4 +53,10 @@ export async function nativeVersionLabel() {
     const bundle = cur?.bundle?.version;
     return `${info.version} (${info.build})${bundle && bundle !== 'builtin' ? ` · ${bundle}` : ''}`;
   } catch (e) { return null; }
+}
+
+/** The status bar is transparent (the page shows through), so only the TEXT colour matters: light text on the dark opening screen, dark text everywhere else. */
+export async function statusBarOnDark(onDark) {
+  if (!isNative) return;
+  try { await StatusBar.setStyle({ style: onDark ? Style.Dark : Style.Light }); } catch (e) { /* older app build / Android without the plugin call: ignore */ }
 }

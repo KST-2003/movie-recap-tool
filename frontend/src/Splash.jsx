@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import '@fontsource/fredoka/700.css';
 import '@fontsource/space-mono/400.css';
 import { useI18n } from './i18n.jsx';
+import { statusBarOnDark } from './native.js';
 
 // Opening screen of the user app: the owner's design (docs/loading_screen.html: bouncing mascot, flying popcorn, 3D "Recat Studio").
 // Shown for about 2 s when a signed-in user opens the app and right after signing in, then it fades away; the app loads underneath.
@@ -36,6 +37,7 @@ const CSS = `
 export default function Splash({ ms = 2000, onDone }) {
   const { tr } = useI18n();
   const [out, setOut] = useState(false);
+  useEffect(() => { statusBarOnDark(true); return () => { statusBarOnDark(false); }; }, []);   // light clock / battery on the dark screen, back to dark when it goes
   useEffect(() => {
     const calm = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     const t = setTimeout(() => setOut(true), calm ? 700 : ms);

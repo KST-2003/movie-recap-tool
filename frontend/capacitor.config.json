@@ -8,7 +8,7 @@
     "iosScheme": "capacitor"
   },
   "ios": {
-    "contentInset": "never",
+    "contentInset": "always",
     "backgroundColor": "#F7F4FF"
   },
   "android": {
@@ -24,7 +24,7 @@
     "StatusBar": {
       "style": "LIGHT",
       "backgroundColor": "#F7F4FF",
-      "overlaysWebView": false
+      "overlaysWebView": true
     },
     "CapacitorUpdater": {
       "autoUpdate": "atBackground",

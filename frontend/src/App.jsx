@@ -116,7 +116,7 @@ function AuthScreen({ onAuth, notice }) {
       <div aria-hidden="true" className="pointer-events-none absolute -top-24 -left-20 h-72 w-72 rounded-full bg-lavender/50 blur-3xl animate-drift" />
       <div aria-hidden="true" className="pointer-events-none absolute -bottom-24 -right-16 h-80 w-80 rounded-full bg-blush/50 blur-3xl animate-drift [animation-delay:-4s]" />
       <div aria-hidden="true" className="pointer-events-none absolute top-1/4 right-1/4 h-40 w-40 rounded-full bg-popcorn/40 blur-3xl animate-drift [animation-delay:-2s]" />
-      <div className="absolute right-4 top-4"><LangSwitch /></div>
+      <div className="absolute right-4 top-[max(1rem,calc(env(safe-area-inset-top)+0.5rem))]"><LangSwitch /></div>
       <form onSubmit={submit} className="relative w-full max-w-sm rounded-[2rem] bg-white/90 backdrop-blur border border-white p-7 pt-16 shadow-card space-y-4 animate-rise">
         <div className="absolute -top-14 left-1/2 -translate-x-1/2 rounded-full bg-white p-2 shadow-card"><Mascot className="h-24 w-24" /></div>
         <div className="text-center">
