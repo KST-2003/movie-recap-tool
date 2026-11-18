@@ -104,6 +104,16 @@ def available() -> bool:
     return bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
 
 
+def _http_args() -> dict:
+    """Connect to Google over IPv4 only. On the Contabo server Google rejects the server's IPv6 address ("User location is not supported
+    for the API use", 400 FAILED_PRECONDITION) while its IPv4 address (Tokyo) is accepted, and the OS prefers IPv6: so requests failed
+    whenever that route was picked (found 2026-11-18). `GEMINI_FORCE_IPV4=0` turns this off."""
+    if os.getenv("GEMINI_FORCE_IPV4", "1") == "0":
+        return {}
+    import httpx
+    return {"client_args": {"transport": httpx.HTTPTransport(local_address="0.0.0.0")}}
+
+
 def _get_client():
     global _client
     if _client is None:
@@ -114,7 +124,7 @@ def _get_client():
         # We retry transient errors ourselves (short, bounded) and fail fast on quota errors.
         _client = genai.Client(http_options=types.HttpOptions(
             timeout=int(os.getenv("GEMINI_HTTP_TIMEOUT_MS", "60000")),
-            retry_options=types.HttpRetryOptions(attempts=1)))  # reads GEMINI_API_KEY / GOOGLE_API_KEY
+            retry_options=types.HttpRetryOptions(attempts=1), **_http_args()))  # reads GEMINI_API_KEY / GOOGLE_API_KEY
     return _client
 
 
@@ -129,7 +139,7 @@ def get_text_client():
         from google.genai import types
         _text_client = genai.Client(http_options=types.HttpOptions(
             timeout=int(os.getenv("GEMINI_TEXT_TIMEOUT_MS", "180000")),
-            retry_options=types.HttpRetryOptions(attempts=1)))
+            retry_options=types.HttpRetryOptions(attempts=1), **_http_args()))
     return _text_client
 
 
