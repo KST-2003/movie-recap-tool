@@ -239,6 +239,7 @@ const MY = {
   'Your request was sent. The admin will review it and you can continue as soon as it is approved.': 'သင့်တောင်းဆိုမှုကို ပို့ပြီးပါပြီ။ အက်မင်က စစ်ဆေးပြီး ခွင့်ပြုသည်နှင့် ဆက်လုပ်နိုင်ပါမည်။',
   'The admin reviewed your request and did not unlock it. Please wait until the pause ends.': 'အက်မင်က သင့်တောင်းဆိုမှုကို စစ်ဆေးပြီး ပြန်မဖွင့်ပေးခဲ့ပါ။ ရပ်ထားချိန်ပြီးသည်အထိ စောင့်ပါ။',
   'Think it was not your fault? Ask the admin to review it so you can continue now.': 'သင့်အမှားမဟုတ်ဟု ထင်ပါသလား? အက်မင်ကို စစ်ဆေးခိုင်းပါ၊ ယခုပင် ဆက်လုပ်နိုင်ပါမည်။',
+  'Position in the video': 'ဗီဒီယိုအတွင်း တည်နေရာ',
   'Make another video': 'ဗီဒီယိုအသစ် ထပ်လုပ်မည်',
   'The look is set while the video is being made.': 'ပုံစံကို ဗီဒီယိုပြုလုပ်နေစဉ်အတွင်း သတ်မှတ်ပါသည်။',
   'Add a short note (optional)': 'မှတ်ချက်တိုလေး ထည့်ပါ (မထည့်လည်းရ)',

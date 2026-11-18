@@ -104,6 +104,25 @@ export default function PreviewStudio({ src, logoFile, fx, onChange, simple = fa
     setDuration(Number.isFinite(d) ? d : 0);
   };
 
+  const moveBar = (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    if (!r.width || !duration) return;
+    const t = Math.min(duration, Math.max(0, ((e.clientX - r.left) / r.width) * duration));
+    lastInput.current = Date.now();
+    lastTarget.current = t;
+    loopStart.current = t;   // while the 5 s loop plays, the window moves to where you drag
+    // Touch screens: the picture jumps ONCE when the finger lets go; mouse scrubs live.
+    const touch = e.pointerType === 'touch' || e.pointerType === 'pen';
+    if (!touch) seekTo(t);
+    setTime(t);
+  };
+  // hidden readout (tap the time 3 times): what the video does, for support screenshots
+  const [dbg, setDbg] = useState(false);
+  const dbgTaps = useRef([]);
+  const dbgText = () => { const v = videoRef.current; return v ? `t ${v.currentTime.toFixed(2)} target ${lastTarget.current == null ? '-' : lastTarget.current.toFixed(2)} ready ${v.readyState} net ${v.networkState} seeking ${v.seeking ? 1 : 0} paused ${v.paused ? 1 : 0} err ${v.error ? v.error.code : 0} dur ${Number.isFinite(v.duration) ? v.duration.toFixed(1) : v.duration} ${v.videoWidth}x${v.videoHeight}` : 'no video'; };
+  const [dbgLine, setDbgLine] = useState('');
+  useEffect(() => { if (!dbg) return undefined; const id = setInterval(() => setDbgLine(dbgText()), 300); return () => clearInterval(id); }, [dbg]);   // eslint-disable-line react-hooks/exhaustive-deps
+
   const [fw, fh] = frameSize(fx.aspect, dims);   // output frame in pixels
   const reframed = fx.aspect !== 'original' && Math.abs(fw / fh - dims.w / dims.h) > 0.01;
   const blurFit = reframed && fx.fitMode === 'blur';
@@ -324,28 +343,29 @@ export default function PreviewStudio({ src, logoFile, fx, onChange, simple = fa
       </div>
 
       <div className="flex items-center gap-2">
-        <input
-          type="range" min={0} max={duration || 1} step={0.1} value={time}
-          onPointerDown={() => { scrubbing.current = true; }}
-          onTouchStart={() => { scrubbing.current = true; }}
-          onMouseDown={() => { scrubbing.current = true; }}
-          onPointerUp={finishScrub}   // let go: land exactly on the chosen time (the window listeners above catch a release outside the bar / a cancelled touch)
-          style={{ touchAction: 'pan-y' }}
-          onChange={(e) => {
-            const t = Number(e.target.value);
-            lastInput.current = Date.now();
-            lastTarget.current = t;
-            loopStart.current = t;   // while the 5 s loop plays, the window moves to where you drag
-            // Touch screens: the picture jumps ONCE when the finger lets go (a phone decoder cannot follow a dragging thumb: every new seek
-            // cancelled the one before and the whole video froze, seen on an iPhone). Mouse / keyboard keep the live scrubbing.
-            const touch = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
-            if (!(touch && scrubbing.current)) seekTo(t);
-            setTime(t);
+        {/* Our own slider (the phone app's web view did not seek with the native range input). Pointer capture keeps the drag even outside the bar. */}
+        <div
+          role="slider" tabIndex={0} aria-valuemin={0} aria-valuemax={Math.round(duration)} aria-valuenow={Math.round(time)} aria-label={tr('Position in the video')}
+          className="relative flex-1 h-9 cursor-pointer select-none"
+          style={{ touchAction: 'none' }}
+          onPointerDown={(e) => { try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* not capturable (synthetic / odd web view): the window listeners still end the drag */ } scrubbing.current = true; moveBar(e); }}
+          onPointerMove={(e) => { if (scrubbing.current) moveBar(e); }}
+          onPointerUp={finishScrub}
+          onPointerCancel={finishScrub}
+          onLostPointerCapture={finishScrub}
+          onKeyDown={(e) => {
+            const step = e.shiftKey ? 5 : 1;
+            if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); const t = Math.min(duration, Math.max(0, time + (e.key === 'ArrowRight' ? step : -step))); lastInput.current = Date.now(); lastTarget.current = t; loopStart.current = t; seekTo(t); setTime(t); }
           }}
-          className="flex-1 accent-violet-500"
-        />
-        <span className="text-xs text-ink-soft shrink-0 min-w-[6.5rem] whitespace-nowrap tabular-nums text-right">{time.toFixed(1)} / {duration.toFixed(0)}s</span>
+        >
+          <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-1.5 rounded-full bg-violet-100" />
+          <div className="absolute left-0 top-1/2 -translate-y-1/2 h-1.5 rounded-full bg-violet-500" style={{ width: `${duration ? Math.min(100, (time / duration) * 100) : 0}%` }} />
+          <div className="absolute top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-violet-500 shadow-card ring-4 ring-white" style={{ left: `${duration ? Math.min(100, (time / duration) * 100) : 0}%` }} />
+        </div>
+        <span onClick={() => { const n = Date.now(); dbgTaps.current = [...dbgTaps.current.filter((x) => n - x < 1500), n]; if (dbgTaps.current.length >= 3) { dbgTaps.current = []; setDbg((d) => !d); } }}
+          className="text-xs text-ink-soft shrink-0 min-w-[6.5rem] whitespace-nowrap tabular-nums text-right select-none">{time.toFixed(1)} / {duration.toFixed(0)}s</span>
       </div>
+      {dbg && <p className="break-all rounded-lg bg-ink px-2 py-1 font-mono text-[10px] leading-tight text-white">{dbgLine}</p>}
       <div className="flex flex-wrap gap-2">
         <button type="button" onClick={looping ? stop : playWindow} className="px-3 py-1.5 rounded-lg bg-violet-500 hover:bg-violet-600 text-sm text-white">
           {looping ? tr('■ Stop') : tr('▶ Play 5 s (loop)')}
