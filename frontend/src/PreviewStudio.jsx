@@ -66,10 +66,23 @@ export default function PreviewStudio({ src, logoFile, fx, onChange, simple = fa
     seekTimer.current = setTimeout(() => { seekBusy.current = false; if (seekWanted.current != null) seekNow(); }, 1500);   // a phone's HEVC clip can need > 350 ms: re-sending earlier cancelled every seek and the picture never landed
   };
   const seekTo = (t) => { seekWanted.current = t; if (!seekBusy.current) seekNow(); };
+  // iOS web views (the phone app) do not always draw the new picture after a seek while the video is paused: it looks frozen on the old frame until
+  // it plays (which is why "Play 5 s" worked and the bar did not). After the seek has settled, play a moment muted and pause again to make it draw.
+  const needKick = useRef(false);
+  const kickFrame = (v) => {
+    const wasMuted = v.muted;
+    const restore = () => { try { v.pause(); } catch { /* ignore */ } v.muted = wasMuted; };
+    v.muted = true;
+    let pr;
+    try { pr = v.play(); } catch { restore(); return; }
+    if (pr && pr.then) pr.then(() => setTimeout(restore, 80)).catch(() => { v.muted = wasMuted; });
+    else setTimeout(restore, 80);
+  };
   const onSeeked = (e) => {
     clearTimeout(seekTimer.current);
     seekBusy.current = false;
     if (seekWanted.current != null) { seekNow(); return; }
+    if (needKick.current && e.target.paused && !looping) { needKick.current = false; kickFrame(e.target); }
     syncBg(e);   // the blurred background is only moved when the main picture has settled
   };
 
@@ -77,7 +90,7 @@ export default function PreviewStudio({ src, logoFile, fx, onChange, simple = fa
     if (!scrubbing.current) return;
     scrubbing.current = false;
     const v = videoRef.current;
-    if (v && lastTarget.current != null) { seekWanted.current = null; v.currentTime = lastTarget.current; }
+    if (v && lastTarget.current != null) { seekWanted.current = null; needKick.current = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches; v.currentTime = lastTarget.current; }
   };
   useEffect(() => {
     const evs = ['pointerup', 'pointercancel', 'touchend', 'touchcancel', 'mouseup', 'blur'];
