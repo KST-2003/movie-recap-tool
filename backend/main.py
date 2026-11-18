@@ -31,6 +31,7 @@ import jobs_queue
 import looks
 import storage
 import topup
+import ranged
 import reviews
 import unlock
 from common import media_duration, tts_provider
@@ -774,7 +775,7 @@ def delete_my_video(job_id: str, user: User = Depends(auth.current_user)):
 
 
 @app.get("/api/files/{filename}")
-def get_file(filename: str, exp: int, sig: str, dl: int = 0):
+def get_file(request: Request, filename: str, exp: int, sig: str, dl: int = 0):
     name = os.path.basename(filename)
     if not auth.check_signature(name, exp, sig):
         raise HTTPException(status_code=403, detail="Link expired. Reload the page to get a new one.")
@@ -782,7 +783,7 @@ def get_file(filename: str, exp: int, sig: str, dl: int = 0):
     if not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="File not found: this video was removed after the keeping time.")
     media_type = "application/x-subrip" if name.endswith(".srt") else ("audio/mp4" if name.endswith(".m4a") else "video/mp4")
-    return FileResponse(path, media_type=media_type, filename=name if dl else None)
+    return ranged.file_response(request, path, media_type, name if dl else None)   # ranges: the player must be able to jump around
 
 
 @app.get("/api/queue")
