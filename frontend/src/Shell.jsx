@@ -114,7 +114,7 @@ export default function Shell({ view, setView, account, onLogout, onDeleteAccoun
       </aside>
 
       {/* Phones: top bar */}
-      <header className="lg:hidden sticky top-0 z-30 flex items-center gap-3 px-4 pb-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] bg-page/75 backdrop-blur border-b border-violet-100/60">
+      <header className="lg:hidden sticky top-0 z-30 flex items-center gap-3 px-4 pb-2.5 pt-[max(0.625rem,var(--safe-top))] bg-page/75 backdrop-blur border-b border-violet-100/60">
         <Brand size="text-lg" icon="h-9 w-9" />
         {left != null && <span className="ml-auto min-w-0 truncate rounded-full bg-violet-50 px-3 py-1 text-xs font-medium text-violet-600">{tr('{n} min left', { n: left })}</span>}
         <button type="button" aria-label={tr('Menu')} aria-expanded={open} onClick={() => setOpen(true)}
@@ -136,7 +136,7 @@ export default function Shell({ view, setView, account, onLogout, onDeleteAccoun
       <main className="flex-1 min-w-0 p-4 pb-28 sm:p-6 sm:pb-28 lg:pb-6 lg:h-full lg:overflow-y-auto">{children}</main>
 
       {/* Phones: bottom tab bar */}
-      <nav className="lg:hidden fixed inset-x-0 bottom-0 z-30 flex items-stretch justify-around gap-1 rounded-t-[1.75rem] border-t border-violet-100 bg-white/95 px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-10px_30px_-12px_rgba(139,92,246,0.3)] backdrop-blur">
+      <nav className="lg:hidden fixed inset-x-0 bottom-0 z-30 flex items-stretch justify-around gap-1 rounded-t-[1.75rem] border-t border-violet-100 bg-white/95 px-3 pt-2 pb-[max(0.5rem,var(--safe-bottom))] shadow-[0_-10px_30px_-12px_rgba(139,92,246,0.3)] backdrop-blur">
         {NAV_SHOWN.map(([key, label, short]) => (
           <button key={key} type="button" onClick={() => setView(key)} aria-label={tr(label)} aria-current={view === key ? 'page' : undefined}
             className={`flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-2xl py-1.5 text-[11px] font-medium ${view === key ? 'bg-violet-100 text-violet-600' : 'text-ink-faint'}`}>

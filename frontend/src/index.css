@@ -4,6 +4,8 @@
 
 /* Recat theme: soft lavender page, white cards, violet primary (see tailwind.config.js). */
 html { color-scheme: light; }
+/* safe areas (notch / Dynamic Island / home bar). The phone app overwrites them from main.jsx when iOS reports 0 inside the web view. */
+:root { --safe-top: env(safe-area-inset-top, 0px); --safe-bottom: env(safe-area-inset-bottom, 0px); }
 body {
   margin: 0;
   color: #2B2440;

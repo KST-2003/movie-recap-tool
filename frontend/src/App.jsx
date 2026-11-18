@@ -111,12 +111,12 @@ function AuthScreen({ onAuth, notice }) {
 
   const input = 'w-full rounded-2xl bg-page border border-violet-100 px-4 py-3 text-sm text-ink placeholder:text-ink-faint outline-none transition-shadow focus:border-violet-400 focus:shadow-[0_0_0_4px_rgba(139,92,246,0.15)]';
   return (
-    <div className="relative min-h-screen overflow-hidden text-ink p-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] font-sans flex items-center justify-center">
+    <div className="relative min-h-screen overflow-hidden text-ink p-6 pt-[max(1.5rem,var(--safe-top))] pb-[max(1.5rem,var(--safe-bottom))] font-sans flex items-center justify-center">
       {/* soft clouds drifting behind the card */}
       <div aria-hidden="true" className="pointer-events-none absolute -top-24 -left-20 h-72 w-72 rounded-full bg-lavender/50 blur-3xl animate-drift" />
       <div aria-hidden="true" className="pointer-events-none absolute -bottom-24 -right-16 h-80 w-80 rounded-full bg-blush/50 blur-3xl animate-drift [animation-delay:-4s]" />
       <div aria-hidden="true" className="pointer-events-none absolute top-1/4 right-1/4 h-40 w-40 rounded-full bg-popcorn/40 blur-3xl animate-drift [animation-delay:-2s]" />
-      <div className="absolute right-4 top-[max(1rem,calc(env(safe-area-inset-top)+0.5rem))]"><LangSwitch /></div>
+      <div className="absolute right-4 top-[max(1rem,calc(var(--safe-top)+0.5rem))]"><LangSwitch /></div>
       <form onSubmit={submit} className="relative w-full max-w-sm rounded-[2rem] bg-white/90 backdrop-blur border border-white p-7 pt-16 shadow-card space-y-4 animate-rise">
         <div className="absolute -top-14 left-1/2 -translate-x-1/2 rounded-full bg-white p-2 shadow-card"><Mascot className="h-24 w-24" /></div>
         <div className="text-center">

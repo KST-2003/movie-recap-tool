@@ -60,3 +60,22 @@ export async function statusBarOnDark(onDark) {
   if (!isNative) return;
   try { await StatusBar.setStyle({ style: onDark ? Style.Dark : Style.Light }); } catch (e) { /* older app build / Android without the plugin call: ignore */ }
 }
+
+/** Phone app: the page runs under the transparent status bar, so it must keep its own content clear of the clock / notch / home bar.
+ *  iOS 18 reports env(safe-area-inset-*) inside the web view, iOS 26 reports 0 when the scroll view does not adjust: read it, and if it is 0 guess from the screen size. */
+export function initSafeArea() {
+  if (!isNative) return;
+  try {
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)';
+    document.body.appendChild(probe);
+    const cs = getComputedStyle(probe);
+    let top = parseFloat(cs.paddingTop) || 0, bottom = parseFloat(cs.paddingBottom) || 0;
+    probe.remove();
+    const ios = Capacitor.getPlatform() === 'ios', h = Math.max(screen.height, screen.width);
+    if (ios && !top) top = h >= 852 ? 59 : h >= 812 ? 47 : 20;   // Dynamic Island / notch / old home-button iPhones
+    if (ios && !bottom) bottom = h >= 812 ? 34 : 0;
+    document.documentElement.style.setProperty('--safe-top', `${top}px`);
+    document.documentElement.style.setProperty('--safe-bottom', `${bottom}px`);
+  } catch (e) { /* keep the CSS env() values */ }
+}
