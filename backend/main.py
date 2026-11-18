@@ -32,6 +32,7 @@ import looks
 import storage
 import topup
 import reviews
+import unlock
 from common import media_duration, tts_provider
 from db import Job, Session, User, active_jobs, failure_wait_seconds, keeps_minutes, month_start, refund_credit, user_role, used_seconds_month, used_seconds_today, utcnow
 from voices import VOICES, VOICE_NAMES
@@ -69,6 +70,7 @@ import presets  # noqa: E402  (saved settings for a new video: users' own + admi
 app.include_router(presets.admin_router)
 app.include_router(presets.router)
 app.include_router(reviews.router)
+app.include_router(unlock.router)
 app.include_router(reviews.admin_router)
 
 SAMPLES_DIR = "voice_samples"
@@ -137,6 +139,7 @@ def _quota(user: User) -> dict:
         used = used_seconds_today(s, user.id)
         month_used = used_seconds_month(s, user.id)
         blocked = failure_wait_seconds(s, user.id)
+        unlock_state = unlock.state_for(s, user)
     day_left = max(0, user.daily_minutes * 60 - used)
     month_left = max(0, user.monthly_minutes * 60 - month_used)
     credit = max(0.0, user.credit_seconds or 0.0)
@@ -145,6 +148,7 @@ def _quota(user: User) -> dict:
             "monthly_minutes": user.monthly_minutes, "month_used_seconds": round(month_used),
             "month_remaining_seconds": round(month_left), "day_remaining_seconds": round(day_left),
             "upload_blocked_seconds": 0 if user.is_admin else round(blocked),
+            "unlock_request": unlock_state,
             "expires_at": None if (user.is_admin or user.expires_at is None) else (user.expires_at if user.expires_at.tzinfo else user.expires_at.replace(tzinfo=timezone.utc)).isoformat()}
 
 
@@ -595,8 +599,8 @@ def _refuse_if_failing(s, user: User):
     if wait > 0:
         alerts.raise_alert(f"failures:{user.id}", f"User {user.email} tried to upload while paused after repeated failed or cancelled videos.")
         h, m = int(wait // 3600), int(wait % 3600 // 60) + 1
-        raise HTTPException(status_code=429, detail=f"Too many videos failed or were cancelled recently. You can start a new video in about {h} h {m} min." if h else
-                            f"Too many videos failed or were cancelled recently. You can start a new video in about {m} min.")
+        raise HTTPException(status_code=429, detail=f"Too many videos failed or were cancelled recently. You can start a new video in about {h} h {m} min. You can also ask the admin to review it." if h else
+                            f"Too many videos failed or were cancelled recently. You can start a new video in about {m} min. You can also ask the admin to review it.")
 
 
 def _refuse_if_voice_limit():

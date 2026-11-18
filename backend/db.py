@@ -32,6 +32,7 @@ class User(Base):
     status_reason = Column(String(300))                              # shown to the owner only
     credit_seconds = Column(Float, default=0.0, nullable=False)     # BOUGHT video seconds (top-ups): used only after the daily / monthly allowance is used up
     device_limit = Column(Integer, default=0, nullable=False)       # how many different devices may use the login; 0 = any number
+    fail_reset_at = Column(DateTime(timezone=True))                 # an admin approved an unlock request at this time: failed videos before it no longer count toward the pause
     expires_at = Column(DateTime(timezone=True))                    # the login works until then (months chosen by the admin); empty = no end date
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
@@ -174,6 +175,20 @@ class TopupRequest(Base):
     decided_by = Column(String(255))
 
 
+class UnlockRequest(Base):
+    """A user whose uploads are paused (5 failed / cancelled videos in a row) asks an admin to review and let them continue before the wait ends."""
+    __tablename__ = "unlock_requests"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    user_label = Column(String(255))
+    status = Column(String(12), default="pending", index=True, nullable=False)   # pending | approved | rejected
+    note = Column(String(300))                         # from the user
+    admin_note = Column(String(300))                   # the reason of a rejection (the user sees it)
+    created_at = Column(DateTime(timezone=True), default=utcnow, index=True)
+    decided_at = Column(DateTime(timezone=True))
+    decided_by = Column(String(255))
+
+
 Base.metadata.create_all(engine)
 
 # Small migration for databases created before the monthly allowance existed (create_all never alters tables).
@@ -184,7 +199,7 @@ if "monthly_minutes" not in {c["name"] for c in inspect(engine).get_columns("use
 _user_cols = {c["name"] for c in inspect(engine).get_columns("users")}
 for _col, _ddl in (("is_superadmin", "is_superadmin BOOLEAN NOT NULL DEFAULT 0" if DATABASE_URL.startswith("sqlite") else "is_superadmin BOOLEAN NOT NULL DEFAULT FALSE"),
                    ("status", "status VARCHAR(16) NOT NULL DEFAULT 'active'"), ("status_reason", "status_reason VARCHAR(300)"),
-                   ("device_limit", "device_limit INTEGER NOT NULL DEFAULT 0"), ("expires_at", "expires_at TIMESTAMP")):
+                   ("device_limit", "device_limit INTEGER NOT NULL DEFAULT 0"), ("expires_at", "expires_at TIMESTAMP"), ("fail_reset_at", "fail_reset_at TIMESTAMP")):
     if _col not in _user_cols:
         with engine.begin() as _conn:
             _conn.execute(text(f"ALTER TABLE users ADD COLUMN {_ddl}"))
@@ -317,8 +332,11 @@ FAIL_BLOCK_HOURS = float(os.getenv("FAIL_BLOCK_HOURS", "3"))  # ... = no new vid
 def failure_wait_seconds(s, user_id: int) -> float:
     """Seconds this user must wait before starting another video (0 = free to go). Failed / cancelled videos are refunded to the user,
     but Google does not refund us, so a long unbroken run of them (spam, or something badly wrong) pauses the account for a few hours."""
-    rows = s.execute(select(Job.status, Job.finished_at).where(Job.user_id == user_id, Job.status.in_(("done", "error", "cancelled")))
-                     .order_by(Job.finished_at.desc()).limit(max(FAIL_STREAK, 1))).all()
+    q = select(Job.status, Job.finished_at).where(Job.user_id == user_id, Job.status.in_(("done", "error", "cancelled")))
+    reset = s.execute(select(User.fail_reset_at).where(User.id == user_id)).scalar_one_or_none()
+    if reset is not None:   # an admin approved an unlock request: only videos that ended after it count
+        q = q.where(Job.finished_at > reset)
+    rows = s.execute(q.order_by(Job.finished_at.desc()).limit(max(FAIL_STREAK, 1))).all()
     if FAIL_STREAK <= 0 or len(rows) < FAIL_STREAK or any(r[0] == "done" for r in rows):
         return 0.0
     last = rows[0][1]

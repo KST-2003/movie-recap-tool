@@ -20,6 +20,8 @@ function describe(tr, e) {
     lines.push(tr('Removed device of {email}', { email: e.target_label }) + `: ${d.removed || ''}${d.ip ? ` (${d.ip})` : ''}`);
   } else if (e.action === 'topup.approve' || e.action === 'topup.reject') {
     lines.push(tr(e.action === 'topup.approve' ? 'Approved top-up of {email}' : 'Rejected top-up of {email}', { email: e.target_label }) + `: ${d.minutes} ${tr('min')} · ${d.amount_thb} THB${d.reason ? ` · ${d.reason}` : ''}`);
+  } else if (e.action === 'unlock.approve' || e.action === 'unlock.reject') {
+    lines.push(tr(e.action === 'unlock.approve' ? 'Approved the unlock request of {email}' : 'Rejected the unlock request of {email}', { email: e.target_label }) + (d.reason ? ` · ${d.reason}` : ''));
   } else if (e.action === 'credit.adjust') {
     lines.push(tr('Bought minutes of {email}', { email: e.target_label }) + `: ${d.minutes > 0 ? '+' : ''}${d.minutes} ${tr('min')}${d.note ? ` · ${d.note}` : ''}`);
   } else if (e.action.startsWith('preset.')) {
@@ -53,7 +55,7 @@ function describe(tr, e) {
   return lines;
 }
 
-const ACTION_STYLE = { 'user.create': 'bg-emerald-500/15 text-emerald-700', 'user.update': 'bg-sky-500/15 text-sky-600', 'user.device': 'bg-sky-500/15 text-sky-600', 'topup.approve': 'bg-emerald-500/15 text-emerald-700', 'topup.reject': 'bg-red-500/15 text-rose-600', 'credit.adjust': 'bg-emerald-500/15 text-emerald-700', 'job.cancel': 'bg-amber-500/15 text-amber-700', 'settings.update': 'bg-violet-500/15 text-violet-600' };
+const ACTION_STYLE = { 'user.create': 'bg-emerald-500/15 text-emerald-700', 'user.update': 'bg-sky-500/15 text-sky-600', 'user.device': 'bg-sky-500/15 text-sky-600', 'topup.approve': 'bg-emerald-500/15 text-emerald-700', 'topup.reject': 'bg-red-500/15 text-rose-600', 'unlock.approve': 'bg-emerald-500/15 text-emerald-700', 'unlock.reject': 'bg-red-500/15 text-rose-600', 'credit.adjust': 'bg-emerald-500/15 text-emerald-700', 'job.cancel': 'bg-amber-500/15 text-amber-700', 'settings.update': 'bg-violet-500/15 text-violet-600' };
 
 export default function AuditPage() {
   const { tr } = useI18n();
@@ -68,7 +70,7 @@ export default function AuditPage() {
     <div>
       <p className="mb-3 text-sm text-ink-soft">{tr('Every change made from this dashboard: who did it, what changed, and when. Passwords are never recorded.')}</p>
       <div className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:px-0">
-        {['', ...(data?.actions || ['user.create', 'user.update', 'user.device', 'topup.approve', 'topup.reject', 'credit.adjust', 'job.cancel', 'user.delete', 'user.self_delete', 'post.create', 'post.update', 'post.delete', 'preset.create', 'preset.update', 'preset.delete', 'settings.update'])].map((a) => (
+        {['', ...(data?.actions || ['user.create', 'user.update', 'user.device', 'topup.approve', 'topup.reject', 'unlock.approve', 'unlock.reject', 'credit.adjust', 'job.cancel', 'user.delete', 'user.self_delete', 'post.create', 'post.update', 'post.delete', 'preset.create', 'preset.update', 'preset.delete', 'settings.update'])].map((a) => (
           <button key={a || 'all'} onClick={() => { setAction(a); setPage(1); }}
             className={`flex-shrink-0 rounded-full px-3 py-1.5 text-xs ${action === a ? 'bg-violet-500 text-white' : 'bg-violet-50 text-ink-soft hover:bg-violet-100'}`}>{tr(a || 'all')}</button>
         ))}

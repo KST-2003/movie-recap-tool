@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  LayoutDashboard, Users, Wallet, ListVideo, Mic, Settings as SettingsIcon, Menu, X, LogOut, ExternalLink, ScrollText, Megaphone, Star, SlidersHorizontal,
+  LayoutDashboard, Users, Wallet, ListVideo, Mic, Settings as SettingsIcon, Menu, X, LogOut, ExternalLink, ScrollText, Megaphone, Star, SlidersHorizontal, Unlock,
 } from 'lucide-react';
 import { LangSwitch, useI18n } from './i18n.jsx';
 import { btnGhost, useApi } from './ui.jsx';
@@ -11,6 +11,7 @@ import TtsPage from './TtsPage.jsx';
 import AuditPage from './AuditPage.jsx';
 import SettingsPage from './SettingsPage.jsx';
 import TopupsPage from './TopupsPage.jsx';
+import UnlockPage from './UnlockPage.jsx';
 import PresetsPage from './PresetsPage.jsx';
 import PostsPage from './PostsPage.jsx';
 import ReviewsPage from './ReviewsPage.jsx';
@@ -25,6 +26,7 @@ const NAV = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'users', label: 'Users', icon: Users },
   { id: 'topups', label: 'Top-ups', icon: Wallet },
+  { id: 'unlock', label: 'Unlock requests', icon: Unlock },
   { id: 'jobs', label: 'Jobs', icon: ListVideo },
   { id: 'posts', label: 'Posts', icon: Megaphone },
   { id: 'presets', label: 'Presets', icon: SlidersHorizontal },
@@ -47,6 +49,7 @@ export default function Admin({ account, onLogout }) {
   const [userFilter, setUserFilter] = useState(null);
   const { data: ov, reload: reloadOv } = useApi('/api/admin/overview', { every: 30000 });
   const pending = ov?.topups_pending || 0;
+  const unlockPending = ov?.unlock_pending || 0;
 
   useEffect(() => { location.hash = page; }, [page]);
   const go = (id) => { if (!pages.some((n) => n.id === id)) return; setPage(id); setDrawer(false); if (id !== 'jobs') setUserFilter(null); window.scrollTo(0, 0); };
@@ -57,7 +60,7 @@ export default function Admin({ account, onLogout }) {
       {pages.map(({ id, label, icon: Icon }) => (
         <button key={id} onClick={() => go(id)}
           className={`group flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium ${page === id ? 'bg-gradient-to-r from-violet-500 to-violet-400 text-white shadow-pop' : 'text-ink-soft hover:bg-violet-50 hover:text-violet-600'}`}>
-          <span className={`flex h-8 w-8 items-center justify-center rounded-xl transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-6 ${page === id ? 'bg-white/20' : 'bg-violet-50 text-violet-500'}`}><Icon size={16} /></span>{tr(label)}{id === 'topups' && pending > 0 && <span className="ml-auto rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-semibold text-ink">{pending}</span>}
+          <span className={`flex h-8 w-8 items-center justify-center rounded-xl transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-6 ${page === id ? 'bg-white/20' : 'bg-violet-50 text-violet-500'}`}><Icon size={16} /></span>{tr(label)}{id === 'topups' && pending > 0 && <span className="ml-auto rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-semibold text-ink">{pending}</span>}{id === 'unlock' && unlockPending > 0 && <span className="ml-auto rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-semibold text-ink">{unlockPending}</span>}
         </button>
       ))}
     </nav>
@@ -98,6 +101,7 @@ export default function Admin({ account, onLogout }) {
           {page === 'overview' && <OverviewPage go={go} />}
           {page === 'users' && <UsersPage me={account.id} superadmin={superadmin} openJobsFor={(u) => { setUserFilter(u); setPage('jobs'); }} />}
           {page === 'topups' && <TopupsPage onChanged={reloadOv} />}
+          {page === 'unlock' && <UnlockPage onChanged={reloadOv} />}
           {page === 'jobs' && <JobsPage userFilter={userFilter} clearUser={() => setUserFilter(null)} />}
           {page === 'posts' && <PostsPage />}
           {page === 'presets' && <PresetsPage />}

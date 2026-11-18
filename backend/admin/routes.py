@@ -16,11 +16,13 @@ import capacity
 import usage as usage_log
 from . import settings as runtime_settings
 import storage
-from db import STATUSES as USER_STATUSES, add_months, expired, AuditLog, user_role, Job, Session, TopupRequest, User, UserDevice, month_start, set_status, update_job, used_seconds_month, used_seconds_today, utcnow
+from db import STATUSES as USER_STATUSES, add_months, expired, AuditLog, user_role, Job, Session, TopupRequest, UnlockRequest, User, UserDevice, month_start, set_status, update_job, used_seconds_month, used_seconds_today, utcnow
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 STATUSES = ("queued", "running", "done", "error", "cancelled")
-AUDIT_ACTIONS = ("user.create", "user.update", "user.device", "topup.approve", "topup.reject", "credit.adjust", "job.cancel", "settings.update")
+AUDIT_ACTIONS = ("user.create", "user.update", "user.device", "topup.approve", "topup.reject", "credit.adjust", "job.cancel", "settings.update",
+                 "user.delete", "user.self_delete", "post.create", "post.update", "post.delete", "preset.create", "preset.update", "preset.delete",
+                 "unlock.approve", "unlock.reject")
 USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._@+-]{2,63}$")
 PASSWORD_ALPHABET = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789"   # no 0/O/1/l/I: easy to read out or type from a message
 
@@ -74,6 +76,7 @@ def overview(days: int = 14):
     with Session() as s:
         total_users = s.execute(select(func.count()).select_from(User)).scalar_one()
         topups_pending = s.execute(select(func.count()).select_from(TopupRequest).where(TopupRequest.status == "pending")).scalar_one()
+        unlock_pending = s.execute(select(func.count()).select_from(UnlockRequest).where(UnlockRequest.status == "pending")).scalar_one()
         active_users = s.execute(select(func.count()).select_from(User).where(User.is_active.is_(True))).scalar_one()
         counts_today = dict(s.execute(select(Job.status, func.count()).where(Job.created_at >= today).group_by(Job.status)).all())
         queued = s.execute(select(func.count()).select_from(Job).where(Job.status == "queued")).scalar_one()
@@ -93,6 +96,7 @@ def overview(days: int = 14):
     cap = runtime_settings.global_daily_minutes()
     return {
         "topups_pending": topups_pending,
+        "unlock_pending": unlock_pending,
         "users": {"total": total_users, "active": active_users, "active_today": users_today},
         "jobs_today": {"total": sum(counts_today.values()), **{k: counts_today.get(k, 0) for k in STATUSES}},
         "queue": {"queued": queued, "running": running, "mode": QUEUE_MODE},
@@ -306,6 +310,8 @@ def purge_user_data(s, user: User, busy_message: str):
         s.delete(t)
     for d in s.execute(select(UserDevice).where(UserDevice.user_id == user.id)).scalars().all():
         s.delete(d)
+    for u in s.execute(select(UnlockRequest).where(UnlockRequest.user_id == user.id)).scalars().all():
+        s.delete(u)
     for pr in s.execute(select(Preset).where(Preset.user_id == user.id)).scalars().all():
         s.delete(pr)
     return jobs, topups, files, slips
@@ -738,6 +744,59 @@ class Reject(BaseModel):
 @router.post("/topups/{topup_id}/reject")
 def reject_topup(topup_id: int, body: Reject, admin: User = Depends(require_admin)):
     return _decide(topup_id, admin, False, body.reason)
+
+
+@router.get("/unlock-requests")
+def list_unlock_requests(status: str = "", page: int = 1, per_page: int = 25):
+    """Users paused after repeated failed videos who ask to continue. Each row shows the user's last failed videos so you can tell a user problem from OUR fault."""
+    from db import failure_wait_seconds
+    per_page, page = min(max(per_page, 1), 100), max(page, 1)
+    if status and status not in TOPUP_STATUSES:
+        raise HTTPException(status_code=400, detail="Unknown status.")
+    with Session() as s:
+        q, c = select(UnlockRequest, User.email).join(User, User.id == UnlockRequest.user_id), select(func.count()).select_from(UnlockRequest)
+        if status:
+            q, c = q.where(UnlockRequest.status == status), c.where(UnlockRequest.status == status)
+        total = s.execute(c).scalar_one()
+        rows = s.execute(q.order_by(UnlockRequest.id.desc()).offset((page - 1) * per_page).limit(per_page)).all()
+        items = []
+        for r, email in rows:
+            fails = s.execute(select(Job).where(Job.user_id == r.user_id, Job.status.in_(("error", "cancelled")))
+                              .order_by(Job.finished_at.desc()).limit(5)).scalars().all()
+            items.append({"id": r.id, "user_id": r.user_id, "email": email, "status": r.status, "note": r.note, "admin_note": r.admin_note,
+                          "created_at": r.created_at, "decided_at": r.decided_at, "decided_by": r.decided_by,
+                          "still_paused": r.status == "pending" and failure_wait_seconds(s, r.user_id) > 0,
+                          "failures": [{"id": j.id, "status": j.status, "error": (j.error or "")[:200], "finished_at": j.finished_at} for j in fails]})
+    return {"total": total, "page": page, "per_page": per_page, "items": items}
+
+
+def _decide_unlock(req_id: int, admin: User, approve: bool, reason: str = ""):
+    with Session() as s:
+        row = s.get(UnlockRequest, req_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Unknown request.")
+        user = s.get(User, row.user_id)
+        taken = s.execute(UnlockRequest.__table__.update().where(UnlockRequest.id == req_id, UnlockRequest.status == "pending")
+                          .values(status="approved" if approve else "rejected", decided_at=utcnow(), decided_by=admin.email,
+                                  admin_note=None if approve else (reason.strip()[:300] or None))).rowcount
+        if not taken:
+            raise HTTPException(status_code=409, detail="This request was already decided.")
+        if approve and user is not None:
+            user.fail_reset_at = utcnow()   # the failed videos before now stop counting: uploads are open again at once
+        _audit(s, admin, "unlock.approve" if approve else "unlock.reject", "user", row.user_id, row.user_label,
+               {} if approve else {"reason": reason.strip()[:300]})
+        s.commit()
+        return {"id": req_id, "status": "approved" if approve else "rejected"}
+
+
+@router.post("/unlock-requests/{req_id}/approve")
+def approve_unlock(req_id: int, admin: User = Depends(require_admin)):
+    return _decide_unlock(req_id, admin, True)
+
+
+@router.post("/unlock-requests/{req_id}/reject")
+def reject_unlock(req_id: int, body: Reject, admin: User = Depends(require_admin)):
+    return _decide_unlock(req_id, admin, False, body.reason)
 
 
 class CreditAdjust(BaseModel):

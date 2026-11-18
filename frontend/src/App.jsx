@@ -227,11 +227,32 @@ function App() {
     setToken(data.token);
     setAccount(data);
   };
-  const refreshAccount = () => axios.get(`${API_BASE}/api/auth/me`).then((r) => { setAccount(r.data); setBlockedUntil(r.data.upload_blocked_seconds > 0 ? Date.now() + r.data.upload_blocked_seconds * 1000 : 0); }).catch(() => {});
+  const wasBlocked = useRef(false);
+  const [justUnlocked, setJustUnlocked] = useState(false);   // an admin approved the review request while the pause card was showing
+  const refreshAccount = () => axios.get(`${API_BASE}/api/auth/me`).then((r) => {
+    setAccount(r.data);
+    const blocked = r.data.upload_blocked_seconds > 0;
+    if (wasBlocked.current && !blocked) setJustUnlocked(true);
+    if (blocked) setJustUnlocked(false);
+    wasBlocked.current = blocked;
+    setBlockedUntil(blocked ? Date.now() + r.data.upload_blocked_seconds * 1000 : 0);
+  }).catch(() => {});
   const [blockedUntil, setBlockedUntil] = useState(0);   // paused after repeated failed/cancelled videos
   const [nowTick, setNowTick] = useState(Date.now());
   useEffect(() => { if (!blockedUntil) return undefined; const id = setInterval(() => setNowTick(Date.now()), 30000); return () => clearInterval(id); }, [blockedUntil]);
   const blockedSeconds = Math.max(0, Math.round((blockedUntil - nowTick) / 1000));
+  // while uploads are paused, look again every 20 s so an approved review request opens the form without a reload
+  useEffect(() => { if (!blockedUntil) return undefined; const id = setInterval(() => refreshAccount(), 20000); return () => clearInterval(id); }, [blockedUntil]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const [unlockNote, setUnlockNote] = useState('');
+  const [unlockBusy, setUnlockBusy] = useState(false);
+  const [unlockErr, setUnlockErr] = useState('');
+  const askForReview = async () => {
+    setUnlockBusy(true); setUnlockErr('');
+    try { await axios.post(`${API_BASE}/api/unlock-request`, { note: unlockNote.trim() }); setUnlockNote(''); await refreshAccount(); }
+    catch (e) { const d = e.response?.data?.detail; setUnlockErr(typeof d === 'string' ? trs(d) : tr('We could not complete this just now. Our team has been notified. Please try again a little later.')); await refreshAccount(); }
+    finally { setUnlockBusy(false); }
+  };
+  const unlockReq = account?.unlock_request || null;
   useEffect(() => {
     const id = axios.interceptors.response.use((r) => r, (err) => {
       if (err.response?.status === 401 && !String(err.config?.url).includes('/api/auth/')) logout(err.response?.data?.detail);
@@ -842,8 +863,25 @@ function App() {
             <div className="min-w-0 text-sm text-amber-700 space-y-1">
               <p className="font-semibold">{tr('Your uploads are paused for now')}</p>
               <p>{tr('Your last 5 videos did not finish (failed or cancelled), so new videos are paused to keep the service stable. Please try again in about {t}. Our admin has been notified.', { t: blockedSeconds >= 3600 ? tr('{h} h {m} min', { h: Math.floor(blockedSeconds / 3600), m: Math.ceil((blockedSeconds % 3600) / 60) }) : tr('{m} min', { m: Math.max(1, Math.ceil(blockedSeconds / 60)) }) })}</p>
+              {unlockReq?.status === 'pending' && <p role="status" className="font-medium">{tr('Your request was sent. The admin will review it and you can continue as soon as it is approved.')}</p>}
+              {unlockReq?.status === 'rejected' && (
+                <p role="status" className="font-medium">{tr('The admin reviewed your request and did not unlock it. Please wait until the pause ends.')}{unlockReq.admin_note ? ` ${unlockReq.admin_note}` : ''}</p>
+              )}
+              {!unlockReq && (
+                <div className="pt-1 space-y-2">
+                  <p>{tr('Think it was not your fault? Ask the admin to review it so you can continue now.')}</p>
+                  <input value={unlockNote} maxLength={300} onChange={(e) => setUnlockNote(e.target.value)} placeholder={tr('Add a short note (optional)')}
+                    className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2 text-ink outline-none focus:border-amber-500" />
+                  <button type="button" onClick={askForReview} disabled={unlockBusy}
+                    className="rounded-xl bg-amber-500 px-4 py-2 font-semibold text-white shadow-card hover:bg-amber-600 disabled:opacity-50">{unlockBusy ? tr('Sending…') : tr('Ask the admin to review')}</button>
+                  {unlockErr && <p className="text-rose-600">{unlockErr}</p>}
+                </div>
+              )}
             </div>
           </div>
+        )}
+        {blockedSeconds <= 0 && justUnlocked && (
+          <div role="status" className="mb-5 rounded-2xl border-2 border-emerald-400/70 bg-emerald-500/10 p-4 text-sm font-medium text-emerald-700">{tr('The admin approved your request. You can upload videos again.')}</div>
         )}
         <form ref={formRef} onSubmit={handleGenerateRecap} className="flex flex-col gap-6 scroll-mt-20">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
