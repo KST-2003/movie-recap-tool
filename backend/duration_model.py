@@ -9,7 +9,13 @@ matter for the first few lines. The same formula is used in the browser editor (
 import numpy as np
 
 DEFAULT = {"a": 0.16, "b": 0.7}  # seconds per syllable, clip overhead (from the 8-sentence Gemini test)
+AZURE = {"a": 0.195, "b": 0.98}  # Azure Neural (Standard voice) reads slower than Gemini: measured on a real 169 s job (2026-11-18)
 STOPS = "။၊"
+
+
+def default_for(voice_quality: str | None) -> dict:
+    """First guess before any clip exists: Standard = Azure, everything else = the Gemini numbers."""
+    return dict(AZURE if voice_quality == "standard" else DEFAULT)
 
 
 def syllables(text: str) -> int:
