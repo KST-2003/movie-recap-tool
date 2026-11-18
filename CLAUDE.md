@@ -390,6 +390,12 @@ Two real 600 s Full-movie videos (2026-11-12). **High quality, server render: 61
 - **Detected subtitle band can be too low for two-line subtitles (seen in the scan samples, NOT fixed):** the band of this film covered one text line; two-line subtitles ran past its lower edge, so the automatic blur leaves part of the second line readable (probably why the owner drew a box by hand).
 - Not yet: only the changed segments re-rendered on an edit (a text edit re-rendered the whole film: 274 s), cutting to 10 minutes in the browser before upload.
 
+### First real iPhone run: upload 500, zoom, scrollbar, status bar (2026-11-18)
+- **Every upload failed with the generic notice (also on the website, not only the app):** Nginx's temp folders `/var/lib/nginx/{body,proxy,...}` on the Contabo server were owned by `nobody` while the workers run as `www-data` -> `open() ... failed (13: Permission denied)` -> `POST /api/jobs` 500 (any body over a few KB) and the OTA bundle download failed too. Fixed on the server with `chown -R www-data:root` on those folders (checked: a 300 KB POST reaches the app, the OTA zip downloads in full). Cause of the wrong owner not found (folders last changed 2026-11-12 / 11-17): if uploads ever give 500 again, `tail /var/log/nginx/error.log` first. Lesson: a 500 from Nginx never reaches uvicorn's log.
+- **Zoom stuck after typing:** iOS zooms into inputs with text < 16px (ours were `text-sm`); on touch devices inputs / selects / textareas are now 16px (`index.css`), and the app (isNative) sets `maximum-scale=1` on the viewport (`main.jsx`). The website keeps pinch zoom.
+- **Purple scroll bar:** our own `scrollbar-color` CSS drawn by iOS; hidden on touch devices.
+- **White strip behind the status bar:** iOS put the web view BELOW the status bar (`contentInset: automatic`), so the flat native colour showed. Now `ios.contentInset = "never"` + `viewport-fit=cover`: the page gradient runs under the status bar and the phone top bar (`bg-page/75`), login page and voice library add `env(safe-area-inset-*)` padding. `contentInset` is NATIVE config: needs `npm run cap:sync` + a new Xcode build (OTA cannot change it; the CSS parts work with either value because env() is 0 when the inset is automatic). Not looked at again on the phone yet.
+
 ### Subtitles: 2 lines at most (2026-11-18)
 A subtitle is never drawn on more than 2 lines, whatever the size the user chose: `recap_engine.MAX_CAPTION_LINES` = 2 (was 3) and `deviceRenderPlan.js` `MAX_CAPTION_LINES` = 2 (keep equal). If the text needs a third line the FONT shrinks (step 2 px, floor 10 px, was 16) until it fits 2 lines AND the caption strip's height (the device renderer now also checks the strip height like the server). A big size on a long sentence therefore comes out smaller than chosen instead of covering the screen. Test: `test_caption_style.py`. Old videos need a re-render. The editor preview's sample line is CSS and was not changed.
 
@@ -745,4 +751,5 @@ Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user 
 - 2026-11-17: store-app prep: Top up hidden in the Capacitor app (website unchanged), user-side Delete my account (branch feature/store-prep, not deployed).
 - 2026-11-17: OTA web updates for the phone app (own server, Capgo updater plugin, `npm run ota:publish`).
 - 2026-11-18: subtitles limited to 2 lines (font shrinks instead of a 3rd line), server + device render.
+- 2026-11-18: fixed uploads failing with 500 (Nginx temp folder owner), iOS input zoom, purple scroll bar, status bar blend (needs new Xcode build).
 - 2026-11-17: app icon from the owner's cat art, link field hidden in the phone app, reviewer demo account + review notes.

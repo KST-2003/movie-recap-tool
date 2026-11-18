@@ -114,7 +114,7 @@ export default function Shell({ view, setView, account, onLogout, onDeleteAccoun
       </aside>
 
       {/* Phones: top bar */}
-      <header className="lg:hidden sticky top-0 z-30 flex items-center gap-3 px-4 py-2.5 bg-white/80 backdrop-blur border-b border-violet-100">
+      <header className="lg:hidden sticky top-0 z-30 flex items-center gap-3 px-4 pb-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] bg-page/75 backdrop-blur border-b border-violet-100/60">
         <Brand size="text-lg" icon="h-9 w-9" />
         {left != null && <span className="ml-auto min-w-0 truncate rounded-full bg-violet-50 px-3 py-1 text-xs font-medium text-violet-600">{tr('{n} min left', { n: left })}</span>}
         <button type="button" aria-label={tr('Menu')} aria-expanded={open} onClick={() => setOpen(true)}

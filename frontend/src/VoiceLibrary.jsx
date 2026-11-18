@@ -20,7 +20,7 @@ export default function VoiceLibrary({ voices, looks, selected, playing, onPlay,
   const count = (c) => items.filter((it) => c === 'all' || it.cat === c).length;
 
   return (
-    <div className="fixed inset-0 z-50 bg-page overflow-y-auto">
+    <div className="fixed inset-0 z-50 bg-page overflow-y-auto pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
       <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4">
         <div className="sticky top-0 bg-page pb-3 z-10">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-3">

@@ -30,6 +30,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 input[type="range"], input[type="checkbox"], input[type="radio"] { accent-color: #8B5CF6; }
 ::selection { background: #C4A6FF; color: #2B2440; }
 * { scrollbar-color: #C4A6FF transparent; scrollbar-width: thin; }
+/* phones / tablets: no scroll bars drawn over the page (swiping is enough); the purple bar looked odd inside the app */
+@media (hover: none) and (pointer: coarse) {
+  * { scrollbar-width: none; }
+  *::-webkit-scrollbar { display: none; }
+  /* iOS zooms the whole page into any input with text smaller than 16px and then stays zoomed: keep fields at 16px */
+  input, select, textarea { font-size: 16px !important; }
+}
 
 .btn-candy { background-image: linear-gradient(90deg, #8B5CF6, #C084FC, #F472B6, #8B5CF6); background-size: 200% 100%; }
 
