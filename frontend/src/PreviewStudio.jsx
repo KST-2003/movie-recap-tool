@@ -77,6 +77,7 @@ export default function PreviewStudio({ src, logoFile, fx, onChange, simple = fa
     kicking.current = null;
     if (v) { try { v.pause(); } catch { /* ignore */ } v.muted = k.wasMuted; }
   };
+  const holdKick = () => { const k = kicking.current; if (k) { clearTimeout(k.timer); k.timer = setTimeout(endKick, 4000); } };   // a long drag keeps it alive
   const startKick = (v) => {
     if (kicking.current || !v.paused) return;
     const wasMuted = v.muted;
@@ -90,7 +91,7 @@ export default function PreviewStudio({ src, logoFile, fx, onChange, simple = fa
     clearTimeout(seekTimer.current);
     seekBusy.current = false;
     if (seekWanted.current != null) { seekNow(); return; }
-    if (kicking.current) { clearTimeout(kicking.current.timer); kicking.current.timer = setTimeout(endKick, 120); }   // landed: let one frame draw, then pause
+    if (kicking.current && !scrubbing.current) { clearTimeout(kicking.current.timer); kicking.current.timer = setTimeout(endKick, 120); }   // not while the finger is still down: it keeps playing for the whole drag   // landed: let one frame draw, then pause
     syncBg(e);   // the blurred background is only moved when the main picture has settled
   };
 
@@ -98,7 +99,7 @@ export default function PreviewStudio({ src, logoFile, fx, onChange, simple = fa
     if (!scrubbing.current) return;
     scrubbing.current = false;
     const v = videoRef.current;
-    if (v && lastTarget.current != null) { seekWanted.current = null; const touch = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches; if (touch && !looping) startKick(v); v.currentTime = lastTarget.current; }
+    if (v && lastTarget.current != null) { seekWanted.current = null; const touch = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches; if (touch && !looping) startKick(v); v.currentTime = lastTarget.current; if (kicking.current) { clearTimeout(kicking.current.timer); kicking.current.timer = setTimeout(endKick, 700); } /* normally ended sooner by the seeked event */ }
   };
   useEffect(() => {
     const evs = ['pointerup', 'pointercancel', 'touchend', 'touchcancel', 'mouseup', 'blur'];
@@ -119,9 +120,11 @@ export default function PreviewStudio({ src, logoFile, fx, onChange, simple = fa
     lastInput.current = Date.now();
     lastTarget.current = t;
     loopStart.current = t;   // while the 5 s loop plays, the window moves to where you drag
-    // Touch screens: the picture jumps ONCE when the finger lets go; mouse scrubs live.
+    // Live scrubbing everywhere. On touch screens the video is kept playing (muted) while the finger is down, because iOS loads picture data only
+    // for a playing video; seeks still go one at a time (seekTo waits for "seeked"), so they do not cancel each other.
     const touch = e.pointerType === 'touch' || e.pointerType === 'pen';
-    if (!touch) seekTo(t);
+    if (touch && videoRef.current) { startKick(videoRef.current); holdKick(); }
+    seekTo(t);
     setTime(t);
   };
   // hidden readout (tap the time 3 times): what the video does, for support screenshots
