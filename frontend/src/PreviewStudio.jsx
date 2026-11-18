@@ -63,7 +63,7 @@ export default function PreviewStudio({ src, logoFile, fx, onChange, simple = fa
     v.currentTime = t;   // (fastSeek was tried: on iPhone Safari it can land on the same keyframe, no "seeked" event, and the picture never moved)
     clearTimeout(seekTimer.current);
     // Safety: some browsers never send "seeked" for a seek that was replaced; do not wait for it longer than this.
-    seekTimer.current = setTimeout(() => { seekBusy.current = false; if (seekWanted.current != null) seekNow(); }, 350);
+    seekTimer.current = setTimeout(() => { seekBusy.current = false; if (seekWanted.current != null) seekNow(); }, 1500);   // a phone's HEVC clip can need > 350 ms: re-sending earlier cancelled every seek and the picture never landed
   };
   const seekTo = (t) => { seekWanted.current = t; if (!seekBusy.current) seekNow(); };
   const onSeeked = (e) => {
@@ -323,7 +323,10 @@ export default function PreviewStudio({ src, logoFile, fx, onChange, simple = fa
             lastInput.current = Date.now();
             lastTarget.current = t;
             loopStart.current = t;   // while the 5 s loop plays, the window moves to where you drag
-            seekTo(t);
+            // Touch screens: the picture jumps ONCE when the finger lets go (a phone decoder cannot follow a dragging thumb: every new seek
+            // cancelled the one before and the whole video froze, seen on an iPhone). Mouse / keyboard keep the live scrubbing.
+            const touch = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+            if (!(touch && scrubbing.current)) seekTo(t);
             setTime(t);
           }}
           className="flex-1 accent-violet-500"
