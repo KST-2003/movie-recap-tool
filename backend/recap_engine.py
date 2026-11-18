@@ -71,6 +71,9 @@ def _rgb(hex_colour: str) -> tuple:
     return tuple(int(hex_colour[i:i + 2], 16) for i in (1, 3, 5))
 
 
+MAX_CAPTION_LINES = 2   # a subtitle is never drawn on more than 2 lines: the font shrinks instead (keep equal to deviceRenderPlan.js)
+
+
 def caption_font_px(width: int, size_px: int | None, style: dict) -> int:
     """Font size of the captions in px: the automatic size (from the original subtitle, else 5% of the width) x the style's size."""
     size = max(int(width * 0.05), 18)
@@ -314,7 +317,7 @@ def _wrap(draw, text: str, fonts: "Fonts", max_w: int) -> list[str]:
     return lines
 
 
-def render_caption(text: str, path: str, width: int, height: int, max_lines: int = 3, size_px: int | None = None,
+def render_caption(text: str, path: str, width: int, height: int, max_lines: int = MAX_CAPTION_LINES, size_px: int | None = None,
                    style: dict | None = None, valign: str = "bottom"):
     st = caption_style(style)
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
@@ -327,7 +330,7 @@ def render_caption(text: str, path: str, width: int, height: int, max_lines: int
         fonts = Fonts(size, st["font"])
         lines = _wrap(draw, text, fonts, max_w)
         line_h = int((fonts.ascent + fonts.descent) * 1.12) + 6
-        if (len(lines) <= max_lines and len(lines) * line_h <= height - 16) or size <= 16:
+        if (len(lines) <= max_lines and len(lines) * line_h <= height - 16) or size <= 10:
             break
         size -= 2
     total_h = len(lines) * line_h

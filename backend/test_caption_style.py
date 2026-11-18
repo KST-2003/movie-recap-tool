@@ -132,3 +132,16 @@ with open(video, "rb") as f:
                          data={"voice_type": "su", "fit_translation": "false", "caption_style": '{"color": "red"'}).json()["job_id"])
 ok(broken["status"] == "done" and broken["result"]["project"]["fx"]["caption_style"] == r.DEFAULT_CAPTION_STYLE, "a broken style in the upload falls back to the default (upload not refused)")
 print("ALL OK")
+
+# never more than 2 lines, even with a long sentence and the biggest size
+LONG = "ဒီနေ့ မနက်ပိုင်းမှာ သူက မြို့လယ်က စျေးထဲကို သွားပြီး လိုအပ်တဲ့ ပစ္စည်းတွေကို ဝယ်ယူခဲ့ပါတယ်။ " * 3
+for sz in (1.0, 1.8):
+    path = f"{tmp}/long.png"
+    r.render_caption(LONG, path, 720, 280, size_px=40, style={"size": sz})
+    im = np.asarray(Image.open(path).convert("RGBA")).astype(int)
+    y0, y1 = rows(im)
+    st = r.caption_style({"size": sz})
+    fonts = r.Fonts(r.caption_font_px(720, 40, st), st["font"])
+    line_h = int((fonts.ascent + fonts.descent) * 1.12) + 6
+    # find the font size actually used: lines drawn = covered height / line height, must be <= 2
+    ok((y1 - y0 + 1) <= 2 * (line_h + 4) and (y1 - y0) < 280, f"long text at size x{sz} stays within 2 lines (drawn height {y1 - y0 + 1})")

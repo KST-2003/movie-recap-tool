@@ -172,6 +172,7 @@ function makeCompositor(plan) {
 }
 
 const FONT = '"Noto Sans Myanmar", "Myanmar Sangam MN", "Myanmar Text", Padauk, sans-serif';
+const MAX_CAPTION_LINES = 2;   // keep equal to recap_engine.MAX_CAPTION_LINES
 let captionFamily = FONT;   // set by renderFromPlan from the plan's subtitle style (the same font file the server draws with)
 
 function wrapText(ctx, text, maxW) {
@@ -220,7 +221,8 @@ function drawOverlay(comp, plan, text, logo) {
       for (;;) {
         ctx.font = `${st.font === 'sans-regular' ? 400 : 700} ${size}px ${captionFamily}`;
         lines = wrapText(ctx, text, plan.caption.max_w);
-        if (lines.length <= 3 || size <= 16) break;
+        // 2 lines at most, however big the chosen size: the font shrinks until it fits (same rule as the server's render_caption)
+        if ((lines.length <= MAX_CAPTION_LINES && (!cap.height || lines.length * Math.round(size * 1.75) <= cap.height - 16)) || size <= 10) break;
         size -= 2;
       }
       // Left-aligned and centred by OUR measured width: Safari ignored textAlign 'center' here (2026-11-15, owner's Mac + iPhone:
