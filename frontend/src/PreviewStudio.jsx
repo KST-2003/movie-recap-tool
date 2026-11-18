@@ -48,6 +48,8 @@ export default function PreviewStudio({ src, logoFile, fx, onChange, simple = fa
   // Dragging the bar fires dozens of seeks a second. Safari on a Mac copes, a phone's decoder does not (every new seek cancels the
   // one before, so the picture freezes until you let go). So only ONE seek runs at a time: while it is busy the latest target waits,
   // and when it finishes ("seeked") the newest target is sought, so the picture keeps following the finger.
+  const lastInput = useRef(0);       // when the bar last changed by the user: the picture's own time updates must not pull the thumb back for a moment
+  const lastTarget = useRef(null);   // the time the bar was last dragged to
   const seekBusy = useRef(false);
   const seekWanted = useRef(null);
   const seekTimer = useRef(null);
@@ -69,6 +71,24 @@ export default function PreviewStudio({ src, logoFile, fx, onChange, simple = fa
     seekBusy.current = false;
     if (seekWanted.current != null) { seekNow(); return; }
     syncBg(e);   // the blurred background is only moved when the main picture has settled
+  };
+
+  const finishScrub = () => {
+    if (!scrubbing.current) return;
+    scrubbing.current = false;
+    const v = videoRef.current;
+    if (v && lastTarget.current != null) { seekWanted.current = null; v.currentTime = lastTarget.current; }
+  };
+  useEffect(() => {
+    const evs = ['pointerup', 'pointercancel', 'touchend', 'touchcancel', 'mouseup', 'blur'];
+    evs.forEach((n) => window.addEventListener(n, finishScrub));
+    return () => evs.forEach((n) => window.removeEventListener(n, finishScrub));
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+  // A video can report an unknown length (Infinity / NaN) until it is read further: the bar then had no usable range.
+  const readDuration = (v) => {
+    let d = v.duration;
+    if (!Number.isFinite(d) || d <= 0) { try { d = v.seekable.length ? v.seekable.end(v.seekable.length - 1) : 0; } catch { d = 0; } }
+    setDuration(Number.isFinite(d) ? d : 0);
   };
 
   const [fw, fh] = frameSize(fx.aspect, dims);   // output frame in pixels
@@ -220,10 +240,15 @@ export default function PreviewStudio({ src, logoFile, fx, onChange, simple = fa
               preload="auto"
               onLoadedMetadata={(e) => {
                 setDims({ w: e.target.videoWidth || 16, h: e.target.videoHeight || 9 });
-                setDuration(e.target.duration || 0);
+                readDuration(e.target);
                 e.target.playbackRate = fx.videoSpeed;
               }}
-              onTimeUpdate={(e) => { if (!scrubbing.current) setTime(e.target.currentTime); syncBg(e); }}
+              onDurationChange={(e) => readDuration(e.target)}
+              onTimeUpdate={(e) => {
+                const busy = scrubbing.current || seekBusy.current || seekWanted.current != null || Date.now() - lastInput.current < 600;
+                if (!busy) setTime(e.target.currentTime);
+                syncBg(e);
+              }}
               onSeeked={onSeeked}
               onPlay={syncBg}
               onPause={(e) => { setLooping(false); syncBg(e); }}
@@ -289,10 +314,14 @@ export default function PreviewStudio({ src, logoFile, fx, onChange, simple = fa
         <input
           type="range" min={0} max={duration || 1} step={0.1} value={time}
           onPointerDown={() => { scrubbing.current = true; }}
-          onPointerUp={(e) => { scrubbing.current = false; const v = videoRef.current; if (v) { seekWanted.current = null; v.currentTime = Number(e.target.value); } }}   // let go: land exactly on the chosen time
-          onPointerCancel={() => { scrubbing.current = false; }}
+          onTouchStart={() => { scrubbing.current = true; }}
+          onMouseDown={() => { scrubbing.current = true; }}
+          onPointerUp={finishScrub}   // let go: land exactly on the chosen time (the window listeners above catch a release outside the bar / a cancelled touch)
+          style={{ touchAction: 'pan-y' }}
           onChange={(e) => {
             const t = Number(e.target.value);
+            lastInput.current = Date.now();
+            lastTarget.current = t;
             loopStart.current = t;   // while the 5 s loop plays, the window moves to where you drag
             seekTo(t);
             setTime(t);
