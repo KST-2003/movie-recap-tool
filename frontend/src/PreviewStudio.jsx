@@ -66,23 +66,31 @@ export default function PreviewStudio({ src, logoFile, fx, onChange, simple = fa
     seekTimer.current = setTimeout(() => { seekBusy.current = false; if (seekWanted.current != null) seekNow(); }, 1500);   // a phone's HEVC clip can need > 350 ms: re-sending earlier cancelled every seek and the picture never landed
   };
   const seekTo = (t) => { seekWanted.current = t; if (!seekBusy.current) seekNow(); };
-  // iOS web views (the phone app) do not always draw the new picture after a seek while the video is paused: it looks frozen on the old frame until
-  // it plays (which is why "Play 5 s" worked and the bar did not). After the seek has settled, play a moment muted and pause again to make it draw.
-  const needKick = useRef(false);
-  const kickFrame = (v) => {
+  // iOS web views (the phone app) load NO picture data for a paused video (readyState stays 1): a seek then never finishes ("seeking 1" forever, seen with a
+  // 4K clip) and "Play 5 s" works only because playing makes iOS load. So on a touch release we start playing MUTED right away, together with the seek,
+  // and pause again shortly after the seek has landed.
+  const kicking = useRef(null);   // { wasMuted, timer } while a muted kick-play is running
+  const endKick = () => {
+    const k = kicking.current, v = videoRef.current;
+    if (!k) return;
+    clearTimeout(k.timer);
+    kicking.current = null;
+    if (v) { try { v.pause(); } catch { /* ignore */ } v.muted = k.wasMuted; }
+  };
+  const startKick = (v) => {
+    if (kicking.current || !v.paused) return;
     const wasMuted = v.muted;
-    const restore = () => { try { v.pause(); } catch { /* ignore */ } v.muted = wasMuted; };
     v.muted = true;
+    kicking.current = { wasMuted, timer: setTimeout(endKick, 4000) };   // safety: never leave it playing
     let pr;
-    try { pr = v.play(); } catch { restore(); return; }
-    if (pr && pr.then) pr.then(() => setTimeout(restore, 80)).catch(() => { v.muted = wasMuted; });
-    else setTimeout(restore, 80);
+    try { pr = v.play(); } catch { endKick(); return; }
+    if (pr && pr.catch) pr.catch(() => endKick());
   };
   const onSeeked = (e) => {
     clearTimeout(seekTimer.current);
     seekBusy.current = false;
     if (seekWanted.current != null) { seekNow(); return; }
-    if (needKick.current && e.target.paused && !looping) { needKick.current = false; kickFrame(e.target); }
+    if (kicking.current) { clearTimeout(kicking.current.timer); kicking.current.timer = setTimeout(endKick, 120); }   // landed: let one frame draw, then pause
     syncBg(e);   // the blurred background is only moved when the main picture has settled
   };
 
@@ -90,7 +98,7 @@ export default function PreviewStudio({ src, logoFile, fx, onChange, simple = fa
     if (!scrubbing.current) return;
     scrubbing.current = false;
     const v = videoRef.current;
-    if (v && lastTarget.current != null) { seekWanted.current = null; needKick.current = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches; v.currentTime = lastTarget.current; }
+    if (v && lastTarget.current != null) { seekWanted.current = null; const touch = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches; if (touch && !looping) startKick(v); v.currentTime = lastTarget.current; }
   };
   useEffect(() => {
     const evs = ['pointerup', 'pointercancel', 'touchend', 'touchcancel', 'mouseup', 'blur'];
