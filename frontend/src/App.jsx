@@ -481,6 +481,19 @@ function App() {
     requestAnimationFrame(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   };
 
+  // Starting over: forget the finished video (preview, download, editor, notes) so the page is free for a NEW one. Runs whenever another video file
+  // is chosen / dropped / fetched or the chosen one is removed (red X), and from "Make another video". The finished video stays in My videos.
+  const resetResult = () => {
+    setResultVideoUrl(''); setResultDownloadUrl(''); setSubtitleUrl(''); setTimeline([]); setProject(null); setBgKept(false);
+    setJobId(''); setReviewJob(''); setNotes(''); setCopyNote(''); setErrorMessage(''); lastDevice.current = false;
+  };
+  const lastVideoFile = useRef(null);
+  useEffect(() => {
+    if (lastVideoFile.current !== videoFile && !loading) resetResult();
+    lastVideoFile.current = videoFile;
+  }, [videoFile]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const startNewVideo = () => { clearVideo(); resetResult(); goStep(1); window.scrollTo?.({ top: 0, behavior: 'smooth' }); };
+
   // Presets: saved settings for a new video (Presets page); the Preset button on the Create form fills the form with one of them.
   const [presets, setPresets] = useState(null);       // { mine, shared }
   const [activePreset, setActivePreset] = useState('');
@@ -1043,7 +1056,7 @@ function App() {
           </div>
 
           <div className={stepCls(2)}>
-          {sourceUrl && !loading && !resultVideoUrl && (
+          {sourceUrl && !loading && (
             <>
               <PreviewStudio src={sourceUrl} logoFile={customLogo} fx={{ ...previewFx, captionStyle: outputKind === 'voice' ? null : captionStyle }} onChange={changePreviewFx} />
             </>
@@ -1070,15 +1083,15 @@ function App() {
             </div>
             <p className="text-xs text-ink-faint">{tr('You can still change these after the video is made.')}</p>
           </div>
-          {sourceUrl && !loading && !resultVideoUrl && (
+          {sourceUrl && !loading && (
             <>
               {outputKind !== 'voice' && <CaptionStyleControls cap={captionStyle} onChange={setCaptionStyle} showSample={false} />}
               {outputKind !== 'voice' && <p className="text-xs text-ink-faint -mt-2">{tr('The sample line in the preview shows the subtitle style. Drag it up or down to place it. "Automatic" puts subtitles over the original ones when they are found.')}</p>}
             </>
           )}
-          {!(sourceUrl && !loading && !resultVideoUrl) && (
+          {!(sourceUrl && !loading) && (
             <p className="rounded-2xl border border-dashed border-violet-200 bg-page p-6 text-center text-sm text-ink-soft">
-              {!sourceUrl ? tr('Choose a video in step 1 first. Then you can set the look here.') : tr('The look is set while the video is being made. Change it in the editor below the result.')}
+              {!sourceUrl ? tr('Choose a video in step 1 first. Then you can set the look here.') : tr('The look is set while the video is being made.')}
             </p>
           )}
           </div>
@@ -1317,9 +1330,12 @@ function App() {
         {/* Preview & Download Section */}
         {(resultVideoUrl || (loading && sourceUrl)) && (
           <div className="mt-8 border-t border-violet-100 pt-6">
-            <h2 className="text-lg font-semibold text-ink mb-4">
-              {tr('Preview & download')}
-            </h2>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold text-ink">{tr('Preview & download')}</h2>
+              {resultVideoUrl && !loading && (
+                <button type="button" onClick={startNewVideo} className="rounded-full border border-violet-200 bg-white px-4 py-1.5 text-sm font-semibold text-violet-600 shadow-card hover:bg-violet-50">{tr('Make another video')}</button>
+              )}
+            </div>
             <div className="flex flex-col items-center space-y-4">
               <div className="relative w-full max-w-xs min-h-[16rem]">
                 <video
