@@ -455,7 +455,7 @@ def create_job(
     target_language: str = Form("my"),
     # sync policy
     allow_voice_speedup: bool = Form(True),
-    max_voice_speedup: float = Form(1.35),
+    max_voice_speedup: float = Form(1.6),   # was 1.35: a real test (2026-11-19) heard Azure back at 0.99 even at 1.7x; cutting meaning to avoid speed-up was the worse trade
     min_video_speed: float = Form(0.85),
     fit_translation: bool = Form(True),
     keep_background: bool = Form(False),

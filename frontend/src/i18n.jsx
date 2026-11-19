@@ -158,7 +158,7 @@ const MY = {
   'Tighten long translations to fit each scene (uses Gemini; only the lines that overrun are rewritten)':
     'ရှည်လွန်းသော ဘာသာပြန်ချက်များကို မြင်ကွင်းတစ်ခုစီနှင့် ကိုက်ညီအောင် ချုံ့မည် (Gemini သုံးသည်၊ ကျော်လွန်နေသော စာကြောင်းများကိုသာ ပြန်ရေးမည်)',
   'Keep original background music and effects (slower)': 'နောက်ခံတီးလုံးသံနှင့် အက်ဖက်သံ များ ထားမည် (ကြာမည်)',
-  'Allow slight voice speed-up (up to 1.35x) before slowing the video': 'အသံကို အနည်းငယ် မြန်စေခွင့်ပြုမည် (၁.၃၅ ဆအထိ)',
+  'Allow slight voice speed-up (up to 1.6x) before slowing the video': 'အသံကို အနည်းငယ် မြန်စေခွင့်ပြုမည် (၁.၆ ဆအထိ)',
   'Video speed': 'ဗီဒီယိုအမြန်နှုန်း',
   'Brightness': 'အလင်းအမှောင်',
   'Contrast': 'အရောင်ကွဲပြားမှု',

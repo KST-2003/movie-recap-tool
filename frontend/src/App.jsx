@@ -1355,7 +1355,7 @@ function AppSession({ notice, setNotice, onSessionEnd }) {
                 className="w-4 h-4 accent-violet-500"
               />
               <span className="text-sm text-ink-soft">
-                {tr('Allow slight voice speed-up (up to 1.35x) before slowing the video')}
+                {tr('Allow slight voice speed-up (up to 1.6x) before slowing the video')}
               </span>
             </label>
           </div>

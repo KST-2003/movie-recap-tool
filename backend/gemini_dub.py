@@ -98,6 +98,15 @@ DEFAULT_STYLE = (
     "Use natural connecting words (then, but, suddenly, because of that) so the lines flow into each other."
 )
 STYLE_NOTE = os.getenv("DUB_STYLE_NOTE", DEFAULT_STYLE)
+# Style anchors: lines from an APPROVED human translation of a Thai recap (owner's reference video, 2026-11-19). They show the register we want: compact,
+# vivid, everyday storyteller Burmese that keeps every detail. A real run with them kept Gemini's meaning and made the wording closer to the approved text.
+# DUB_STYLE_EXAMPLES in .env replaces them (an empty value switches the examples off).
+DEFAULT_EXAMPLES = (
+    "สองพี่น้องพยายามทำลายโอกาสตัวเองในงานเลี้ยงดูตัว -> ညီအစ်မနှစ်ယောက်က ကြင်ဖက်ရွေးပွဲမှာ အခွင့်အရေးပျက်အောင် လုပ်ကြတယ်။\n"
+    "โดยน้องสาวฉีกกินขาหมูอย่างเอร็ดอร่อย ขณะที่พี่สาวคอยตักอาหารใส่จานให้ไม่หยุด -> ညီမဖြစ်သူက ဝက်ပေါင်ကို အငမ်းမရ စားနေချိန်မှာ အစ်မဖြစ်သူက ပန်းကန်ထဲ အစာတွေ ထပ်ထည့်ပေးနေတယ်။\n"
+    "พวกเธอคิดว่ายิ่งมารยาทบนโต๊ะอาหารแย่เท่าไหร่ ก็ยิ่งไม่มีใครอยากเลือกพวกเธอมากเท่านั้น -> စားသောက်ပုံယဉ်ကျေးမှု ဆိုးလေလေ ဘယ်သူမှ မရွေးလေလေ ဖြစ်မယ်လို့ သူတို့တွေ ထင်ထားကြတယ်။"
+)
+STYLE_EXAMPLES = os.getenv("DUB_STYLE_EXAMPLES", DEFAULT_EXAMPLES)
 
 
 FULL_TONE = (
@@ -163,7 +172,9 @@ def _prompt(target: str, cuts: list[float] | None = None, mode: str = "recap", r
         "across all segments. Each translated_text must be a complete, grammatical sentence (or clause) that makes "
         "sense on its own and also reads naturally after the previous line. Never cut a sentence in the middle.\n"
         f"TONE: {STYLE_NOTE}\n"
-        "SEGMENTS AND LENGTH: a segment is one natural phrase or clause of about 1.5-3 seconds, ending at a pause or sentence end (do not merge "
+        + (("STYLE EXAMPLES from an approved human translation of another recap (source -> Burmese). Match THIS voice: compact, vivid, everyday storyteller "
+            "Burmese that keeps every detail (the examples show the register only; translate the real audio, never copy them):\n" + STYLE_EXAMPLES + "\n") if STYLE_EXAMPLES.strip() else "")
+        +         "SEGMENTS AND LENGTH: a segment is one natural phrase or clause of about 1.5-3 seconds, ending at a pause or sentence end (do not merge "
         "several sentences into one long segment). Translate EVERYTHING that is said; do NOT shorten or summarise to fit the time. The voice is "
         "sped up and the picture slowed a little later, and a separate step trims only if a line is really too long. So choose compact, natural wording "
         "(no filler, no padding, no repeated words), aiming at roughly "

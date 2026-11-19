@@ -443,18 +443,19 @@ def _slot_bounds(segments, i, video_duration):
     return max(slot - BREATH, 0.4), max(speech - BREATH, 0.4)   # (must not run into next line, as long as the speaker)
 
 
+MAX_SPEEDUP_CAP = float(os.getenv("MAX_SPEEDUP_CAP", "1.8"))   # hard limit of the voice speed-up (the form default is 1.6)
 FIT_STRETCH_SHARE = float(os.getenv("FIT_STRETCH_SHARE", "0.75"))   # how much of the voice speed-up room a rewrite may count on (0 = old rule: fit the scene at normal speed)
 
 
 def fit_stretch(p) -> tuple[float, float]:
     """(keep, target) as multiples of a scene's length. The timeline can play a voice up to max_voice_speedup faster AND slow the picture down to
-    min_video_speed (then freeze), so a line that reads in <= keep = speed-up / slowest-video x its scene needs NO rewrite (1.35 / 0.85 = 1.59);
+    min_video_speed (then freeze), so a line that reads in <= keep = speed-up / slowest-video x its scene needs NO rewrite (1.6 / 0.85 = 1.88);
     a longer one is shortened to target. Before 2026-11-18 every line was cut to fit at normal speed (keep 1.0, target 0.95) which threw away meaning the
     speed-up and slow-down could have carried; the first fix counted only the speed-up (target 1.16) and was still too hard (the owner's Thai test video).
     FIT_STRETCH_SHARE = how much of the room above 1.0 a rewrite may use (0 = old rule)."""
     if not p.get("allow_voice_speedup"):
         return 1.0, 0.95
-    top = min(max(p.get("max_voice_speedup") or 1.0, 1.0), 1.5)
+    top = min(max(p.get("max_voice_speedup") or 1.0, 1.0), MAX_SPEEDUP_CAP)
     slow = min(max(p.get("min_video_speed") or 1.0, 0.7), 1.0)
     keep = max(1.0, top / slow)
     return keep, 0.95 + (keep - 1.0) * max(FIT_STRETCH_SHARE, 0.0) if keep > 1.0 else 0.95
@@ -874,7 +875,7 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
             video_duration,
             SyncOptions(
                 allow_speedup=p["allow_voice_speedup"],
-                max_speedup=min(max(p["max_voice_speedup"], 1.0), 1.5),
+                max_speedup=min(max(p["max_voice_speedup"], 1.0), MAX_SPEEDUP_CAP),
                 min_video_speed=min(max(p["min_video_speed"], 0.5), 1.0),
             ),
         )
