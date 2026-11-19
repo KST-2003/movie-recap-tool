@@ -21,6 +21,7 @@ from sqlalchemy import delete, func, select, update
 
 import alerts
 import auth
+import ratelimit
 from admin import router as admin_router, settings as runtime_settings
 import capacity
 import eta
@@ -157,7 +158,7 @@ def _quota(user: User) -> dict:
 
 @app.post("/api/auth/register")
 def register(body: Credentials, request: Request):
-    auth.rate_limit(request)
+    ratelimit.register_attempt(auth.client_ip(request))   # its own budget (ratelimit.py), separate from the login budgets
     if not ALLOW_SIGNUP:
         raise HTTPException(status_code=403, detail="Sign-ups are closed.")
     email = body.email.strip().lower()
@@ -165,6 +166,8 @@ def register(body: Credentials, request: Request):
         raise HTTPException(status_code=400, detail="Enter a valid email address.")
     if len(body.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+    if len(body.password) > ratelimit.MAX_PASSWORD_CHARS:
+        raise HTTPException(status_code=400, detail=f"Password can be at most {ratelimit.MAX_PASSWORD_CHARS} characters.")
     with Session() as s:
         if s.execute(select(User).where(User.email == email)).scalar_one_or_none():
             raise HTTPException(status_code=409, detail="That email is already registered.")
@@ -179,11 +182,17 @@ def register(body: Credentials, request: Request):
 
 @app.post("/api/auth/login")
 def login(body: Credentials, request: Request):
-    auth.rate_limit(request)
+    keys = ratelimit.login_attempt(auth.client_ip(request), body.email)   # counted BEFORE the password is checked: 429 when a budget is used up
     with Session() as s:
         user = s.execute(select(User).where(User.email == body.email.strip().lower())).scalar_one_or_none()
-        if not user or not auth.verify_password(body.password, user.password_hash):
+        if len(body.password) > ratelimit.MAX_PASSWORD_CHARS:   # no account has such a password: refuse without the slow hash
             raise HTTPException(status_code=401, detail="Wrong username or password.")
+        if user is None:
+            auth.verify_password(body.password, auth.DUMMY_HASH)   # as much work as a real check, so the time does not reveal which names exist
+            raise HTTPException(status_code=401, detail="Wrong username or password.")
+        if not auth.verify_password(body.password, user.password_hash):
+            raise HTTPException(status_code=401, detail="Wrong username or password.")
+        ratelimit.login_succeeded(keys)   # the password was right: the attempt is given back and the account's counters are cleared
         if user.status != "active":   # the password was right, so it is safe to say why the login does not work
             raise HTTPException(status_code=403, detail=auth.STATUS_MESSAGES.get(user.status, "Account unavailable."))
         if auth.expired(user):
@@ -211,14 +220,16 @@ def delete_my_account(body: DeleteAccountBody, user: User = Depends(auth.current
     Bought minutes that are left are lost (no refund). Admin accounts are deleted by the owner, not here."""
     from admin.routes import purge_user_data, remove_user_files, _audit_self
     from db import Review
+    check = ratelimit.password_check_attempt(user.id)   # a stolen session must not be able to guess the password here (5 tries / 15 min)
     with Session() as s:
         u = s.get(User, user.id)
         if u is None:
             raise HTTPException(status_code=404, detail="Unknown user")
         if u.is_admin or u.is_superadmin:
             raise HTTPException(status_code=400, detail="Admin accounts are deleted by the owner. Please contact them.")
-        if not auth.verify_password(body.password, u.password_hash):
+        if len(body.password) > ratelimit.MAX_PASSWORD_CHARS or not auth.verify_password(body.password, u.password_hash):
             raise HTTPException(status_code=403, detail="That password is not correct.")
+        ratelimit.password_check_ok(check)
         jobs, topups, files, slips = purge_user_data(s, u, "A video is still being made. Cancel it or wait until it finishes, then delete your account.")
         for r in s.execute(select(Review).where(Review.user_id == u.id)).scalars().all():
             r.user_label = "(deleted account)"

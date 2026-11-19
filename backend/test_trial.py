@@ -12,7 +12,6 @@ from fastapi.testclient import TestClient  # noqa: E402
 import auth, main  # noqa: E402
 from db import Session, User, UserDevice  # noqa: E402
 
-main.auth.rate_limit = lambda request: None
 def ok(cond, msg):
     print(("PASS " if cond else "FAIL ") + msg, flush=True)
     if not cond:

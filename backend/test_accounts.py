@@ -11,6 +11,7 @@ os.environ.update(AZURE_SPEECH_KEY="", AZURE_SPEECH_REGION="", DATA_DIR=f"{tmp}/
 from fastapi.testclient import TestClient  # noqa: E402
 
 import auth  # noqa: E402
+import ratelimit  # noqa: E402
 import storage  # noqa: E402
 from db import Job, Session, User  # noqa: E402
 from main import app  # noqa: E402
@@ -42,7 +43,7 @@ A = H(adm["token"])
 
 
 def login(name, pw, device, ua=CHROME_WIN, ip="1.2.3.4"):
-    auth._hits.clear()   # the brute-force guard (10 tries / 10 min per IP) is not what this test is about
+    ratelimit.reset_all()   # the brute-force guard (ratelimit.py) is not what this test is about (test_ratelimit.py covers it)
     return c.post("/api/auth/login", json={"email": name, "password": pw, "device_id": device}, headers={"user-agent": ua, "x-forwarded-for": ip})
 
 
