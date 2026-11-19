@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
-import { isNative, saveToDevice } from './native.js';
+import { isNative, saveToDevice, saveVideoToPhotos } from './native.js';
 import axios from 'axios';
 import Editor from './Editor.jsx';
 import Mascot from './Mascot.jsx';
@@ -28,17 +28,22 @@ const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 const loadDeviceRender = () => import('./deviceRenderPlan.js');
 
 // A download link that also works inside the phone app (where <a download> does nothing): there it saves the file and opens the share sheet.
-function DownloadLink({ href, filename, className, children }) {
-  const [busy, setBusy] = React.useState(false);
+function DownloadLink({ href, filename, className, children, video = false }) {
   const { tr } = useI18n();
+  const [busy, setBusy] = React.useState(false);
+  const [note, setNote] = React.useState('');
   const onClick = async (e) => {
     if (!isNative) return;   // the website keeps the normal browser download
     e.preventDefault();
     if (busy) return;
-    setBusy(true);
-    try { await saveToDevice(href, filename); } catch (err) { console.warn('save failed', err); window.alert(tr('Could not save the file. Please try again.')); } finally { setBusy(false); }
+    setBusy(true); setNote('');
+    try {
+      // a video goes straight into the Photos / Gallery; anything else (subtitles), or an app build without the plugin, uses the share sheet
+      if (video && await saveVideoToPhotos(href, filename)) { setNote(tr('Saved to your Photos.')); setTimeout(() => setNote(''), 4000); }
+      else await saveToDevice(href, filename);
+    } catch (err) { console.warn('save failed', err); window.alert(tr('Could not save the file. Please try again.')); } finally { setBusy(false); }
   };
-  return <a href={href} download={isNative ? undefined : ''} onClick={onClick} className={`${className} ${busy ? 'opacity-60' : ''}`}>{children}</a>;
+  return <a href={href} download={isNative ? undefined : ''} onClick={onClick} className={`${className} ${busy ? 'opacity-60' : ''}`}>{note || children}</a>;
 }
 
 
@@ -1430,6 +1435,7 @@ function AppSession({ notice, setNotice, onSessionEnd }) {
               {loading && <ProcessingPanel upload={upload} progress={progress} elapsed={elapsed} deviceJob={deviceJob} subsOnly={(project ? project.output : outputKind) === 'subtitles'} />}
               {resultVideoUrl && <DownloadLink
                 href={resultDownloadUrl}
+                video
                 filename="recat-video.mp4"
                 className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-2xl text-sm transition-all shadow-md"
               >

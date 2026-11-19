@@ -17,14 +17,13 @@ const toBase64 = (blob) => new Promise((resolve, reject) => {
   r.readAsDataURL(blob);
 });
 
-// Saves a video / subtitle file (a https: address or a blob: address) and opens the system share sheet,
-// where the user taps "Save Video" / "Save to Files". WKWebView ignores <a download>, so the web way does not work there.
-export async function saveToDevice(url, filename, title) {
+// Streams a https: / blob: address into the app's cache folder in bounded pieces and returns { path, uri }. On any failure the partial file is removed.
+async function writeCacheFile(url, filename) {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Download failed (${response.status})`);
   const path = `recat_${Date.now()}_${filename}`;
   let first = true;
-  let shared = false;
+  let ok = false;
   let reader;
   try {
     const write = async (blob) => {
@@ -53,12 +52,52 @@ export async function saveToDevice(url, filename, title) {
     }
     if (first) await Filesystem.writeFile({ path, data: '', directory: Directory.Cache });
     const { uri } = await Filesystem.getUri({ path, directory: Directory.Cache });
+    ok = true;
+    return { path, uri };
+  } finally {
+    if (reader) { if (!ok) await reader.cancel().catch(() => {}); reader.releaseLock(); }
+    if (!ok) Filesystem.deleteFile({ path, directory: Directory.Cache }).catch(() => {});
+  }
+}
+const removeCacheFile = (path, delayMs = 0) => {
+  const remove = () => { Filesystem.deleteFile({ path, directory: Directory.Cache }).catch(() => {}); };
+  if (delayMs > 0) setTimeout(remove, delayMs); else remove();
+};
+
+// Saves a VIDEO straight into the phone's photo library (iPhone: Photos > Recents; Android: Gallery / Photos, album "Recat"), no share sheet.
+// Returns true when saved. Returns false when the app build has no photo-library plugin yet (an older store build that got this web bundle by OTA)
+// or the save failed / was refused: the caller then falls back to the share sheet (saveToDevice).
+export async function saveVideoToPhotos(url, filename) {
+  if (!isNative || !Capacitor.isPluginAvailable?.('Media')) return false;
+  const { Media } = await import('@capacitor-community/media');   // loaded only here: it registers a native plugin at import time
+  const { path, uri } = await writeCacheFile(url, filename);
+  try {
+    if (Capacitor.getPlatform() === 'android') {
+      const { path: root } = await Media.getAlbumsPath();
+      try { await Media.createAlbum({ name: 'Recat' }); } catch (e) { /* already exists */ }
+      await Media.saveVideo({ path: uri, albumIdentifier: `${root}/Recat`, fileName: `Recat_${Date.now()}` });
+    } else {
+      await Media.saveVideo({ path: uri });   // iOS: add-only access to the photo library, asked once
+    }
+    return true;
+  } catch (e) {
+    console.warn('save to photos failed', e);
+    return false;
+  } finally {
+    removeCacheFile(path, 15000);
+  }
+}
+
+// Saves a video / subtitle file (a https: address or a blob: address) and opens the system share sheet,
+// where the user taps "Save Video" / "Save to Files". WKWebView ignores <a download>, so the web way does not work there.
+export async function saveToDevice(url, filename, title) {
+  const { path, uri } = await writeCacheFile(url, filename);
+  let shared = false;
+  try {
     await Share.share({ title: title || filename, files: [uri], dialogTitle: title || filename });
     shared = true;
   } finally {
-    if (reader) { if (!shared) await reader.cancel().catch(() => {}); reader.releaseLock(); }
-    const remove = () => { Filesystem.deleteFile({ path, directory: Directory.Cache }).catch(() => {}); };
-    if (shared) setTimeout(remove, 120000); else remove();
+    removeCacheFile(path, shared ? 120000 : 0);   // the shared copy is only needed while the share sheet is open
   }
 }
 
