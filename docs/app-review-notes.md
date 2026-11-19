@@ -10,5 +10,7 @@
 **How to test:** Log in -> Create -> choose a short video (under 2 minutes is fastest) from the photo library -> Generate. It takes 2-5 minutes; the result plays in the app and can be saved/shared.
 Nothing is sold inside the app: minutes are bought outside the app (the website), so the app has no purchase screen.
 **Account deletion:** side menu -> account -> "Delete my account" (asks for the password).
-**Privacy policy:** https://recat-web.bronicon.co/privacy   **Support:** see https://recat-web.bronicon.co/contact
+**Privacy policy:** https://recat-web.bronicon.co/privacy   **Support:** info@trustedbrothers.co (https://recat-web.bronicon.co/contact)
 **Third-party processors:** Google Gemini and Microsoft Azure speech (text/audio processing), servers in Japan.
+
+**Not just a website:** the app saves finished videos straight into the Photos library, picks videos from the photo library, and draws the final video on the device itself (hardware video encoder). Users process their OWN footage; the app has no link downloading.

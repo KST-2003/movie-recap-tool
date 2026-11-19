@@ -6,7 +6,7 @@ export const SITE = {
   // PUBLIC contact details. An empty value hides that channel on the Contact page.
   // The contact form opens the visitor's email app addressed to `email`; with no email set the form explains how to reach us instead.
   contact: {
-    email: '',      // e.g. 'hello@yourdomain.com'
+    email: 'info@trustedbrothers.co',      // e.g. 'hello@yourdomain.com'
     telegram: '',   // e.g. 'https://t.me/yourname'
     facebook: '',   // e.g. 'https://facebook.com/yourpage'
     phone: '',      // e.g. '+66 00 000 0000'
