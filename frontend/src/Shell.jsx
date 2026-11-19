@@ -122,9 +122,6 @@ export default function Shell({ view, setView, account, onLogout, onDeleteAccoun
         <AccountBox account={account} onLogout={onLogout} onDeleteAccount={() => { setOpen(false); onDeleteAccount?.(); }} />
       </aside>
 
-      {/* Phones: an opaque strip exactly as tall as the status bar. The top bar below is translucent (blurred glass), so without this the page
-          scrolling under it shows through behind the clock and battery. Height is 0 on the web, so nothing shows there. */}
-      <div aria-hidden="true" data-testid="status-bar-strip" className="lg:hidden pointer-events-none fixed inset-x-0 top-0 z-40 bg-page" style={{ height: 'var(--safe-top)' }} />
       {/* Phones: top bar */}
       <header className="lg:hidden sticky top-0 z-30 flex items-center gap-3 px-4 pb-2.5 pt-[max(0.625rem,var(--safe-top))] bg-page/75 backdrop-blur border-b border-violet-100/60">
         <Brand size="text-lg" icon="h-9 w-9" />

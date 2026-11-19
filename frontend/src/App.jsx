@@ -977,7 +977,7 @@ function AppSession({ notice, setNotice, onSessionEnd }) {
         {blockedSeconds <= 0 && justUnlocked && (
           <div role="status" className="mb-5 rounded-2xl border-2 border-emerald-400/70 bg-emerald-500/10 p-4 text-sm font-medium text-emerald-700">{tr('The admin approved your request. You can upload videos again.')}</div>
         )}
-        <form ref={formRef} onSubmit={handleGenerateRecap} className="flex flex-col gap-6 scroll-mt-[calc(max(0.625rem,var(--safe-top))_+_4.5rem)]">
+        <form ref={formRef} onSubmit={handleGenerateRecap} className="flex flex-col gap-6 scroll-mt-20">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <PresetPicker presets={presets} active={activePreset} onPick={(p) => { applyPreset(p); setPrevNote(false); }} onClear={() => setActivePreset('')} onManage={() => setView('presets')} />
             {prevSettings && (
