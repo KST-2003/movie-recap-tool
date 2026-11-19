@@ -18,6 +18,7 @@ from db import Job, Session, User  # noqa: E402
 
 main.jobs_queue.enqueue = lambda job_id: None
 main.media_duration = lambda path: 600.0
+main.real_media_duration = lambda path, **k: 600.0   # the scan of the (fake) file agrees with its fake header
 alerts._send = lambda m: None
 for d in ("data", "up", "out"):
     os.makedirs(f"{tmp}/{d}", exist_ok=True)

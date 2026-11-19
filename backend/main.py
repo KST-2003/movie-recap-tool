@@ -34,7 +34,7 @@ import topup
 import ranged
 import reviews
 import unlock
-from common import media_duration, tts_provider
+from common import media_duration, real_media_duration, tts_provider
 from guard import RequestGuard
 from db import Job, Session, User, active_jobs, failure_wait_seconds, keeps_minutes, month_start, refund_credit, user_role, used_seconds_month, used_seconds_today, utcnow
 from voices import VOICES, VOICE_NAMES
@@ -377,6 +377,35 @@ def keep_first_seconds(path: str, limit: float) -> float:
             os.remove(tmp)
 
 
+LENGTH_TOLERANCE, LENGTH_SLACK = 1.05, 2.0          # a real file may run a little past its header length (rounding, estimated lengths): 5 % + 2 s
+LENGTH_REFUSE_FACTOR, LENGTH_REFUSE_SLACK = 2.0, 5.0   # more than twice the header length (+ 5 s) is not an honest mismatch
+
+
+def enforce_real_length(path: str, declared: float) -> tuple[float, dict | None]:
+    """Never process more than we bill (security audit 2026-11-19, finding 2). `declared` is the length from the file's header, which the
+    uploader controls (a Matroska/WebM header can say 1 s over 30 s of content); minutes, caps and capacity checks all use it. The real length
+    is read from the packets (`common.real_media_duration`):
+      - within tolerance of the header: nothing to do;
+      - far longer (more than twice the header length): refused, a header that wrong is almost certainly deliberate;
+      - somewhat longer, or the length could not be read: the file is cut in place to the billed length (stream copy), so everything after
+        this point (transcription, voice, render, editor re-renders) sees exactly what was billed. A moderate mismatch is reported to the
+        user as a warning (`length_mismatch` in the job params -> pipeline warning).
+    Returns (seconds to bill, {"declared", "real"} or None)."""
+    real = real_media_duration(path)
+    if real is not None and real <= declared * LENGTH_TOLERANCE + LENGTH_SLACK:
+        return declared, None
+    if real is not None and real > declared * LENGTH_REFUSE_FACTOR + LENGTH_REFUSE_SLACK:
+        print(f"  refused an upload whose header says {declared:.1f}s but whose content is {real:.1f}s", flush=True)
+        raise HTTPException(status_code=400, detail="This video file looks damaged: its length does not match its content. "
+                                                    "Please export it again and upload the new file.")
+    try:
+        kept = keep_first_seconds(path, declared)
+    except Exception as exc:
+        print(f"  could not cut an upload to its billed length ({declared:.1f}s, real {real}): {exc}", flush=True)
+        raise HTTPException(status_code=400, detail="That file doesn't look like a valid video.")
+    return kept, ({"declared": round(declared, 1), "real": round(real, 1)} if real is not None else None)
+
+
 def _clean_caption_style(raw: str) -> dict | None:
     """Subtitle style sent with the upload (JSON text) -> a normalised style, or None for the default. A broken value is ignored
     (the video is made with the default look) rather than refusing the whole upload."""
@@ -559,6 +588,9 @@ def create_job(
                 print(f"  could not shorten a {full:.0f}s upload: {exc}", flush=True)
                 raise HTTPException(status_code=413, detail=f"Videos can be at most {MAX_VIDEO_MINUTES:g} minutes long.")
             params = {**params, "trimmed_from": round(full, 1), "trimmed_to": round(seconds, 1)}
+        seconds, mismatch = enforce_real_length(video_path, seconds)   # bill and process the same length (the header can lie)
+        if mismatch:
+            params = {**params, "length_mismatch": mismatch}
         job_id = uuid.uuid4().hex[:12]
         with Session() as s:
             month_used, used = used_seconds_month(s, user.id), used_seconds_today(s, user.id)

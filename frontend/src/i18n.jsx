@@ -498,6 +498,8 @@ const SERVER = [
   [/^Sign-ups are closed\.$/, 'အကောင့်သစ်ဖွင့်ခြင်း ယာယီပိတ်ထားပါသည်။'],
   [/^That file doesn't look like a valid video\.$/, 'ဤဖိုင်သည် မှန်ကန်သော ဗီဒီယိုဖိုင်နှင့် မတူပါ။'],
   [/^This video was ([\d.]+) minutes long, so only the first ([\d.]+) minutes were used\.$/, 'ဤဗီဒီယိုသည် $1 မိနစ် ရှည်သောကြောင့် ပထမ $2 မိနစ်ကိုသာ အသုံးပြုထားပါသည်။'],
+  [/^This video file says it is (\d+:\d{2}) long but contains about (\d+:\d{2}), so only the first (\d+:\d{2}) were used\.$/, 'ဤဗီဒီယိုဖိုင်သည် $1 ရှည်သည်ဟု ဖော်ပြထားသော်လည်း အမှန်တကယ်တွင် $2 ခန့်ရှိသောကြောင့် ပထမ $3 ကိုသာ အသုံးပြုထားပါသည်။'],   // AI-written Burmese, needs native review
+  [/^This video file looks damaged: its length does not match its content\. Please export it again and upload the new file\.$/, 'ဤဗီဒီယိုဖိုင် ပျက်စီးနေပုံရသည် — ၎င်း၏ အရှည်သည် ပါဝင်သောအကြောင်းအရာနှင့် မကိုက်ညီပါ။ ဖိုင်ကို ပြန်လည် export လုပ်ပြီး ဖိုင်အသစ်ကို တင်ပါ။'],   // AI-written Burmese, needs native review
   [/^Videos can be at most ([\d.]+) minutes long\.$/, 'ဗီဒီယိုသည် အများဆုံး $1 မိနစ်သာ ရှည်နိုင်ပါသည်။'],
   [/^File is larger than (\d+) MB\.$/, 'ဖိုင်အရွယ်အစားသည် $1 MB ထက် ကြီးနေသည်။'],
   [/^Link expired\. Reload the page to get a new one\.$/, 'လင့်ခ် သက်တမ်းကုန်ပြီ။ စာမျက်နှာကို ပြန်ဖွင့်၍ အသစ်ရယူပါ။'],

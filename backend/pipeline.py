@@ -696,6 +696,10 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
         if p.get("trimmed_from") and not edit:   # the upload was longer than allowed: main.create_job kept only the beginning
             warn.append(f"This video was {round(p['trimmed_from'] / 60, 1):g} minutes long, so only the first "
                         f"{round(p.get('trimmed_to', 0) / 60, 1):g} minutes were used.")
+        if p.get("length_mismatch") and not edit:   # the file's header said one length, its content was longer: main.enforce_real_length cut it to the billed length
+            clock = lambda sec: f"{int(sec) // 60}:{int(sec) % 60:02d}"
+            warn.append(f"This video file says it is {clock(p['length_mismatch']['declared'])} long but contains about "
+                        f"{clock(p['length_mismatch']['real'])}, so only the first {clock(p['length_mismatch']['declared'])} were used.")
         # The separated music/effects of a video are cached (an editor re-render of the same video must not run Demucs again).
         bg_cache = os.path.join(OUTPUT_DIR, f"bgcache_{p.get('bg_source_job') or job_id}.wav")
         if bg_choice == "separate" and os.path.isfile(bg_cache):
@@ -740,11 +744,12 @@ def run_job(job_id: str, video_path: str, logo_path: str | None, p: dict):
                 "local": lambda: local_dub.dub(video_path, p["target_language"]),
                 "elevenlabs": lambda: elevenlabs_dub(video_path, p["target_language"]),
                 "gemini": lambda: gemini_dub.dub(video_path, p["target_language"], retries=3, scene_cuts=scene_cut_times,
-                                                 skipped=skipped_parts),
+                                                 skipped=skipped_parts, max_seconds=video_duration + 2.0),
             }
             if mode == "full":
                 runners["gemini"] = lambda: gemini_dub.dub(video_path, p["target_language"], retries=3,
-                                                           scene_cuts=scene_cut_times, mode="full", skipped=skipped_parts)
+                                                           scene_cuts=scene_cut_times, mode="full", skipped=skipped_parts,
+                                                           max_seconds=video_duration + 2.0)
                 primary = "gemini"   # only the Gemini path knows speakers, emotions and the natural-Burmese rules
             order = [primary] + [n for n in ("elevenlabs", "gemini", "local") if n != primary]  # local last: slow, weakest Burmese
             if os.getenv("DUB_FALLBACK", "").lower() not in ("1", "true"):

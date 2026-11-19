@@ -21,6 +21,7 @@ from db import Job, Session, User, update_job  # noqa: E402
 
 main.jobs_queue.enqueue = lambda job_id: None
 main.media_duration = lambda path: 600.0   # every video is 10 minutes
+main.real_media_duration = lambda path, **k: 600.0   # the scan of the (fake) file agrees with its fake header
 sent = []
 alerts._send = lambda m: sent.append(m)
 

@@ -299,13 +299,16 @@ def _dub_piece(audio_path: str, offset: float, target: str, attempts: int,
 
 def dub(video_path: str, target_language: str, timeout_seconds: int = 600,
         retries: int | None = None, scene_cuts: list[float] | None = None,
-        mode: str = "recap", skipped: list | None = None) -> tuple[str | None, list[dict]]:
-    """Transcribe the speech, translate it, and return (source_language, segments) with timings in seconds."""
+        mode: str = "recap", skipped: list | None = None, max_seconds: float | None = None) -> tuple[str | None, list[dict]]:
+    """Transcribe the speech, translate it, and return (source_language, segments) with timings in seconds.
+    max_seconds: read at most this much of the file (the billed length + a little). The header length can lie (security audit 2026-11-19,
+    finding 2); main.enforce_real_length already cuts uploads to the billed length, this keeps Gemini from ever hearing more than was billed."""
     target = LANGUAGE_NAMES.get(target_language, target_language)
     attempts = retries or int(os.getenv("GEMINI_DUB_RETRIES", "6"))
     with tempfile.TemporaryDirectory() as tmp:
         audio = os.path.join(tmp, "audio.mp3")
-        _run(["ffmpeg", "-y", "-i", video_path, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "48k", audio])
+        limit = ["-t", f"{max_seconds:.3f}"] if max_seconds and max_seconds > 0 else []   # input option: stops reading the file there
+        _run(["ffmpeg", "-y", *limit, "-i", video_path, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "48k", audio])
         chunks = _plan_chunks(audio, _duration(audio))
         paths = []
         for n, (a, b) in enumerate(chunks):
