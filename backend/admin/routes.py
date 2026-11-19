@@ -132,7 +132,7 @@ def _user_row(u: User, used_seconds: float, month_seconds: float = 0.0, devices:
     devices = sorted(devices or [], key=lambda d: d.last_seen or d.first_seen, reverse=True)
     last = devices[0] if devices else None
     return {"id": u.id, "email": u.email, "daily_minutes": u.daily_minutes, "monthly_minutes": u.monthly_minutes,
-            "is_admin": u.is_admin, "is_superadmin": u.is_superadmin, "role": user_role(u), "is_active": u.is_active, "status": u.status, "status_reason": u.status_reason,
+            "is_admin": u.is_admin, "is_superadmin": u.is_superadmin, "role": user_role(u), "is_trial": bool(u.is_trial), "is_active": u.is_active, "status": u.status, "status_reason": u.status_reason,
             "expires_at": _iso(u.expires_at), "expired": expired(u),
             "device_limit": u.device_limit, "device_count": len(devices), "credit_minutes": round(max(0.0, u.credit_seconds or 0.0) / 60, 1),
             "last_seen": _iso(last.last_seen) if last else None, "last_ip": last.ip if last else None,
@@ -185,6 +185,7 @@ class NewUser(BaseModel):
     role: str | None = None              # "user" | "admin" (superadmin cannot be created here)
     device_limit: int = Field(1, ge=0, le=20)   # 1 = one device only, 0 = any number of devices (the admin chooses per account)
     months: int = Field(0, ge=0, le=120)        # how long the login works from now (1, 3, 6, 12 ...); 0 = no end date
+    trial: bool = False                         # trial account: any number of devices, NO videos, shown as "Trial User"; the admin upgrades it later
 
 
 @router.post("/users")
@@ -203,13 +204,14 @@ def create_user(body: NewUser, admin: User = Depends(require_admin)):
             raise HTTPException(status_code=400, detail="Username: 3-64 characters, letters, numbers and . _ - @ + only.")
         if s.execute(select(User).where(User.email == name)).scalar_one_or_none():
             raise HTTPException(status_code=409, detail="That username is already taken.")
-        user = User(email=name, password_hash=auth.hash_password(password), daily_minutes=body.daily_minutes, monthly_minutes=body.monthly_minutes,
-                    is_admin=role == "admin", device_limit=body.device_limit,
+        trial = bool(body.trial) and role == "user"
+        user = User(email=name, password_hash=auth.hash_password(password), daily_minutes=0 if trial else body.daily_minutes, monthly_minutes=0 if trial else body.monthly_minutes,
+                    is_admin=role == "admin", is_trial=trial, device_limit=0 if trial else body.device_limit,
                     expires_at=add_months(utcnow(), body.months) if body.months and role == "user" else None)   # admins have no end date
         s.add(user)
         s.flush()
         _audit(s, admin, "user.create", "user", user.id, user.email, {"daily_minutes": user.daily_minutes, "monthly_minutes": user.monthly_minutes,
-                                                                      "is_admin": user.is_admin, "device_limit": user.device_limit,
+                                                                      "is_admin": user.is_admin, "is_trial": user.is_trial, "device_limit": user.device_limit,
                                                                       "months": body.months if user.expires_at else 0, "expires_at": _iso(user.expires_at)})
         s.commit()
         return {**_user_row(user, 0.0), "password": password}   # the only time the password can be seen: only its hash is stored
@@ -222,6 +224,7 @@ class UserPatch(BaseModel):
     status: str | None = None                # active | paused | deactivated | banned
     status_reason: str | None = Field(None, max_length=300)
     device_limit: int | None = Field(None, ge=0, le=20)
+    is_trial: bool | None = None         # true = make it a trial account (any number of devices, no videos); false = a full account
     is_admin: bool | None = None         # older name of role
     role: str | None = None              # "user" | "admin"
     password: str | None = None
@@ -253,6 +256,14 @@ def patch_user(user_id: int, body: UserPatch, admin: User = Depends(require_admi
             raise HTTPException(status_code=400, detail="The superadmin role cannot be removed here.")
         changes = {}
         body.is_admin = new_admin
+        if body.is_trial is not None:
+            if body.is_trial and (user.is_admin or new_admin):
+                raise HTTPException(status_code=400, detail="An admin account cannot be a trial account.")
+            if body.is_trial != bool(user.is_trial):
+                changes["is_trial"] = {"from": bool(user.is_trial), "to": body.is_trial}
+                user.is_trial = body.is_trial
+                if body.is_trial:
+                    body.device_limit = 0   # trial = any number of devices
         for field in ("daily_minutes", "monthly_minutes", "is_admin", "device_limit"):
             new = getattr(body, field)
             if new is not None and new != getattr(user, field):
