@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { safeInsets } from './safeArea.js';
 
 /**
  * Our own dropdown (no system picker). options: [{ value, label, group? }] (an option with the same `group` text is listed under a heading).
@@ -30,7 +31,8 @@ export default function Select({ value, onChange, options, size = 'md', classNam
   const place = () => {
     const r = btn.current?.getBoundingClientRect();
     if (!r) return;
-    const below = window.innerHeight - r.bottom, above = r.top;
+    const inset = safeInsets();   // the menu must not reach under the status bar (above) or the gesture bar (below)
+    const below = window.innerHeight - inset.bottom - r.bottom, above = r.top - inset.top;
     const up = below < 220 && above > below;
     setPos({ left: Math.max(8, Math.min(r.left, window.innerWidth - Math.max(r.width, 200) - 8)), width: Math.max(r.width, 200),
       ...(up ? { bottom: window.innerHeight - r.top + 6, maxH: Math.min(320, above - 12) } : { top: r.bottom + 6, maxH: Math.min(320, below - 12) }) });

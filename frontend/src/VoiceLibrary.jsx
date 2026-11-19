@@ -20,9 +20,11 @@ export default function VoiceLibrary({ voices, looks, selected, playing, onPlay,
   const count = (c) => items.filter((it) => c === 'all' || it.cat === c).length;
 
   return (
-    <div className="fixed inset-0 z-50 bg-page overflow-y-auto pt-[var(--safe-top)] pb-[var(--safe-bottom)]">
-      <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4">
-        <div className="sticky top-0 bg-page pb-3 z-10">
+    <div className="fixed inset-0 z-50 bg-page overflow-y-auto pb-[var(--safe-bottom)]">
+      {/* The status-bar space is the top padding of the sticky header (not padding of the scroll area): padding of a scroll area lets the list
+          scroll visibly through it, under the clock. The header is opaque, so the strip above the title stays clean while scrolling. */}
+      <div className="max-w-5xl mx-auto px-3 sm:px-4 pb-4">
+        <div className="sticky top-0 bg-page pt-[max(1rem,var(--safe-top))] pb-3 z-10">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-3">
             <button type="button" onClick={onClose} className="px-3 py-1.5 rounded-lg bg-violet-50 text-sm">← {tr('Back')}</button>
             <h2 className="text-base sm:text-lg font-bold text-violet-600 min-w-0 break-words">{tr('All voices')}</h2>
