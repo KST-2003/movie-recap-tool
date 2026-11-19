@@ -35,6 +35,7 @@ import ranged
 import reviews
 import unlock
 from common import media_duration, tts_provider
+from guard import RequestGuard
 from db import Job, Session, User, active_jobs, failure_wait_seconds, keeps_minutes, month_start, refund_credit, user_role, used_seconds_month, used_seconds_today, utcnow
 from voices import VOICES, VOICE_NAMES
 
@@ -52,6 +53,7 @@ logging.getLogger("uvicorn.access").addFilter(_QuietPolling())
 
 usage_log.install()
 app = FastAPI(title="Movie Recap Tool Backend", version="3.0.0")
+app.add_middleware(RequestGuard)   # body limits + login before upload bodies (guard.py). Added BEFORE CORS: the last one added is outermost, so CORS wraps it
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
