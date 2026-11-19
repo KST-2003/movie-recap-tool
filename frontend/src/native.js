@@ -62,9 +62,17 @@ export async function statusBarOnDark(onDark) {
 }
 
 /** Phone app: the page runs under the transparent status bar, so it must keep its own content clear of the clock / notch / home bar.
- *  iOS 18 reports env(safe-area-inset-*) inside the web view, iOS 26 reports 0 when the scroll view does not adjust: read it, and if it is 0 guess from the screen size. */
+ *  Android keeps CSS references live because Capacitor can supply its insets after the page starts.
+ *  On iOS, read the web view insets and fall back to the screen size when they are unavailable. */
 export function initSafeArea() {
   if (!isNative) return;
+  if (Capacitor.getPlatform() === 'android') {
+    // Capacitor updates these variables when Android's system-bar insets arrive or change.
+    // Until then, leave room for the status bar so controls do not start beneath it.
+    document.documentElement.style.setProperty('--safe-top', 'max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 32px))');
+    document.documentElement.style.setProperty('--safe-bottom', 'max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px))');
+    return;
+  }
   try {
     const probe = document.createElement('div');
     probe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)';
