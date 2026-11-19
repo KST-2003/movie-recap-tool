@@ -930,6 +930,12 @@ function AppSession({ notice, setNotice, onSessionEnd }) {
         </div>
       )}
       <div ref={createPageRef} className={view === 'create' && !maintenance ? '' : 'hidden'}>
+      {account?.is_trial && (
+        <div className="max-w-3xl mx-auto mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-center">
+          <p className="text-sm font-semibold text-amber-700">{tr('Trial User')}</p>
+          <p className="text-xs text-amber-700/90">{tr('Trial accounts cannot make videos. Ask the admin to upgrade your account.')}</p>
+        </div>
+      )}
       {/* top banner: our own "What are we recapping today?" card first, then the pictures the admin posted (Posts), swiped sideways.
           Every slide is 16:9, the shape the admin uploads. */}
       <PostBanner apiBase={API_BASE} className={`max-w-3xl mx-auto mb-5 ${step > 1 ? 'hidden' : ''}`}>

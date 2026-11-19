@@ -14,7 +14,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 
 from config import DATA_DIR, TRUST_PROXY
-from db import Session, User, UserDevice, utcnow, EXPIRED_MESSAGE, expired
+from db import Session, User, UserDevice, utcnow, EXPIRED_MESSAGE, TRIAL_MESSAGE, expired
 
 TOKEN_DAYS = int(os.getenv("TOKEN_DAYS", "14"))
 
@@ -87,6 +87,12 @@ def clean_device_id(value: str | None) -> str:
     return value if value and re.fullmatch(r"[A-Za-z0-9_-]{8,64}", value) else "unknown"
 
 
+def refuse_trial(user: User) -> None:
+    """Trial accounts can look around but cannot make videos, edits, previews or link fetches, or buy minutes (402: the user has to upgrade)."""
+    if user.is_trial and not user.is_admin:
+        raise HTTPException(status_code=402, detail=TRIAL_MESSAGE)
+
+
 STATUS_MESSAGES = {
     "paused": "Your account is suspended. Please contact the admin.",   # the admin app calls this status "suspended"
     "deactivated": "Your account is deactivated. Please contact the admin.",
@@ -103,7 +109,7 @@ def register_device(s, user: User, device_id: str, request: Request) -> None:
     row = s.execute(select(UserDevice).where(UserDevice.user_id == user.id, UserDevice.device_id == device_id)).scalar_one_or_none()
     if row is None:
         count = len(s.execute(select(UserDevice.id).where(UserDevice.user_id == user.id)).all())
-        if user.device_limit and count >= user.device_limit:
+        if user.device_limit and not user.is_trial and count >= user.device_limit:   # a trial account may sign in on any number of devices
             # Newest login wins (owner's rule, 2026-11-13): the device(s) used longest ago are signed out to make room, so a login
             # limited to ONE device works on one device AT A TIME and nobody has to ask the admin after changing phones.
             # (Before: the new device was refused with DEVICE_FULL until the admin freed the slot.)

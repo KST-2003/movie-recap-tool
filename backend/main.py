@@ -189,12 +189,12 @@ def login(body: Credentials, request: Request):
         device_id = auth.clean_device_id(body.device_id)
         auth.register_device(s, user, device_id, request)   # may refuse: this login is limited to N devices
         s.commit()
-    return {"token": auth.make_token(user, device_id), "device_id": device_id, "email": user.email, "is_admin": user.is_admin, "is_superadmin": user.is_superadmin, "role": user_role(user), **_quota(user)}
+    return {"token": auth.make_token(user, device_id), "device_id": device_id, "email": user.email, "is_admin": user.is_admin, "is_superadmin": user.is_superadmin, "role": user_role(user), "is_trial": bool(user.is_trial), **_quota(user)}
 
 
 @app.get("/api/auth/me")
 def me(user: User = Depends(auth.current_user)):
-    return {"id": user.id, "email": user.email, "is_admin": user.is_admin, "is_superadmin": user.is_superadmin, "role": user_role(user), **_quota(user)}
+    return {"id": user.id, "email": user.email, "is_admin": user.is_admin, "is_superadmin": user.is_superadmin, "role": user_role(user), "is_trial": bool(user.is_trial), **_quota(user)}
 
 
 
@@ -413,6 +413,7 @@ LINK_FETCHES_PER_MINUTE = int(os.getenv("LINK_FETCHES_PER_MINUTE", "6"))
 def link_fetch_video(body: LinkBody, user: User = Depends(auth.current_user)):
     """Fetch the video of a RedNote / YouTube / TikTok link to the server (instead of the user uploading the file). The browser then downloads
     it for the preview / on-device render and sends `link_id` with POST /api/jobs."""
+    auth.refuse_trial(user)
     if runtime_settings.maintenance():
         raise HTTPException(status_code=503, detail="We're temporarily not accepting new videos. Please try again later.")
     now = time.time()
@@ -490,6 +491,7 @@ def create_job(
     caption_style: str = Form(""),        # JSON subtitle style chosen in the preview before generating (same fields as /rerender)
     manual_blurs: str = Form(""),         # JSON [[x,y,w,h],...] fractions of the frame, blurred for the whole video
 ):
+    auth.refuse_trial(user)
     if runtime_settings.maintenance():
         raise HTTPException(status_code=503, detail="We're temporarily not accepting new videos. Please try again later.")
     linked = link_fetch.path_of(UPLOAD_DIR, user.id, link_id) if link_id else None
@@ -941,6 +943,7 @@ def edit_price(job_id: str, user: User = Depends(auth.current_user)):
 def rerender(job_id: str, body: RerenderBody, user: User = Depends(auth.current_user)):
     """New job from a finished one: same source video and settings, edited lines. Unchanged lines reuse their
     cached voice clips, so only edited lines cost a TTS request."""
+    auth.refuse_trial(user)
     if runtime_settings.maintenance():
         raise HTTPException(status_code=503, detail="We're temporarily not accepting new work. Please try again later.")
     with Session() as s:
@@ -1036,6 +1039,7 @@ _preview_times: dict[int, list[float]] = {}
 @app.post("/api/jobs/{job_id}/preview-line")
 def preview_line(job_id: str, body: PreviewBody, user: User = Depends(auth.current_user)):
     """Hear ONE line in a chosen voice before pressing Apply: one TTS request, cached for the render."""
+    auth.refuse_trial(user)
     if not looks.valid(body.voice):
         raise HTTPException(status_code=400, detail=f"Unknown voice: {body.voice}")
     if not body.text.strip():

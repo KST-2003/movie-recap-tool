@@ -72,6 +72,7 @@ def topup_info(user: User = Depends(auth.current_user)):
 
 @router.post("/api/topup/requests")
 def submit_slip(minutes: int = Form(...), note: str = Form(""), slip: UploadFile = File(...), user: User = Depends(auth.current_user)):
+    auth.refuse_trial(user)   # a trial account cannot make videos, so it cannot buy minutes either
     price = S.price_per_minute_thb()
     if minutes not in S.topup_packs():
         raise HTTPException(status_code=400, detail="Pick one of the minute packs.")

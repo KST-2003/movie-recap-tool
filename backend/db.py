@@ -33,6 +33,7 @@ class User(Base):
     credit_seconds = Column(Float, default=0.0, nullable=False)     # BOUGHT video seconds (top-ups): used only after the daily / monthly allowance is used up
     device_limit = Column(Integer, default=0, nullable=False)       # how many different devices may use the login; 0 = any number
     fail_reset_at = Column(DateTime(timezone=True))                 # an admin approved an unlock request at this time: failed videos before it no longer count toward the pause
+    is_trial = Column(Boolean, default=False, nullable=False)       # trial account: any number of devices, but NO videos (the admin upgrades it later)
     expires_at = Column(DateTime(timezone=True))                    # the login works until then (months chosen by the admin); empty = no end date
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
@@ -43,6 +44,7 @@ def user_role(user: "User") -> str:
 
 
 STATUSES = ("active", "paused", "deactivated", "banned")
+TRIAL_MESSAGE = "This is a trial account, so videos cannot be made with it. Please ask the admin to upgrade your account."
 EXPIRED_MESSAGE = "Your account is suspended because its time has ended. Please contact the admin to renew it."
 
 
@@ -199,7 +201,8 @@ if "monthly_minutes" not in {c["name"] for c in inspect(engine).get_columns("use
 _user_cols = {c["name"] for c in inspect(engine).get_columns("users")}
 for _col, _ddl in (("is_superadmin", "is_superadmin BOOLEAN NOT NULL DEFAULT 0" if DATABASE_URL.startswith("sqlite") else "is_superadmin BOOLEAN NOT NULL DEFAULT FALSE"),
                    ("status", "status VARCHAR(16) NOT NULL DEFAULT 'active'"), ("status_reason", "status_reason VARCHAR(300)"),
-                   ("device_limit", "device_limit INTEGER NOT NULL DEFAULT 0"), ("expires_at", "expires_at TIMESTAMP"), ("fail_reset_at", "fail_reset_at TIMESTAMP")):
+                   ("device_limit", "device_limit INTEGER NOT NULL DEFAULT 0"), ("expires_at", "expires_at TIMESTAMP"), ("fail_reset_at", "fail_reset_at TIMESTAMP"),
+                   ("is_trial", "is_trial BOOLEAN NOT NULL DEFAULT 0" if DATABASE_URL.startswith("sqlite") else "is_trial BOOLEAN NOT NULL DEFAULT FALSE")):
     if _col not in _user_cols:
         with engine.begin() as _conn:
             _conn.execute(text(f"ALTER TABLE users ADD COLUMN {_ddl}"))

@@ -53,7 +53,13 @@ function AccountBox({ account, onLogout, onDeleteAccount }) {
   useEffect(() => { nativeVersionLabel().then(setAppVersion); }, []);
   return (
     <>
-      {account && (
+      {account?.is_trial && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-center">
+          <p className="text-sm font-semibold text-amber-700">{tr('Trial User')}</p>
+          <p className="mt-1 text-[11px] text-amber-700/80">{tr('Trial accounts cannot make videos. Ask the admin to upgrade your account.')}</p>
+        </div>
+      )}
+      {account && !account.is_trial && (
         <div className="space-y-3 rounded-2xl bg-page border border-violet-100 p-3">
           <Meter label={tr('Today')} used={mins(account.used_seconds)} limit={account.daily_minutes} />
           <Meter label={tr('This month')} used={mins(account.month_used_seconds)} limit={account.monthly_minutes} />
@@ -93,7 +99,8 @@ export default function Shell({ view, setView, account, onLogout, onDeleteAccoun
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
-  const left = account ? Math.floor(account.remaining_seconds / 60) : null;
+  const trial = !!account?.is_trial;
+  const left = account && !trial ? Math.floor(account.remaining_seconds / 60) : null;
   const initial = (account?.email || '?').slice(0, 1).toUpperCase();
 
   return (
@@ -119,8 +126,9 @@ export default function Shell({ view, setView, account, onLogout, onDeleteAccoun
       <header className="lg:hidden sticky top-0 z-30 flex items-center gap-3 px-4 pb-2.5 pt-[max(0.625rem,var(--safe-top))] bg-page/75 backdrop-blur border-b border-violet-100/60">
         <Brand size="text-lg" icon="h-9 w-9" />
         {left != null && <span className="ml-auto min-w-0 truncate rounded-full bg-violet-50 px-3 py-1 text-xs font-medium text-violet-600">{tr('{n} min left', { n: left })}</span>}
+        {trial && <span className="ml-auto min-w-0 truncate rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">{tr('Trial User')}</span>}
         <button type="button" aria-label={tr('Menu')} aria-expanded={open} onClick={() => setOpen(true)}
-          className={`${left == null ? 'ml-auto' : ''} h-9 w-9 shrink-0 rounded-full bg-gradient-to-br from-violet-400 to-pink-300 text-sm font-bold text-white shadow-pop`}>{initial}</button>
+          className={`${left == null && !trial ? 'ml-auto' : ''} h-9 w-9 shrink-0 rounded-full bg-gradient-to-br from-violet-400 to-pink-300 text-sm font-bold text-white shadow-pop`}>{initial}</button>
       </header>
       {open && (
         <div className="lg:hidden fixed inset-0 z-50">

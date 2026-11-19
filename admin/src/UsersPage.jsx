@@ -80,6 +80,22 @@ const DevicePolicy = ({ value, onChange }) => {
   );
 };
 
+function TypePicker({ value, onChange, disabled }) {
+  const { tr } = useI18n();
+  return (
+    <div>
+      <p className="mb-1.5 text-xs text-ink-soft">{tr('Account type')}</p>
+      <div className="grid grid-cols-2 gap-2">
+        {[[false, 'Full account'], [true, 'Trial account']].map(([v, label]) => (
+          <button type="button" key={label} disabled={disabled} onClick={() => onChange(v)}
+            className={`rounded-2xl border px-2 py-2 text-sm disabled:opacity-50 ${value === v ? 'border-violet-400 bg-violet-500/30 text-ink' : 'border-violet-200 text-ink-soft hover:bg-violet-50'}`}>{tr(label)}</button>
+        ))}
+      </div>
+      {value && <p className="mt-1.5 text-xs text-ink-faint">{tr('Trial: any number of devices, but no videos can be made. The user app shows "Trial User" instead of minutes.')}</p>}
+    </div>
+  );
+}
+
 function RolePicker({ value, onChange, disabled, note }) {
   const { tr } = useI18n();
   return (
@@ -105,12 +121,13 @@ function CreateForm({ defaultMinutes, defaultMonthly, superadmin, onClose, onCre
   const [devices, setDevices] = useState(1);
   const [role, setRole] = useState('user');
   const [months, setMonths] = useState(1);
+  const [trial, setTrial] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const save = async (e) => {
     e.preventDefault(); setBusy(true); setError('');
     try {
-      const { data } = await axios.post('/api/admin/users', { username: username.trim() || null, password: password || null, daily_minutes: Number(minutes), monthly_minutes: Number(monthly), device_limit: devices, role, months: role === 'admin' ? 0 : months });
+      const { data } = await axios.post('/api/admin/users', { username: username.trim() || null, password: password || null, daily_minutes: Number(minutes), monthly_minutes: Number(monthly), device_limit: devices, role, months: role === 'admin' ? 0 : months, trial: role !== 'admin' && trial });
       onCreated(data);
     } catch (err) { setError(errText(err)); setBusy(false); }
   };
@@ -126,9 +143,13 @@ function CreateForm({ defaultMinutes, defaultMonthly, superadmin, onClose, onCre
             <p className="mt-1.5 text-xs text-ink-faint">{months ? tr('The login stops working after {n} month(s) from today. You can add months later in Manage.', { n: months }) : tr('The login keeps working until you pause or deactivate it.')}</p>
           </div>
         )}
-        <DevicePolicy value={devices} onChange={setDevices} />
+        {role !== 'admin' && <TypePicker value={trial} onChange={setTrial} />}
+        {!trial && <>
+        {!user.is_admin && <TypePicker value={trial} onChange={setTrial} disabled={locked} />}
+        {!trial && <DevicePolicy value={devices} onChange={setDevices} />}
         <label className="block text-xs text-ink-soft">{tr('Daily minutes')}<input className={`${field} mt-1`} type="number" min="0" value={minutes} onChange={(e) => setMinutes(e.target.value)} required /></label>
         <label className="block text-xs text-ink-soft">{tr('Monthly minutes')}<input className={`${field} mt-1`} type="number" min="0" value={monthly} onChange={(e) => setMonthly(e.target.value)} required /></label>
+        </>}
         {superadmin && <RolePicker value={role} onChange={setRole} />}
         {error && <p className="text-sm text-rose-500">{trs(error)}</p>}
         <div className="flex justify-end gap-2 pt-1">
@@ -148,6 +169,7 @@ function EditSheet({ user, me, superadmin, onClose, onSaved, onCredentials }) {
   const [status, setStatus] = useState(user.status || 'active');
   const [reason, setReason] = useState(user.status_reason || '');
   const [devices, setDevices] = useState(user.device_limit);
+  const [trial, setTrial] = useState(!!user.is_trial);
   const [role, setRole] = useState(user.is_admin ? 'admin' : 'user');
   const locked = !superadmin && user.is_superadmin && !self;   // only the owner can change the owner account
   const [list, setList] = useState(null);
@@ -163,7 +185,7 @@ function EditSheet({ user, me, superadmin, onClose, onSaved, onCredentials }) {
 
   const run = async (fn) => { setBusy(true); setError(''); try { await fn(); } catch (err) { setError(errText(err)); } finally { setBusy(false); } };
   const save = (e) => { e.preventDefault(); run(async () => {
-    await axios.patch(`/api/admin/users/${user.id}`, { daily_minutes: Number(minutes), monthly_minutes: Number(monthly), status, status_reason: status === 'active' ? '' : reason, device_limit: devices, ...(superadmin && !user.is_superadmin ? { role } : {}) });
+    await axios.patch(`/api/admin/users/${user.id}`, { daily_minutes: Number(minutes), monthly_minutes: Number(monthly), status, status_reason: status === 'active' ? '' : reason, device_limit: devices, ...(user.is_admin ? {} : { is_trial: trial }), ...(superadmin && !user.is_superadmin ? { role } : {}) });
     onSaved();
   }); };
   const regenerate = () => { if (!window.confirm(tr('Make a new password? The old one stops working and the user is signed out everywhere.'))) return; run(async () => {
@@ -279,6 +301,7 @@ export default function UsersPage({ me, superadmin, openJobsFor }) {
   const limitLabel = (u) => `${u.device_count} / ${u.device_limit === 0 ? tr('any') : u.device_limit}`;
   const Tags = ({ u }) => (<>
     {u.is_admin && <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2 py-0.5 text-[11px] text-violet-600"><ShieldCheck size={11} />{tr(u.is_superadmin ? 'superadmin' : 'admin')}</span>}
+    {u.is_trial && <span className="inline-block rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] text-amber-700">{tr('Trial')}</span>}
     {u.status !== 'active' && <StatusChip status={u.status} />}
     {u.expired ? <span className="inline-block rounded-full bg-red-500/15 px-2 py-0.5 text-[11px] text-rose-600">{tr('suspended · ended {d}', { d: fmtDay(u.expires_at) })}</span>
       : u.expires_at && !u.is_admin ? <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] ${daysLeft(u.expires_at) <= 7 ? 'bg-amber-500/15 text-amber-700' : 'bg-violet-50 text-ink-soft'}`}>{tr('until {d}', { d: fmtDay(u.expires_at) })}</span> : null}

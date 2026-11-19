@@ -120,6 +120,8 @@ export const ADMIN_MY = {
   'Video minutes per day': 'တစ်နေ့လျှင် ဗီဒီယိုမိနစ်',
   // users
   'Add user': 'အသုံးပြုသူ ထည့်မည်',
+  'Account type': 'အကောင့်အမျိုးအစား', 'Full account': 'ပုံမှန်အကောင့်', 'Trial account': 'စမ်းသပ်အကောင့်', 'Trial': 'စမ်းသပ်',
+  'Trial: any number of devices, but no videos can be made. The user app shows "Trial User" instead of minutes.': 'စမ်းသပ်အကောင့် - စက်အရေအတွက် အကန့်အသတ်မရှိ၊ သို့သော် ဗီဒီယို မထုတ်နိုင်ပါ။ အသုံးပြုသူ app တွင် မိနစ်အစား "Trial User" ဟု ပြပါမည်။',
   'New password (leave empty to keep)': 'စကားဝှက်အသစ် (မပြောင်းလိုပါက ကွက်လပ်ထားပါ)',
   'Daily minutes': 'နေ့စဉ်မိနစ်',
   'Account enabled': 'အကောင့် ဖွင့်ထားသည်',
