@@ -37,14 +37,14 @@ function PresetCard({ p, onUse, onEdit, onDelete, badge }) {
   );
 }
 
-export default function PresetsPage({ apiBase, onUse }) {
+export default function PresetsPage({ apiBase, onUse, active = true }) {
   const { tr, trs } = useI18n();
   const [data, setData] = useState(null);       // { max, mine, shared }
   const [editing, setEditing] = useState(null);  // null | 'new' | preset
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const load = useCallback(() => axios.get(`${apiBase}/api/presets`).then((r) => setData(r.data)).catch(() => setData({ max: 5, mine: [], shared: [] })), [apiBase]);
-  useEffect(() => { load(); }, [load]);
+  const load = useCallback(() => axios.get(`${apiBase}/api/presets`).then((r) => setData(r.data)).catch(() => setData((previous) => previous || { max: 5, mine: [], shared: [] })), [apiBase]);
+  useEffect(() => { if (active) load(); }, [load, active]);
 
   const save = async (name, settings) => {
     setSaving(true); setError('');

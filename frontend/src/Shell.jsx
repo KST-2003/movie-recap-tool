@@ -82,9 +82,11 @@ function AccountBox({ account, onLogout, onDeleteAccount }) {
   );
 }
 
-export default function Shell({ view, setView, account, onLogout, onDeleteAccount, children }) {
+export default function Shell({ view, setView, account, onLogout, onDeleteAccount, children, menuOpen, onMenuChange }) {
   const { tr } = useI18n();
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = menuOpen ?? internalOpen;
+  const setOpen = onMenuChange || setInternalOpen;
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (e) => e.key === 'Escape' && setOpen(false);

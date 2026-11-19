@@ -8,8 +8,11 @@ const DB = 'recat-videos', STORE = 'videos';
 function open() {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') { reject(new Error('no storage')); return; }
-    const req = indexedDB.open(DB, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: 'id' });
+    const req = indexedDB.open(DB, 2);
+    req.onupgradeneeded = () => {
+      const store = req.result.objectStoreNames.contains(STORE) ? req.transaction.objectStore(STORE) : req.result.createObjectStore(STORE, { keyPath: 'id' });
+      if (!store.indexNames.contains('at')) store.createIndex('at', 'at');
+    };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
@@ -43,7 +46,9 @@ export async function storedIds() {
   try { await purgeOld(); return new Set(await run('readonly', (s) => s.getAllKeys())); } catch (e) { return new Set(); }
 }
 async function purgeOld() {
-  const rows = await run('readonly', (s) => s.getAll());
-  const old = (rows || []).filter((r) => Date.now() - r.at > KEEP_DAYS * 86400000).map((r) => r.id);
-  if (old.length) await run('readwrite', (s) => { old.forEach((id) => s.delete(id)); });
+  await run('readwrite', (store) => {
+    const cursor = store.index('at').openKeyCursor(IDBKeyRange.upperBound(Date.now() - KEEP_DAYS * 86400000, true));
+    cursor.onsuccess = () => { const item = cursor.result; if (item) { store.delete(item.primaryKey); item.continue(); } };
+    return cursor;
+  });
 }

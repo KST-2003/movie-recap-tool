@@ -9,7 +9,7 @@ const fmt = (n) => (Math.round(n * 10) / 10).toLocaleString('en-US', { maximumFr
 const when = (iso) => new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const daysLeft = (iso) => Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000));
 
-export default function HistoryPage({ apiBase, refreshKey, onOpen }) {
+export default function HistoryPage({ apiBase, refreshKey, onOpen, active = true }) {
   const { tr, trs } = useI18n();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
@@ -20,7 +20,7 @@ export default function HistoryPage({ apiBase, refreshKey, onOpen }) {
   const load = () => axios.get(`${apiBase}/api/jobs?page=${page}&per_page=15`)
     .then(async (r) => { setOnDevice(await storedIds()); setData(r.data); setError(''); })
     .catch((e) => setError(trs(e.response?.data?.detail) || e.message));
-  useEffect(() => { load(); }, [apiBase, refreshKey, page]);
+  useEffect(() => { if (active) load(); }, [apiBase, refreshKey, page, active]);
 
   const remove = async (job) => {
     if (!window.confirm(tr('Delete this video and its files now? This cannot be undone.'))) return;

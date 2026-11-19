@@ -671,6 +671,8 @@ Keys live in `backend/.env` (git-ignored). Admin: `python manage.py create-user 
 
 ## 8. Changelog
 
+- 2026-11-19: Hardened frontend session cleanup and media resources, retained visited page state, bounded on-device rendering, streamed shared downloads, indexed local-video expiry, deferred device renderer loading, handled Android back, and disabled Android backup. Added an Nginx configuration example; deployment requires separate server review. Physical Android and background-process testing remain pending.
+
 - 2026-11-19: Android safe-area CSS now follows Capacitor system-bar inset updates and reserves initial status-bar space, keeping login and app header controls clear; verify on a physical Android device.
 - 2026-11-03: new branch `feature/google-gemini-dubbing`; Gemini replaces ElevenLabs for dubbing; `.env` loading.
 - 2026-11-04: voice picker + samples, sentence subtitles, sync tuning, speed work, accounts/queue/storage architecture;

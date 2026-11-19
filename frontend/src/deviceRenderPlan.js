@@ -276,20 +276,28 @@ export async function renderFromPlan(file, plan, audioBlob, logoFile, { onProgre
   captionFamily = await loadCaptionFont(plan.caption?.style?.font || 'sans');
   const started = performance.now();
   const [W, H] = plan.out;
+  // BufferTarget retains the encoded MP4 in memory. Avoid starting renders that
+  // are likely to exceed a conservative budget; the caller falls back to the server.
+  const memoryGiB = Number(navigator.deviceMemory) || 3;
+  const maxOutputBytes = Math.min(384, Math.max(128, memoryGiB * 64)) * 1024 * 1024;
+  const estimatedBytes = ((W * H * 3.2 / 8) * Math.max(0, Number(plan.duration) || 0) + audioBlob.size) * 1.25;
+  if (estimatedBytes > maxOutputBytes) throw new Error('Video is too large for on-device rendering');
   if (!(await canEncodeVideo('avc', { width: W, height: H, bitrate: Math.round(W * H * 3.2) }))) throw new Error('This device cannot encode H.264 video');
   const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
+  let output, aInput, logo, comp, last, currentSample;
+  try {
   const vTrack = await input.getPrimaryVideoTrack();
   if (!vTrack) throw new Error('No video track');
-  const comp = makeCompositor(plan);
-  const logo = logoFile && plan.logo ? await createImageBitmap(logoFile).catch(() => null) : null;
+  comp = makeCompositor(plan);
+  logo = logoFile && plan.logo ? await createImageBitmap(logoFile).catch(() => null) : null;
 
-  const output = new Output({ format: new Mp4OutputFormat(), target: new BufferTarget() });
+  output = new Output({ format: new Mp4OutputFormat(), target: new BufferTarget() });
   const fps = Math.max(1, Math.min(plan.fps || 30, 30));
   const vSource = new CanvasSource(comp.canvas, { codec: 'avc', bitrate: Math.round(W * H * 3.2), hardwareAcceleration: 'prefer-hardware' });
   output.addVideoTrack(vSource, { frameRate: fps });
 
   // the server's sound is copied as it is (AAC packets): no decoding, no encoding, works on phones without an AAC encoder
-  const aInput = new Input({ source: new BlobSource(audioBlob), formats: ALL_FORMATS });
+  aInput = new Input({ source: new BlobSource(audioBlob), formats: ALL_FORMATS });
   const aTrack = await aInput.getPrimaryAudioTrack();
   if (!aTrack) throw new Error('The voice track has no audio');
   const aSource = new EncodedAudioPacketSource(aTrack.codec);
@@ -309,10 +317,11 @@ export async function renderFromPlan(file, plan, audioBlob, logoFile, { onProgre
     for (let i = 0; i < frames; i++) { const s = map((i / fps) * speed); srcTimes.push(s); yield s; }
   }());
 
-  let i = 0, last = null, lastReport = 0;
+  let i = 0, lastReport = 0;
   const loopStart = performance.now();
   let tDecode = 0, tDraw = 0, tEncode = 0, mark = loopStart, distinct = 0;   // where the time goes: waiting for the decoder, drawing, encoding
   for await (const sample of new VideoSampleSink(vTrack).samplesAtTimestamps(times)) {
+    currentSample = sample;
     if (signal.aborted) throw new Error('aborted');
     const t0 = performance.now(); tDecode += t0 - mark;
     const t = i / fps;
@@ -328,10 +337,11 @@ export async function renderFromPlan(file, plan, audioBlob, logoFile, { onProgre
     await vSource.add(t, 1 / fps);
     mark = performance.now(); tEncode += mark - t1;
     if (sample && sample !== last) { last?.close?.(); last = sample; distinct++; }
+    currentSample = null;
     i++;
     if (performance.now() - lastReport > 250) { lastReport = performance.now(); onProgress(0.9 * Math.min(1, i / frames), `Frame ${i}/${frames}`); }
   }
-  last?.close?.();
+  last?.close?.(); last = null;
   if (i < frames * 0.9) throw new Error(`The video could not be read completely (${i}/${frames} frames)`);
   const loopSeconds = (performance.now() - loopStart) / 1000;
 
@@ -349,6 +359,15 @@ export async function renderFromPlan(file, plan, audioBlob, logoFile, { onProgre
   return { blob, stats: { canvas: 'webgl', output: `${W}x${H}`, videoSeconds: +total.toFixed(1), seconds: +seconds.toFixed(1), speed: +(total / seconds).toFixed(2),
     frames: i, videoLoopSeconds: +loopSeconds.toFixed(1), decodeSeconds: +(tDecode / 1000).toFixed(1), drawSeconds: +(tDraw / 1000).toFixed(1), encodeSeconds: +(tEncode / 1000).toFixed(1), samples: distinct,
     source: `${vTrack.displayWidth}x${vTrack.displayHeight} ${vTrack.codec || ''}`, outputMB: +(blob.size / 1048576).toFixed(1) } };
+  } finally {
+    if (currentSample && currentSample !== last) currentSample.close?.();
+    last?.close?.();
+    if (output && output.state !== 'finalized' && output.state !== 'canceled') await output.cancel().catch(() => {});
+    input.dispose();
+    aInput?.dispose();
+    logo?.close?.();
+    try { comp?.canvas.getContext('webgl')?.getExtension('WEBGL_lose_context')?.loseContext(); } catch { /* already lost */ }
+  }
 }
 
 /** Quick check shown before offering the button: WebCodecs H.264 encoding + WebGL + a measured encode speed (no AAC encoder needed). */

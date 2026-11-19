@@ -7,7 +7,7 @@ const thb = (n) => `${Number(n).toLocaleString('en-US', { maximumFractionDigits:
 const when = (iso) => new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 const STATUS = { pending: 'bg-amber-50/50 text-amber-700', approved: 'bg-emerald-50/50 text-emerald-700', rejected: 'bg-rose-100/50 text-rose-600' };
 
-export default function TopUpPage({ apiBase, onChanged }) {
+export default function TopUpPage({ apiBase, onChanged, active = true }) {
   const { tr, trs } = useI18n();
   const [info, setInfo] = useState(null);
   const [error, setError] = useState('');
@@ -19,7 +19,7 @@ export default function TopUpPage({ apiBase, onChanged }) {
   const [sent, setSent] = useState(false);
 
   const load = () => axios.get(`${apiBase}/api/topup`).then((r) => { setInfo(r.data); setError(''); }).catch((e) => setError(trs(e.response?.data?.detail) || e.message));
-  useEffect(() => { load(); }, [apiBase]);
+  useEffect(() => { if (active) load(); }, [apiBase, active]);
   useEffect(() => {
     if (!slip || !slip.type.startsWith('image/')) { setPreview(''); return undefined; }
     const url = URL.createObjectURL(slip);

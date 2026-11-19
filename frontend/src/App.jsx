@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { App as CapacitorApp } from '@capacitor/app';
+import { Capacitor } from '@capacitor/core';
 import { isNative, saveToDevice } from './native.js';
 import axios from 'axios';
 import Editor from './Editor.jsx';
@@ -19,21 +21,22 @@ import DeleteAccountDialog from './DeleteAccountDialog.jsx';
 import PresetPicker from './PresetPicker.jsx';
 import PostBanner from './PostBanner.jsx';
 import { LangSwitch, useI18n } from './i18n.jsx';
-import { deviceCapability, renderFromPlan } from './deviceRenderPlan.js';
 import { loadVideo, markUploaded, saveVideo } from './deviceStore.js';
 import ReviewBox, { reviewSkipped } from './ReviewBox.jsx';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+const loadDeviceRender = () => import('./deviceRenderPlan.js');
 
 // A download link that also works inside the phone app (where <a download> does nothing): there it saves the file and opens the share sheet.
 function DownloadLink({ href, filename, className, children }) {
   const [busy, setBusy] = React.useState(false);
+  const { tr } = useI18n();
   const onClick = async (e) => {
     if (!isNative) return;   // the website keeps the normal browser download
     e.preventDefault();
     if (busy) return;
     setBusy(true);
-    try { await saveToDevice(href, filename); } catch (err) { console.warn('save failed', err); } finally { setBusy(false); }
+    try { await saveToDevice(href, filename); } catch (err) { console.warn('save failed', err); window.alert(tr('Could not save the file. Please try again.')); } finally { setBusy(false); }
   };
   return <a href={href} download={isNative ? undefined : ''} onClick={onClick} className={`${className} ${busy ? 'opacity-60' : ''}`}>{children}</a>;
 }
@@ -201,22 +204,30 @@ function ProcessingPanel({ upload, progress, elapsed, subsOnly, deviceJob }) {
   );
 }
 
-function App() {
+function AppSession({ notice, setNotice, onSessionEnd }) {
   const { tr, trs, lang } = useI18n();
   const [token, setToken] = useState(() => localStorage.getItem('token') || '');
   const [view, setView] = useState('create');   // sidebar page: create | usage
+  const [visitedPages, setVisitedPages] = useState({});
+  const createPageRef = useRef(null);
+  const presetsPageRef = useRef(null);
+  useEffect(() => { setVisitedPages((pages) => pages[view] ? pages : { ...pages, [view]: true }); }, [view]);
+  useEffect(() => {
+    for (const [name, ref] of [['create', createPageRef], ['presets', presetsPageRef]]) {
+      if (view !== name) ref.current?.querySelectorAll('video, audio').forEach((media) => { if (!media.paused) media.pause(); });
+    }
+  }, [view]);
   const [usageKey, setUsageKey] = useState(0);   // bumped when a job ends so the usage page reloads
   const [account, setAccount] = useState(null); // { email, daily_minutes, remaining_seconds }
+  const [menuOpen, setMenuOpen] = useState(false);
   const [showDelete, setShowDelete] = useState(false);   // the "Delete my account" dialog
-  const [notice, setNotice] = useState('');   // why the user was signed out (paused, device removed, ...)
   if (token) axios.defaults.headers.common.Authorization = `Bearer ${token}`;
 
   const logout = (why) => {
     setNotice(typeof why === 'string' ? why : '');
     localStorage.removeItem('token');
     delete axios.defaults.headers.common.Authorization;
-    setToken('');
-    setAccount(null);
+    onSessionEnd();
   };
   const [splash, setSplash] = useState(() => !!localStorage.getItem('token'));   // opening animation (~2 s) for a signed-in user, and after signing in
   const onAuth = (data) => {
@@ -254,11 +265,12 @@ function App() {
   };
   const unlockReq = account?.unlock_request || null;
   useEffect(() => {
+    let active = true;
     const id = axios.interceptors.response.use((r) => r, (err) => {
-      if (err.response?.status === 401 && !String(err.config?.url).includes('/api/auth/')) logout(err.response?.data?.detail);
+      if (active && err.response?.status === 401 && !String(err.config?.url).includes('/api/auth/')) logout(err.response?.data?.detail);
       return Promise.reject(err);
     });
-    return () => axios.interceptors.response.eject(id);
+    return () => { active = false; axios.interceptors.response.eject(id); };
   }, []);
   useEffect(() => { if (token) refreshAccount(); }, [token]);
   const absUrl = (u) => (u.startsWith('http') ? u : API_BASE + u);
@@ -306,37 +318,53 @@ function App() {
   const standard = voiceQuality === 'standard' && standardOk;
   const [playing, setPlaying] = useState(null);
   const audioRef = useRef(null);
+  const audioUrlRef = useRef(null);
+  const audioRequest = useRef(0);
+  const stopAudio = () => {
+    audioRequest.current += 1;
+    audioRef.current?.pause();
+    audioRef.current = null;
+    if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+    audioUrlRef.current = null;
+  };
 
   useEffect(() => {
     axios.get(`${API_BASE}/api/voices`).then((r) => setVoices(r.data)).catch(() => setVoices([]));
     axios.get(`${API_BASE}/api/looks`).then((r) => setLooks(r.data)).catch(() => setLooks([]));
     axios.get(`${API_BASE}/api/voice-quality`).then((r) => { setStandardOk(!!r.data.standard); setSeparationOk(r.data.separation !== false); if (r.data.separation === false) setBgMode((m) => (m === 'separate' ? 'original' : m)); }).catch(() => setStandardOk(false));
-    return () => audioRef.current?.pause();
+    return () => stopAudio();
   }, []);
 
   const playSample = (voice) => {
-    audioRef.current?.pause();
+    stopAudio();
     if (playing === voice.name) {
       setPlaying(null);
       return;
     }
     const audio = new Audio(`${API_BASE}${voice.sample_url}`);
     audio.onended = () => setPlaying(null);
-    audio.play();
+    audio.play().catch(() => setPlaying(null));
     audioRef.current = audio;
     setPlaying(voice.name);
   };
   const [previewing, setPreviewing] = useState(null);
   const previewLine = async (line, voiceName) => {
     if (!jobId) return;
-    audioRef.current?.pause();
+    stopAudio();
+    const request = audioRequest.current;
     setPreviewing(line.key);
     try {
       const { data } = await axios.post(`${API_BASE}/api/jobs/${jobId}/preview-line`, { id: line.id ?? null, text: line.text, voice: voiceName }, { responseType: 'blob', timeout: 120000 });
-      const audio = new Audio(URL.createObjectURL(data));
+      if (!sessionAlive.current || request !== audioRequest.current) return;
+      const url = URL.createObjectURL(data);
+      audioUrlRef.current = url;
+      const audio = new Audio(url);
       audioRef.current = audio;
-      audio.play();
+      audio.onended = () => { if (audioUrlRef.current === url) stopAudio(); };
+      await audio.play();
     } catch (err) {
+      if (request !== audioRequest.current || !sessionAlive.current) return;
+      stopAudio();
       let msg = err.message;
       try { msg = JSON.parse(await err.response.data.text()).detail || msg; } catch { /* keep */ }
       window.alert(trs(msg));
@@ -365,7 +393,12 @@ function App() {
   const [useDevice, setUseDevice] = useState(true);      // on by default; only shown / sent when this device passes the capability test. "Render on my device (faster, beta)"
   const [queue, setQueue] = useState(null);              // server queue: { busy, wait_seconds }
   const lastDevice = useRef(false);                      // the shown result was drawn on this device (re-renders then do the same)
-  useEffect(() => { deviceCapability().then(setDeviceCap).catch(() => {}); }, []);
+  useEffect(() => {
+    if (!token) return undefined;
+    let active = true;
+    loadDeviceRender().then(({ deviceCapability }) => deviceCapability()).then((cap) => { if (active) setDeviceCap(cap); }).catch(() => {});
+    return () => { active = false; };
+  }, [token]);
   useEffect(() => {
     if (!token) return undefined;   // also tells the page when the admin turned maintenance mode on
     const load = () => axios.get(`${API_BASE}/api/queue`).then((r) => setQueue(r.data)).catch(() => {});
@@ -411,12 +444,21 @@ function App() {
   const [elapsed, setElapsed] = useState(0);
   const [sourceUrl, setSourceUrl] = useState('');
   const cancelled = useRef(false);
+  const sessionAlive = useRef(true);
+  const activeRenderSignal = useRef(null);
+  const pollAbort = useRef(null);
+  useEffect(() => {
+    sessionAlive.current = true;
+    return () => { sessionAlive.current = false; cancelled.current = true; pollAbort.current?.abort(); if (activeRenderSignal.current) activeRenderSignal.current.aborted = true; };
+  }, []);
 
   // UI Processing & Result State
   const [loading, setLoading] = useState(false);
   const [resultVideoUrl, setResultVideoUrl] = useState('');
   const [resultDownloadUrl, setResultDownloadUrl] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+
+  useEffect(() => () => { if (resultVideoUrl.startsWith('blob:')) URL.revokeObjectURL(resultVideoUrl); }, [resultVideoUrl]);
 
   useEffect(() => {
     if (!videoFile) { setSourceUrl(''); return undefined; }
@@ -638,6 +680,8 @@ function App() {
 
   const cancelJob = async () => {
     cancelled.current = true;
+    pollAbort.current?.abort();
+    if (activeRenderSignal.current) activeRenderSignal.current.aborted = true;
     if (activeJob.current) {
       try { await axios.post(`${API_BASE}/api/jobs/${activeJob.current}/cancel`); } catch (e) { /* the loop below stops anyway */ }
     }
@@ -663,6 +707,7 @@ function App() {
   const [copyNote, setCopyNote] = useState('');
   const [reviewJob, setReviewJob] = useState('');   // id of the finished video the optional star rating is offered for ('' = none)
   const uploadDeviceVideo = async (id, blob) => {
+    if (!sessionAlive.current) return;
     try {
       const form = new FormData();
       form.append('video', blob, `recat_${id}.mp4`);
@@ -679,12 +724,13 @@ function App() {
   const keepDeviceVideo = async (id, blob) => {
     setCopyNote(tr('Saving a copy to My videos: {n}%', { n: 0 }));
     await saveVideo(id, blob);
-    await uploadDeviceVideo(id, blob);
+    if (sessionAlive.current) await uploadDeviceVideo(id, blob);
   };
 
   // Draw the video on this device from the server's plan. Returns the video's blob URL, or null after handing the job to the server.
   const finishOnDevice = async (job, result) => {
     const signal = { aborted: false };
+    activeRenderSignal.current = signal;
     // Phones and tablets suspend a hidden page (the decoder dies), so the render is stopped and the server takes over.
     // A computer keeps a hidden tab running: there the render simply continues (2026-11-15: a Windows PC lost two renders to a tab switch).
     const handheld = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
@@ -697,7 +743,10 @@ function App() {
       setProgress({ pct: 0, device: true, stage: tr('Making the picture on your device: keep this screen open') });
       document.addEventListener('visibilitychange', onHide);
       try { lock = await navigator.wakeLock?.request('screen'); } catch (e) { /* optional */ }
-      const audioBlob = await (await fetch(absUrl(result.audio_url))).blob();
+      const audioResponse = await fetch(absUrl(result.audio_url));
+      if (!audioResponse.ok) throw new Error(`Audio download failed (${audioResponse.status})`);
+      const audioBlob = await audioResponse.blob();
+      const { renderFromPlan } = await loadDeviceRender();
       const run = () => renderFromPlan(videoFile, result.device_plan, audioBlob, customLogo, {
         signal,
         onProgress: (p) => { if (cancelled.current) signal.aborted = true; setProgress({ pct: Math.round(p * 100), device: true, stage: tr('Making the picture on your device: keep this screen open') }); },
@@ -712,6 +761,7 @@ function App() {
       if (cancelled.current) { const err = new Error('Cancelled'); err.cancelled = true; throw err; }
       error = String(e?.message || e).slice(0, 300);
     } finally {
+      if (activeRenderSignal.current === signal) activeRenderSignal.current = null;
       document.removeEventListener('visibilitychange', onHide);
       try { await lock?.release(); } catch (e) { /* ignore */ }
     }
@@ -730,11 +780,16 @@ function App() {
     let job;
     activeJob.current = id;
     const stopped = () => Object.assign(new Error('Cancelled'), { cancelled: true });
-    if (cancelled.current) { await cancelJob(); throw stopped(); } // Cancel was pressed while the job was being created
+    if (cancelled.current) { if (sessionAlive.current) await cancelJob(); throw stopped(); } // Cancel was pressed while the job was being created
     do {
       await new Promise((resolve) => setTimeout(resolve, 1500));
       if (cancelled.current) throw stopped();
-      ({ data: job } = await axios.get(`${API_BASE}/api/jobs/${id}`));
+      const controller = new AbortController();
+      pollAbort.current = controller;
+      try { ({ data: job } = await axios.get(`${API_BASE}/api/jobs/${id}`, { signal: controller.signal })); }
+      catch (error) { if (cancelled.current) throw stopped(); throw error; }
+      finally { if (pollAbort.current === controller) pollAbort.current = null; }
+      if (!sessionAlive.current || cancelled.current) throw stopped();
       const waiting = job.status === 'queued' && job.queue_position
         ? (job.eta_seconds
           ? tr('Waiting in line: you are #{n}, about {m} min', { n: job.queue_position, m: Math.max(1, Math.ceil(job.eta_seconds / 60)) })
@@ -825,13 +880,28 @@ function App() {
     }
   };
 
+  useEffect(() => {
+    if (!isNative || Capacitor.getPlatform() !== 'android' || !token) return undefined;
+    let disposed = false;
+    let handle;
+    CapacitorApp.addListener('backButton', () => {
+      if (showDelete) setShowDelete(false);
+      else if (showLibrary) setShowLibrary(false);
+      else if (menuOpen) setMenuOpen(false);
+      else if (view !== 'create') setView('create');
+      else if (step > 1) setStep((n) => n - 1);
+      else CapacitorApp.minimizeApp().catch(() => {});
+    }).then((listener) => { if (disposed) listener.remove(); else handle = listener; }).catch(() => {});
+    return () => { disposed = true; handle?.remove(); };
+  }, [token, view, step, showLibrary, showDelete, menuOpen]);
+
   if (!token) return <AuthScreen onAuth={onAuth} notice={notice} />;
 
   // the admin turned maintenance mode on: the Create page shows a notice instead of the form (a video in progress or just finished stays on screen)
   const maintenance = !!queue?.maintenance && !loading && !resultVideoUrl;
 
   return (
-    <Shell view={view} setView={setView} account={account} onLogout={() => logout()} onDeleteAccount={() => setShowDelete(true)}>
+    <Shell view={view} setView={setView} menuOpen={menuOpen} onMenuChange={setMenuOpen} account={account} onLogout={() => logout()} onDeleteAccount={() => setShowDelete(true)}>
       {showDelete && <DeleteAccountDialog apiBase={API_BASE} onClose={() => setShowDelete(false)} onDeleted={() => { setShowDelete(false); logout(tr('Your account was deleted. Thank you for using Recat.')); }} />}
       {splash && <Splash onDone={() => setSplash(false)} />}
       {dragOver && view === 'create' && (
@@ -854,7 +924,7 @@ function App() {
           <p className="mt-2 text-sm sm:text-base text-ink-soft">{tr('Please try again later.')}</p>
         </div>
       )}
-      <div className={view === 'create' && !maintenance ? '' : 'hidden'}>
+      <div ref={createPageRef} className={view === 'create' && !maintenance ? '' : 'hidden'}>
       {/* top banner: our own "What are we recapping today?" card first, then the pictures the admin posted (Posts), swiped sideways.
           Every slide is 16:9, the shape the admin uploads. */}
       <PostBanner apiBase={API_BASE} className={`max-w-3xl mx-auto mb-5 ${step > 1 ? 'hidden' : ''}`}>
@@ -1394,12 +1464,16 @@ function App() {
 
       </div>
       </div>
-      {view === 'history' && <HistoryPage apiBase={API_BASE} refreshKey={usageKey} onOpen={openJob} />}
-      {view === 'topup' && !isNative && <TopUpPage apiBase={API_BASE} onChanged={refreshAccount} />}
-      {view === 'usage' && <UsageDashboard apiBase={API_BASE} refreshKey={usageKey} />}
-      {view === 'presets' && <PresetsPage apiBase={API_BASE} onUse={(p) => { applyPreset(p); setView('create'); }} />}
+      {(view === 'history' || visitedPages.history) && <div hidden={view !== 'history'}><HistoryPage apiBase={API_BASE} active={view === 'history'} refreshKey={usageKey} onOpen={openJob} /></div>}
+      {!isNative && (view === 'topup' || visitedPages.topup) && <div hidden={view !== 'topup'}><TopUpPage apiBase={API_BASE} active={view === 'topup'} onChanged={refreshAccount} /></div>}
+      {(view === 'usage' || visitedPages.usage) && <div hidden={view !== 'usage'}><UsageDashboard apiBase={API_BASE} active={view === 'usage'} refreshKey={usageKey} /></div>}
+      {(view === 'presets' || visitedPages.presets) && <div ref={presetsPageRef} hidden={view !== 'presets'}><PresetsPage apiBase={API_BASE} active={view === 'presets'} onUse={(p) => { applyPreset(p); setView('create'); }} /></div>}
     </Shell>
   );
 }
 
-export default App;
+export default function App() {
+  const [generation, setGeneration] = useState(0);
+  const [notice, setNotice] = useState('');
+  return <AppSession key={generation} notice={notice} setNotice={setNotice} onSessionEnd={() => setGeneration((n) => n + 1)} />;
+}

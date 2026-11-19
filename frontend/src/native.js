@@ -20,20 +20,45 @@ const toBase64 = (blob) => new Promise((resolve, reject) => {
 // Saves a video / subtitle file (a https: address or a blob: address) and opens the system share sheet,
 // where the user taps "Save Video" / "Save to Files". WKWebView ignores <a download>, so the web way does not work there.
 export async function saveToDevice(url, filename, title) {
-  const blob = await (await fetch(url)).blob();
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Download failed (${response.status})`);
   const path = `recat_${Date.now()}_${filename}`;
-  for (let off = 0, first = true; off < blob.size; off += CHUNK, first = false) {
-    const data = await toBase64(blob.slice(off, off + CHUNK));
-    if (first) await Filesystem.writeFile({ path, data, directory: Directory.Cache });
-    else await Filesystem.appendFile({ path, data, directory: Directory.Cache });
-  }
-  if (blob.size === 0) await Filesystem.writeFile({ path, data: '', directory: Directory.Cache });
-  const { uri } = await Filesystem.getUri({ path, directory: Directory.Cache });
+  let first = true;
+  let shared = false;
+  let reader;
   try {
+    const write = async (blob) => {
+      const data = await toBase64(blob);
+      if (first) await Filesystem.writeFile({ path, data, directory: Directory.Cache });
+      else await Filesystem.appendFile({ path, data, directory: Directory.Cache });
+      first = false;
+    };
+    if (response.body?.getReader) {
+      reader = response.body.getReader();
+      let parts = [], size = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        for (let offset = 0; offset < value.length;) {
+          const take = Math.min(CHUNK - size, value.length - offset);
+          parts.push(value.subarray(offset, offset + take)); size += take; offset += take;
+          if (size === CHUNK) { await write(new Blob(parts)); parts = []; size = 0; }
+        }
+      }
+      if (size) await write(new Blob(parts));
+    } else {
+      // Older WebViews may not expose streaming responses.
+      const blob = await response.blob();
+      for (let off = 0; off < blob.size; off += CHUNK) await write(blob.slice(off, off + CHUNK));
+    }
+    if (first) await Filesystem.writeFile({ path, data: '', directory: Directory.Cache });
+    const { uri } = await Filesystem.getUri({ path, directory: Directory.Cache });
     await Share.share({ title: title || filename, files: [uri], dialogTitle: title || filename });
+    shared = true;
   } finally {
-    // the shared copy is only needed while the share sheet is open
-    setTimeout(() => { Filesystem.deleteFile({ path, directory: Directory.Cache }).catch(() => {}); }, 120000);
+    if (reader) { if (!shared) await reader.cancel().catch(() => {}); reader.releaseLock(); }
+    const remove = () => { Filesystem.deleteFile({ path, directory: Directory.Cache }).catch(() => {}); };
+    if (shared) setTimeout(remove, 120000); else remove();
   }
 }
 

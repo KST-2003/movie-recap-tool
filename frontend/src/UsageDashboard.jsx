@@ -88,18 +88,19 @@ function DayChart({ days, limit }) {
   );
 }
 
-export default function UsageDashboard({ apiBase, refreshKey }) {
+export default function UsageDashboard({ apiBase, refreshKey, active = true }) {
   const { tr } = useI18n();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   useEffect(() => {
+    if (!active) return undefined;
     let live = true;
     setError('');
     axios.get(`${apiBase}/api/usage`).then((r) => live && setData(r.data)).catch((e) => live && setError(e.response?.data?.detail || e.message));
     return () => { live = false; };
-  }, [apiBase, refreshKey]);
+  }, [apiBase, refreshKey, active]);
 
-  if (error) return <div className="max-w-4xl mx-auto p-4 rounded-2xl bg-rose-50/50 border border-rose-200 text-rose-600 text-sm">{error}</div>;
+  if (error && !data) return <div className="max-w-4xl mx-auto p-4 rounded-2xl bg-rose-50/50 border border-rose-200 text-rose-600 text-sm">{error}</div>;
   if (!data) return <div className="max-w-4xl mx-auto text-sm text-ink-soft p-4">{tr('Loading…')}</div>;
 
   const dayReset = new Date(data.resets.day).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -110,6 +111,7 @@ export default function UsageDashboard({ apiBase, refreshKey }) {
 
   return (
     <div className="max-w-4xl mx-auto space-y-4 stagger">
+      {error && <div role="alert" className="p-4 rounded-2xl bg-rose-50/50 text-rose-600 text-sm">{error}</div>}
       <h2 className="text-xl font-bold text-ink">{tr('My usage')}</h2>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger">

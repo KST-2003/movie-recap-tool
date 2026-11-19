@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import App from './App.jsx';
 import { deviceCapability, renderFromPlan } from './deviceRenderPlan.js';
+import { loadVideo } from './deviceStore.js';
 
 vi.mock('axios', () => ({ default: { get: vi.fn(), post: vi.fn(), defaults: { headers: { common: {} } }, interceptors: { response: { use: vi.fn(), eject: vi.fn() } } } }));
 vi.mock('./deviceRenderPlan.js', () => ({ deviceCapability: vi.fn(async () => ({ ok: false })), renderFromPlan: vi.fn() }));
@@ -30,6 +31,24 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('login', () => {
+  it('clears the previous user video and ignores a stale 401 after logout', async () => {
+    localStorage.setItem('token', 'old-token');
+    axios.post.mockResolvedValue({ data: { token: 'new-token', email: 'new-user', remaining_seconds: 600 } });
+    const user = userEvent.setup();
+    const { container } = render(<App />);
+    const oldInterceptor = axios.interceptors.response.use.mock.calls[0][1];
+    await user.upload(container.querySelector('input[accept="video/*"]'), new File(['video'], 'private.mp4', { type: 'video/mp4' }));
+    expect(screen.getByRole('button', { name: 'Remove video' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Menu' }));
+    await user.click(screen.getAllByRole('button', { name: 'Log out' }).at(-1));
+    await user.type(screen.getByPlaceholderText('Username'), 'new-user');
+    await user.type(screen.getByPlaceholderText('Password'), 'secret');
+    await user.click(screen.getByRole('button', { name: 'Log in' }));
+    expect(await screen.findByText('Upload video')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Remove video' })).toBeNull();
+    await expect(oldInterceptor({ response: { status: 401 }, config: { url: '/api/jobs' } })).rejects.toBeTruthy();
+    expect(localStorage.getItem('token')).toBe('new-token');
+  });
   it('requires both fields and shows the loading state and successful login', async () => {
     let resolve;
     axios.post.mockReturnValue(new Promise((r) => { resolve = r; }));
@@ -56,6 +75,30 @@ describe('login', () => {
     await user.type(screen.getByPlaceholderText('Password'), 'wrong');
     await user.click(screen.getByRole('button', { name: 'Log in' }));
     expect(await screen.findByText('Invalid credentials')).toBeTruthy();
+  });
+});
+
+describe('page navigation', () => {
+  it('shows cached history immediately when returning while refreshing in the background', async () => {
+    localStorage.setItem('token', 'test-token');
+    const baseGet = axios.get.getMockImplementation();
+    let historyCalls = 0;
+    axios.get.mockImplementation((url) => {
+      if (url.includes('/api/jobs?')) {
+        historyCalls += 1;
+        if (historyCalls > 1) return new Promise(() => {});
+        return Promise.resolve({ data: { items: [], total: 0, per_page: 15, keep_result_days: 14, keep_source_days: 7 } });
+      }
+      return baseGet(url);
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getAllByRole('button', { name: 'My videos' }).at(-1));
+    expect(await screen.findByText('No videos yet.')).toBeTruthy();
+    await user.click(screen.getAllByRole('button', { name: 'Create video' }).at(-1));
+    await user.click(screen.getAllByRole('button', { name: 'My videos' }).at(-1));
+    expect(screen.getByText('No videos yet.')).toBeTruthy();
+    expect(historyCalls).toBeGreaterThan(1);
   });
 });
 
@@ -104,6 +147,22 @@ describe('video creation', () => {
 });
 
 describe('job states', () => {
+  it('releases a locally opened result when the session ends', async () => {
+    localStorage.setItem('token', 'test-token');
+    loadVideo.mockResolvedValue({ blob: new Blob(['video']), uploaded: true });
+    const baseGet = axios.get.getMockImplementation();
+    const row = { id: 'local1', title: 'Saved video', status: 'done', video_available: true, created_at: '2026-01-01T00:00:00Z', expires_at: '2099-01-01T00:00:00Z', minutes: 1 };
+    axios.get.mockImplementation((url) => url.includes('/api/jobs?') ? Promise.resolve({ data: { items: [row], total: 1, per_page: 15 } }) : url.endsWith('/api/jobs/local1') ? Promise.resolve({ data: { id: 'local1', result: { device_plan: {}, subtitle_url: '/captions.srt', timeline: [] } } }) : baseGet(url));
+    window.scrollTo = vi.fn();
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getAllByRole('button', { name: 'My videos' }).at(-1));
+    await user.click(await screen.findByRole('button', { name: 'Open' }));
+    expect(await screen.findByRole('link', { name: /Download video/ })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Menu' }));
+    await user.click(screen.getAllByRole('button', { name: 'Log out' }).at(-1));
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:test');
+  });
   async function startVideo() {
     localStorage.setItem('token', 'test-token');
     const user = userEvent.setup();
@@ -169,7 +228,7 @@ describe('job states', () => {
   it('falls back to a server render when device rendering fails', async () => {
     deviceCapability.mockResolvedValue({ ok: true });
     renderFromPlan.mockRejectedValue(new Error('device failed'));
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ blob: async () => new Blob(['audio']) });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, blob: async () => new Blob(['audio']) });
     const baseGet = axios.get.getMockImplementation();
     axios.post.mockImplementation(async (url) => ({ data: { job_id: url.endsWith('/rerender') ? 'job2' : 'job1' } }));
     axios.get.mockImplementation((url) => url.endsWith('/api/jobs/job1')
