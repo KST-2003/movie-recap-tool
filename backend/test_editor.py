@@ -116,7 +116,8 @@ print("rewrite requests (lines each):", rewrite_calls)
 assert len(rewrite_calls) <= 8 and max(rewrite_calls) >= 3, "lines must be rewritten in bulk, not one request per line"
 print("fitted durations:", [(s["id"], s["audio_dur"], s.get("slot")) for s in s3])
 assert s3[2]["audio_dur"] > proj["segments"][2]["audio_dur"] + 0.3, "short line must be lengthened"
-assert s3[1]["audio_dur"] < proj["segments"][1]["audio_dur"] / 2, "long line must be shortened"
+# line 1 was 2.6x its scene: it is cut to ~1.4x (the target), not all the way to 0.95x (the old rule; details: test_fit_stretch.py)
+assert s3[1]["audio_dur"] < proj["segments"][1]["audio_dur"] * 0.7 and s3[1]["audio_dur"] > 3.0 * 1.2, "long line must be shortened, but only to what the timeline can carry"
 assert all(s["applied_tempo"] <= 1.05 for s in s3[1:3]), "no voice speed-up needed after fitting"
 
 # 3c. time budget: with no time left the optional fitting is skipped, the job still finishes
