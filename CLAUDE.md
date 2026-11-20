@@ -739,6 +739,8 @@ A push whose changed files are all documentation (e.g. only `CLAUDE.md`) changes
 
 ## 8. Changelog
 
+- 2026-11-20: Added local, Git-ignored Android upload-key configuration for signed release bundles; see `frontend/android/RELEASE.md`.
+
 - 2026-11-19: audit finding 6, limiter part, fixed and deployed (backend `auth.py`, `main.py`, new `ratelimit.py`, `.env.example`; no web rebuild; backup `/opt/movie-recap/backend-backup-20261119-2137`): `backend/ratelimit.py` (per IP / per account / per account + IP budgets counted before the password check, refunds on success, own budgets for sign-up and "delete my account"), dummy hash for unknown names, 256-character password cap; `test_ratelimit.py`; `.env.example` documents the settings. Admin sessions / allow-list / cookies of #6 are still open.
 
 - 2026-11-19: the status-bar changes were REVERTED at the owner's request: code (`fe92352`, pushed), web apps redeployed (user app `main-CBg8EeGo.js`, admin rebuilt; backup `/opt/movie-recap/web-backup-20261119-1817`), OTA manifest restored to `ota-202611190802` (the rollback steps of "Publishing an OTA bundle from Windows" were used and verified: fresh install / the 1108 bundle are offered 0802, 0802 gets "no new version", download checksum = manifest, no strip inside). The APK built earlier that day (`app-debug.apk`, 17:53) still contains the fix in its built-in bundle, but any phone replaces it with the server's OTA bundle.
