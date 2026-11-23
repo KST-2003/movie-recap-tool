@@ -16,7 +16,6 @@ from fastapi.testclient import TestClient  # noqa: E402
 import auth, guard, main  # noqa: E402
 from db import Session, User  # noqa: E402
 
-main.auth.rate_limit = lambda request: None
 MB = 1024 * 1024
 
 

@@ -17,10 +17,11 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from datetime import timedelta, timezone
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 
 import alerts
 import auth
+import ratelimit
 from admin import router as admin_router, settings as runtime_settings
 import capacity
 import eta
@@ -36,7 +37,7 @@ import reviews
 import unlock
 from common import media_duration, real_media_duration, tts_provider
 from guard import RequestGuard
-from db import Job, Session, User, active_jobs, failure_wait_seconds, keeps_minutes, month_start, refund_credit, user_role, used_seconds_month, used_seconds_today, utcnow
+from db import Job, PreviewRequest, Session, User, admission_session, active_jobs, failure_wait_seconds, keeps_minutes, month_start, refund_credit, user_role, used_seconds_month, used_seconds_today, utcnow
 from voices import VOICES, VOICE_NAMES
 
 import logging
@@ -157,7 +158,7 @@ def _quota(user: User) -> dict:
 
 @app.post("/api/auth/register")
 def register(body: Credentials, request: Request):
-    auth.rate_limit(request)
+    ratelimit.register_attempt(auth.client_ip(request))   # its own budget (ratelimit.py), separate from the login budgets
     if not ALLOW_SIGNUP:
         raise HTTPException(status_code=403, detail="Sign-ups are closed.")
     email = body.email.strip().lower()
@@ -165,6 +166,8 @@ def register(body: Credentials, request: Request):
         raise HTTPException(status_code=400, detail="Enter a valid email address.")
     if len(body.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+    if len(body.password) > ratelimit.MAX_PASSWORD_CHARS:
+        raise HTTPException(status_code=400, detail=f"Password can be at most {ratelimit.MAX_PASSWORD_CHARS} characters.")
     with Session() as s:
         if s.execute(select(User).where(User.email == email)).scalar_one_or_none():
             raise HTTPException(status_code=409, detail="That email is already registered.")
@@ -179,11 +182,17 @@ def register(body: Credentials, request: Request):
 
 @app.post("/api/auth/login")
 def login(body: Credentials, request: Request):
-    auth.rate_limit(request)
+    keys = ratelimit.login_attempt(auth.client_ip(request), body.email)   # counted BEFORE the password is checked: 429 when a budget is used up
     with Session() as s:
         user = s.execute(select(User).where(User.email == body.email.strip().lower())).scalar_one_or_none()
-        if not user or not auth.verify_password(body.password, user.password_hash):
+        if len(body.password) > ratelimit.MAX_PASSWORD_CHARS:   # no account has such a password: refuse without the slow hash
             raise HTTPException(status_code=401, detail="Wrong username or password.")
+        if user is None:
+            auth.verify_password(body.password, auth.DUMMY_HASH)   # as much work as a real check, so the time does not reveal which names exist
+            raise HTTPException(status_code=401, detail="Wrong username or password.")
+        if not auth.verify_password(body.password, user.password_hash):
+            raise HTTPException(status_code=401, detail="Wrong username or password.")
+        ratelimit.login_succeeded(keys)   # the password was right: the attempt is given back and the account's counters are cleared
         if user.status != "active":   # the password was right, so it is safe to say why the login does not work
             raise HTTPException(status_code=403, detail=auth.STATUS_MESSAGES.get(user.status, "Account unavailable."))
         if auth.expired(user):
@@ -211,14 +220,16 @@ def delete_my_account(body: DeleteAccountBody, user: User = Depends(auth.current
     Bought minutes that are left are lost (no refund). Admin accounts are deleted by the owner, not here."""
     from admin.routes import purge_user_data, remove_user_files, _audit_self
     from db import Review
+    check = ratelimit.password_check_attempt(user.id)   # a stolen session must not be able to guess the password here (5 tries / 15 min)
     with Session() as s:
         u = s.get(User, user.id)
         if u is None:
             raise HTTPException(status_code=404, detail="Unknown user")
         if u.is_admin or u.is_superadmin:
             raise HTTPException(status_code=400, detail="Admin accounts are deleted by the owner. Please contact them.")
-        if not auth.verify_password(body.password, u.password_hash):
+        if len(body.password) > ratelimit.MAX_PASSWORD_CHARS or not auth.verify_password(body.password, u.password_hash):
             raise HTTPException(status_code=403, detail="That password is not correct.")
+        ratelimit.password_check_ok(check)
         jobs, topups, files, slips = purge_user_data(s, u, "A video is still being made. Cancel it or wait until it finishes, then delete your account.")
         for r in s.execute(select(Review).where(Review.user_id == u.id)).scalars().all():
             r.user_label = "(deleted account)"
@@ -592,7 +603,10 @@ def create_job(
         if mismatch:
             params = {**params, "length_mismatch": mismatch}
         job_id = uuid.uuid4().hex[:12]
-        with Session() as s:
+        with admission_session() as s:
+            if active_jobs(s, user.id) >= MAX_ACTIVE_JOBS_PER_USER:
+                raise HTTPException(status_code=429, detail="You already have videos processing. Wait for one to finish.")
+            user = s.get(User, user.id)
             month_used, used = used_seconds_month(s, user.id), used_seconds_today(s, user.id)
             free = max(0.0, min(user.daily_minutes * 60 - used, user.monthly_minutes * 60 - month_used))   # allowance left right now
             credit_part = max(0.0, seconds - free)   # what the allowance cannot cover is paid with bought minutes
@@ -604,21 +618,19 @@ def create_job(
             cap = runtime_settings.global_daily_minutes()
             if cap and used_seconds_today(s, None, True) + seconds > cap * 60:
                 raise HTTPException(status_code=503, detail="We've reached today's capacity. Please try again tomorrow.")
-            with capacity.lock:   # decide + create the job as one step, so a burst of uploads cannot all be admitted
-                verdict = capacity.decide(s, seconds, params.get("output"), params.get("voice_quality"))
-                if not verdict["ok"]:
-                    capacity.refuse(verdict["reason"], params.get("voice_quality"))
-                params = {**params, "reserved_model": verdict["model"], "reserved_requests": verdict["requests"]}
-                input_key = storage.put(video_path, "uploads")
-                logo_key = storage.put(logo_path, "logos") if logo_path else None
-                if credit_part > 0:   # take the bought minutes in the same step (a second upload at the same moment cannot spend them twice)
-                    taken = s.execute(update(User).where(User.id == user.id, User.credit_seconds >= credit_part - 1e-6)
-                                      .values(credit_seconds=User.credit_seconds - credit_part)).rowcount
-                    if not taken:
-                        raise HTTPException(status_code=402, detail="Your available minutes are not enough for this video. Please top up minutes to make it.")
-                s.add(Job(id=job_id, user_id=user.id, status="queued", params=params, data={},
-                          input_key=input_key, logo_key=logo_key, charged_seconds=seconds - credit_part, credit_seconds=credit_part))
-                s.commit()
+            verdict = capacity.decide(s, seconds, params.get("output"), params.get("voice_quality"))
+            if not verdict["ok"]:
+                capacity.refuse(verdict["reason"], params.get("voice_quality"))
+            params = {**params, "reserved_model": verdict["model"], "reserved_requests": verdict["requests"]}
+            input_key = storage.put(video_path, "uploads")
+            logo_key = storage.put(logo_path, "logos") if logo_path else None
+            if credit_part > 0:   # take the bought minutes in the same step (a second upload at the same moment cannot spend them twice)
+                taken = s.execute(update(User).where(User.id == user.id, User.credit_seconds >= credit_part - 1e-6)
+                                  .values(credit_seconds=User.credit_seconds - credit_part)).rowcount
+                if not taken:
+                    raise HTTPException(status_code=402, detail="Your available minutes are not enough for this video. Please top up minutes to make it.")
+            s.add(Job(id=job_id, user_id=user.id, status="queued", params=params, data={},
+                      input_key=input_key, logo_key=logo_key, charged_seconds=seconds - credit_part, credit_seconds=credit_part))
     except Exception:
         for p in (video_path, logo_path):
             if p and os.path.exists(p):
@@ -965,9 +977,9 @@ def rerender_quote(s, user_id: int, job: Job, project: dict) -> dict:
     """What the next editor re-render of this video costs: the first FREE_RERENDERS are free, then RERENDER_PERCENT % of the video's minutes
     (rounded up, at least 1 minute). Counted per source video; the server fallback of a failed device render is not counted."""
     import math
-    rows = s.execute(select(Job).where(Job.user_id == user_id, Job.input_key == job.input_key,
-                                       Job.status.in_(("queued", "running", "done")))).scalars().all()
-    used = sum(1 for j in rows if (j.params or {}).get("edit") and not (j.params or {}).get("fallback"))
+    rows = s.execute(select(Job).where(Job.user_id == user_id, Job.input_key == job.input_key)).scalars().all()
+    used = sum(1 for j in rows if (j.params or {}).get("edit") and not (j.params or {}).get("fallback")
+               and (j.status in ("queued", "running", "done") or (j.data or {}).get("started_at")))
     free_left = max(0, FREE_RERENDERS - used)
     minutes = float(project.get("source_duration") or 0) / 60.0
     cost_min = 0 if free_left > 0 else max(1, math.ceil(RERENDER_PERCENT / 100.0 * minutes - 1e-9))
@@ -1014,7 +1026,19 @@ def rerender(job_id: str, body: RerenderBody, user: User = Depends(auth.current_
     lines = sorted((l for l in body.segments if l.text.strip()), key=lambda l: l.start)
     if not lines or lines[-1].start > limit:
         raise HTTPException(status_code=400, detail="Line times must be inside the video.")
+    if body.fallback:
+        result = (job.data or {}).get("result") or {}
+        expected = [EditLine(id=g.get("id"), start=g["start"], text=g["text"],
+                             source_text=g.get("source_text") or "", tempo=g.get("tempo") or None,
+                             speaker=g.get("speaker") or None).model_dump() for g in project["segments"]]
+        unchanged = [line.model_dump() for line in body.segments] == expected
+        overrides = (body.voice_type, body.speaker_voices, body.blur_subtitles, body.enable_subtitles,
+                     body.remove_watermark, body.enable_flip, body.bg_volume, body.caption_style, body.blur_windows)
+        if not result.get("device_plan") or body.device_render is not False or not unchanged or any(v is not None for v in overrides):
+            raise HTTPException(status_code=400, detail="A free fallback is only available for an unchanged device-rendered video.")
     params = dict(job.params or {})
+    params.pop("fallback", None)
+    params.pop("fallback_source", None)
     params["voice_type"] = voice
     for key in ("blur_subtitles", "enable_subtitles", "remove_watermark", "enable_flip", "bg_volume", "device_render"):
         if getattr(body, key) is not None:
@@ -1054,7 +1078,15 @@ def rerender(job_id: str, body: RerenderBody, user: User = Depends(auth.current_
     new_id = uuid.uuid4().hex[:12]
     if body.fallback:
         params["fallback"] = True
-    with Session() as s:
+        params["fallback_source"] = job_id
+    with admission_session() as s:
+        if active_jobs(s, user.id) >= MAX_ACTIVE_JOBS_PER_USER:
+            raise HTTPException(status_code=429, detail="You already have videos processing. Wait for one to finish.")
+        user = s.get(User, user.id)
+        if body.fallback:
+            previous = s.execute(select(Job.params).where(Job.user_id == user.id, Job.input_key == job.input_key)).scalars()
+            if any((p or {}).get("fallback_source") == job_id for p in previous):
+                raise HTTPException(status_code=409, detail="The free fallback for this video has already been used.")
         cost = 0.0 if body.fallback else float(rerender_quote(s, user.id, job, project)["cost_seconds"])
         charged = credit_part = 0.0
         if cost > 0:   # after the free re-renders: allowance first, then bought minutes (same order as a new video)
@@ -1069,7 +1101,6 @@ def rerender(job_id: str, body: RerenderBody, user: User = Depends(auth.current_
                     raise HTTPException(status_code=402, detail="Your available minutes are not enough for this edit. Please top up minutes to make it.")
         s.add(Job(id=new_id, user_id=user.id, status="queued", params=params, data={},
                   input_key=job.input_key, logo_key=job.logo_key, charged_seconds=charged, credit_seconds=credit_part))
-        s.commit()
     jobs_queue.enqueue(new_id)
     return {"job_id": new_id}
 
@@ -1080,27 +1111,26 @@ class PreviewBody(BaseModel):
     voice: str = Field(max_length=40)      # voice name to hear it in (e.g. the voice of the character you picked)
 
 
-_preview_times: dict[int, list[float]] = {}
-
-
 @app.post("/api/jobs/{job_id}/preview-line")
 def preview_line(job_id: str, body: PreviewBody, user: User = Depends(auth.current_user)):
-    """Hear ONE line in a chosen voice before pressing Apply: one TTS request, cached for the render."""
+    """Hear ONE line in a chosen voice before pressing Apply: one TTS request, cached for the render. The per-minute limit is kept in the
+    database (PreviewRequest), so it is shared by all API processes."""
     auth.refuse_trial(user)
     if not looks.valid(body.voice):
         raise HTTPException(status_code=400, detail=f"Unknown voice: {body.voice}")
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="This line has no text.")
-    now = time.time()
-    recent = [t for t in _preview_times.get(user.id, []) if now - t < 60]
-    if len(recent) >= 12:
-        raise HTTPException(status_code=429, detail="Too many previews. Wait a moment.")
-    _preview_times[user.id] = recent + [now]
-    with Session() as s:
+    with admission_session() as s:
         job = s.get(Job, job_id)
-    project = ((job.data or {}).get("result") or {}).get("project") if job and job.user_id == user.id else None
-    if not project:
-        raise HTTPException(status_code=404, detail="Unknown job")
+        project = ((job.data or {}).get("result") or {}).get("project") if job and job.user_id == user.id else None
+        if not project:
+            raise HTTPException(status_code=404, detail="Unknown job")
+        cutoff = utcnow() - timedelta(seconds=60)
+        s.execute(delete(PreviewRequest).where(PreviewRequest.created_at < cutoff))
+        count = s.execute(select(func.count()).select_from(PreviewRequest).where(PreviewRequest.user_id == user.id)).scalar_one()
+        if count >= 12:
+            raise HTTPException(status_code=429, detail="Too many previews. Wait a moment.")
+        s.add(PreviewRequest(user_id=user.id))
     _refuse_if_voice_limit()
     src = next((sg for sg in project["segments"] if sg["id"] == body.id), None) if body.id is not None else None
     import pipeline

@@ -1,6 +1,7 @@
 """Users and jobs (SQLite by default; set DATABASE_URL=postgresql+psycopg://... for production)."""
 import os
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, create_engine, func, inspect, select, text
@@ -12,6 +13,25 @@ _kwargs = {"connect_args": {"check_same_thread": False, "timeout": 30}} if DATAB
 engine = create_engine(DATABASE_URL, **_kwargs)
 Session = sessionmaker(bind=engine, expire_on_commit=False)
 Base = declarative_base()
+
+
+@contextmanager
+def admission_session():
+    """Serialize quota checks and reservations across all application processes."""
+    with Session() as s:
+        dialect = s.get_bind().dialect.name
+        if dialect == "sqlite":
+            s.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        elif dialect == "postgresql":
+            s.execute(text("SELECT pg_advisory_xact_lock(713820451)"))
+        else:
+            raise RuntimeError(f"Unsupported database for quota locking: {dialect}")
+        try:
+            yield s
+            s.commit()
+        except BaseException:
+            s.rollback()
+            raise
 
 
 def utcnow() -> datetime:
@@ -102,6 +122,14 @@ class Job(Base):
     credit_seconds = Column(Float, default=0.0)    # the part of this video paid with the user's bought minutes; same rule
     created_at = Column(DateTime(timezone=True), default=utcnow, index=True)
     finished_at = Column(DateTime(timezone=True))
+
+
+class PreviewRequest(Base):
+    """Shared, short-lived record of billable voice previews."""
+    __tablename__ = "preview_requests"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, index=True, nullable=False)
 
 
 class AuditLog(Base):

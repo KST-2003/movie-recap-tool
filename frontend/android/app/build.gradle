@@ -1,5 +1,12 @@
 apply plugin: 'com.android.application'
 
+// Local-only upload credentials: key.properties is ignored by Git.
+def signingFile = rootProject.file('key.properties')
+def signingProperties = new Properties()
+if (signingFile.exists()) {
+    signingFile.withInputStream { signingProperties.load(it) }
+}
+
 android {
     namespace = "co.bronicon.recat"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -16,8 +23,19 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (signingFile.exists()) {
+            release {
+                storeFile file(signingProperties['storeFile'])
+                storePassword signingProperties['storePassword']
+                keyAlias signingProperties['keyAlias']
+                keyPassword signingProperties['keyPassword']
+            }
+        }
+    }
     buildTypes {
         release {
+            if (signingFile.exists()) signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

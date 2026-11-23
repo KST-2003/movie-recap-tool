@@ -17,7 +17,6 @@ import db  # noqa: E402
 import main  # noqa: E402
 from db import AuditLog, Session, User, add_months, utcnow  # noqa: E402
 
-main.auth.rate_limit = lambda request: None
 
 
 def ok(cond, msg):

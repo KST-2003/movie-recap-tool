@@ -93,10 +93,21 @@ for i in range(3):
 q = c.get("/api/jobs/orig00000001/edit-price", headers=H["amy"]).json()
 ok(q["free_left"] == 0 and q["cost_minutes"] == 4 and q["cost_seconds"] == 240, "4th re-render of a 10 min video = 40% = 4 min")
 r = c.post("/api/jobs/orig00000001/rerender", json={**body, "fallback": True}, headers=H["amy"])
+ok(r.status_code == 400, "ordinary jobs cannot claim a free device fallback")
+with Session() as s:
+    original = s.get(Job, "orig00000001")
+    original.params = {**original.params, "device_render": True}
+    original.data = {"result": {"project": project, "device_plan": {"duration": 600}}}
+    s.commit()
+fallback = {"segments": [{"id": 1, "start": 0.0, "text": "hello", "source_text": "", "speaker": None, "tempo": None}], "device_render": False, "fallback": True}
+ok(c.post("/api/jobs/orig00000001/rerender", json={**fallback, "segments": body["segments"]}, headers=H["amy"]).status_code == 400, "fallback cannot change text")
+ok(c.post("/api/jobs/orig00000001/rerender", json={**fallback, "voice_type": "su"}, headers=H["amy"]).status_code == 400, "fallback cannot change the voice")
+r = c.post("/api/jobs/orig00000001/rerender", json=fallback, headers=H["amy"])
 with Session() as s:
     j = s.get(Job, r.json()["job_id"])
-    ok(r.status_code == 200 and j.charged_seconds == 0, "device-render fallback is free")
+    ok(r.status_code == 200 and j.charged_seconds == 0, "unchanged device-render fallback is free")
     j.status = "done"; s.commit()
+ok(c.post("/api/jobs/orig00000001/rerender", json=fallback, headers=H["amy"]).status_code == 409, "fallback cannot be repeated")
 ok(c.get("/api/jobs/orig00000001/edit-price", headers=H["amy"]).json()["cost_minutes"] == 4, "fallback is not counted either")
 r = c.post("/api/jobs/orig00000001/rerender", json=body, headers=H["amy"])
 with Session() as s:
@@ -141,4 +152,36 @@ st = last["settings"]
 ok(st["aspect"] == "9:16" and st["resolution"] == "1080" and st["outputKind"] == "voice" and st["filmMode"] == "full" and st["flip"] is True, "last NEW video's settings, re-renders skipped")
 ok(st["voiceType"] == "Kore" and st["captionStyle"]["font"] == "serif" and last["title"] == "a.mp4", "voice, caption style and title")
 ok(c.get("/api/presets/last", headers=H["amy"]).json()["settings"] is None, "another user does not get them")
+# Concurrent paid edits must not reserve the same allowance twice.
+from concurrent.futures import ThreadPoolExecutor
+with Session() as s:
+    racer = User(email="racer", password_hash="x", daily_minutes=4, monthly_minutes=4)
+    s.add(racer); s.commit()
+    race_headers = {"Authorization": f"Bearer {auth.make_token(racer)}"}
+    s.add(Job(id="raceoriginal", user_id=racer.id, status="done", params={"output": "subtitles"}, data={"result": {"project": project}}, input_key=src))
+    for i in range(3):
+        s.add(Job(id=f"raceedit{i:04d}", user_id=racer.id, status="done", params={"edit": {"segments": []}}, data={}, input_key=src))
+    s.commit()
+with ThreadPoolExecutor(max_workers=5) as pool:
+    responses = list(pool.map(lambda _: c.post("/api/jobs/raceoriginal/rerender", json=body, headers=race_headers).status_code, range(5)))
+ok(responses.count(200) == 1 and all(x in (200, 402, 429) for x in responses), f"concurrent edits cannot overspend: {responses}")
+# A started failed free edit still counts toward the free-edit allowance.
+with Session() as s:
+    failed = s.get(Job, "raceedit0000")
+    failed.params = {"edit": {"segments": []}}
+    failed.status = "error"
+    failed.data = {"started_at": 1}
+    for i in (1, 2):
+        item = s.get(Job, f"raceedit{i:04d}")
+        item.params = {"edit": {"segments": []}}
+    s.commit()
+ok(c.get("/api/jobs/raceoriginal/edit-price", headers=race_headers).json()["free_left"] == 0, "started failed edit cannot be replayed for free")
+# Preview requests are limited in the shared database, without calling a voice provider.
+import pipeline
+preview_file = f"{tmp}/preview.wav"
+open(preview_file, "wb").write(b"audio")
+pipeline.preview_line = lambda *args: preview_file
+preview = {"id": 1, "text": "hello", "voice": "Kore"}
+statuses = [c.post("/api/jobs/raceoriginal/preview-line", json=preview, headers=race_headers).status_code for _ in range(13)]
+ok(statuses == [200] * 12 + [429], f"voice previews have a shared per-user limit: {statuses}")
 print("ALL OK")

@@ -49,6 +49,11 @@ def verify_password(password: str, stored: str) -> bool:
         return False
 
 
+# A real hash nobody knows the password of. Login runs a full password check against it when the login name does not exist, so an unknown name
+# takes as long as a wrong password and the response time does not tell an attacker which names are real accounts.
+DUMMY_HASH = hash_password(secrets.token_hex(16))
+
+
 def _pw_mark(user: User) -> str:
     """Changes whenever the password changes, so a regenerated password signs every old session out."""
     return hashlib.sha256(user.password_hash.encode()).hexdigest()[:10]
@@ -171,16 +176,4 @@ def check_signature(filename: str, exp: int, sig: str) -> bool:
     return hmac.compare_digest(good, sig)
 
 
-# ---- minimal brute-force guard for login/signup (per IP, in-memory; use a gateway/Redis for multi-replica) ----
-
-_hits: dict[str, list[float]] = {}
-
-
-def rate_limit(request: Request, limit: int = 10, window: int = 600):
-    ip = client_ip(request)
-    now = time.time()
-    recent = [t for t in _hits.get(ip, []) if now - t < window]
-    if len(recent) >= limit:
-        raise HTTPException(status_code=429, detail="Too many attempts. Try again in a few minutes.")
-    recent.append(now)
-    _hits[ip] = recent
+# ---- brute-force guard for login / sign-up / password checks: see ratelimit.py (per IP, per account and per account + IP, counted BEFORE the check) ----
