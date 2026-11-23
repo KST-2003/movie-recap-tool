@@ -3,7 +3,7 @@ import os
 import tempfile
 
 tmp = tempfile.mkdtemp()
-os.environ.update(AZURE_SPEECH_KEY="k", AZURE_SPEECH_REGION="southeastasia", DATA_DIR=f"{tmp}/data", UPLOAD_DIR=f"{tmp}/up", OUTPUT_DIR=f"{tmp}/out",
+os.environ.update(TTS_REQUESTS_PER_VIDEO_MINUTE="6", AZURE_SPEECH_KEY="k", AZURE_SPEECH_REGION="southeastasia", DATA_DIR=f"{tmp}/data", UPLOAD_DIR=f"{tmp}/up", OUTPUT_DIR=f"{tmp}/out",
                   TTS_PROVIDER="gemini", GEMINI_API_KEY="x", DATABASE_URL=f"sqlite:///{tmp}/t.db", MAX_VIDEO_MINUTES="600", MAX_ACTIVE_JOBS_PER_USER="50", GCP_PROJECT_ID="",
                   GCP_SERVICE_ACCOUNT_FILE="", TTS_MODELS="m1:10:100", ADMIN_WEBHOOK_URL="")
 

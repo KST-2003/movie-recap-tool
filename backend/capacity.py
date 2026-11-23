@@ -26,7 +26,7 @@ from common import tts_provider
 from db import Job
 
 BUSY_MESSAGE = "The server is currently busy. We have notified the admin. Please try again later."
-REQUESTS_PER_VIDEO_MINUTE = float(os.getenv("TTS_REQUESTS_PER_VIDEO_MINUTE", "6"))   # voice requests incl. fit rounds (estimate: ~55 for 10 min)
+REQUESTS_PER_VIDEO_MINUTE = float(os.getenv("TTS_REQUESTS_PER_VIDEO_MINUTE", "4"))   # voice requests incl. fit rounds; measured 2026-11-23 on the live server: 30-42 for 10-min High-quality videos (was 6 = about double)
 REQUESTS_BASE = 4
 lock = threading.Lock()
 
