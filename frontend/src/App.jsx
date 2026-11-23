@@ -396,7 +396,8 @@ function AppSession({ notice, setNotice, onSessionEnd }) {
   const [captionStyle, setCaptionStyle] = useState({ ...DEFAULT_CAPTION_STYLE });   // subtitle look chosen BEFORE generating
   const [deviceCap, setDeviceCap] = useState(null);     // can this phone/browser draw the video itself? (WebCodecs + WebGL + speed test)
   const [useDevice, setUseDevice] = useState(true);      // on by default; only shown / sent when this device passes the capability test. "Render on my device (faster, beta)"
-  const [queue, setQueue] = useState(null);              // server queue: { busy, wait_seconds }
+  const [queue, setQueue] = useState(null);              // server queue: { busy, wait_seconds, premium_busy }
+  const [srcSeconds, setSrcSeconds] = useState(null);    // length of the chosen video (read in the browser): the High-quality busy check uses it
   const lastDevice = useRef(false);                      // the shown result was drawn on this device (re-renders then do the same)
   useEffect(() => {
     if (!token) return undefined;
@@ -406,11 +407,12 @@ function AppSession({ notice, setNotice, onSessionEnd }) {
   }, [token]);
   useEffect(() => {
     if (!token) return undefined;   // also tells the page when the admin turned maintenance mode on
-    const load = () => axios.get(`${API_BASE}/api/queue`).then((r) => setQueue(r.data)).catch(() => {});
+    const load = () => axios.get(`${API_BASE}/api/queue`, { params: srcSeconds ? { seconds: Math.round(srcSeconds) } : {} })
+      .then((r) => setQueue(r.data)).catch(() => {});
     load();
     const id = setInterval(load, 20000);
     return () => clearInterval(id);
-  }, [token]);
+  }, [token, srcSeconds]);
   const [resolution, setResolution] = useState('720'); // output size: 720 renders faster (recommended)
   const [aspect, setAspect] = useState('original'); // output format, chosen BEFORE uploading (like CapCut)
   const [fitMode, setFitMode] = useState('blur');     // 'blur' = whole picture over a blurred copy | 'crop' = fill the frame
@@ -448,6 +450,17 @@ function AppSession({ notice, setNotice, onSessionEnd }) {
   const [upload, setUpload] = useState(null); // % uploaded while the video is being sent
   const [elapsed, setElapsed] = useState(0);
   const [sourceUrl, setSourceUrl] = useState('');
+  useEffect(() => {   // read the chosen video's length (metadata only) so "High quality: Busy" is judged for THIS video's length
+    setSrcSeconds(null);
+    if (!sourceUrl) return undefined;
+    const v = document.createElement('video');
+    v.preload = 'metadata';
+    v.muted = true;
+    const done = () => { if (Number.isFinite(v.duration) && v.duration > 0) setSrcSeconds(v.duration); };
+    v.addEventListener('loadedmetadata', done);
+    v.src = sourceUrl;
+    return () => { v.removeEventListener('loadedmetadata', done); v.removeAttribute('src'); v.load(); };
+  }, [sourceUrl]);
   const cancelled = useRef(false);
   const sessionAlive = useRef(true);
   const activeRenderSignal = useRef(null);
@@ -459,6 +472,15 @@ function AppSession({ notice, setNotice, onSessionEnd }) {
 
   // UI Processing & Result State
   const [loading, setLoading] = useState(false);
+  // High quality is full right now for a video this long (same rule as the upload's check) and Standard exists: that card is
+  // disabled with a red "Busy" tag and the form moves to Standard. Without Standard nothing is disabled (the upload explains).
+  const premiumBusy = standardOk && !!queue?.premium_busy;
+  useEffect(() => {
+    if (premiumBusy && voiceQuality === 'premium' && !loading) {
+      setVoiceQuality('standard');
+      setVoiceType(voiceGender === 'male' ? 'Charon' : 'Kore');
+    }
+  }, [premiumBusy, voiceQuality, loading, voiceGender]);
   const [resultVideoUrl, setResultVideoUrl] = useState('');
   const [resultDownloadUrl, setResultDownloadUrl] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -1186,15 +1208,21 @@ function AppSession({ notice, setNotice, onSessionEnd }) {
                   ['premium', 'High quality', '30 voices to choose from, with emotion. Uses more of your allowance.']].map(([q, title, text]) => (
                   <button key={q} type="button" onClick={() => { setVoiceQuality(q); if (q === 'standard') { setVoiceType(voiceGender === 'male' ? 'Charon' : 'Kore'); } }}
                     aria-pressed={voiceQuality === q}
-                    className={`relative text-left rounded-2xl border-2 p-3 pr-11 transition-all duration-300 ${voiceQuality === q
+                    disabled={q === 'premium' && premiumBusy}
+                    className={`relative text-left rounded-2xl border-2 p-3 pr-11 transition-all duration-300 ${q === 'premium' && premiumBusy
+                      ? 'border-red-200 bg-red-50/60 text-ink-faint cursor-not-allowed'
+                      : voiceQuality === q
                       ? 'border-violet-500 bg-gradient-to-br from-violet-500 to-violet-400 text-white shadow-pop sm:-translate-y-0.5'
                       : 'border-violet-100 bg-white text-ink opacity-80 hover:opacity-100 hover:border-violet-300'}`}>
                     {/* the chosen card is filled and ticked; the other one is plain white with an empty circle */}
                     <span aria-hidden="true" className={`absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full border-2 ${voiceQuality === q ? 'border-white bg-white text-violet-600' : 'border-violet-200 bg-white text-transparent'}`}>
                       <svg key={String(voiceQuality === q)} viewBox="0 0 20 20" className={`h-3.5 w-3.5 ${voiceQuality === q ? 'animate-pop' : ''}`} fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M4 10.5l4 4 8-9" /></svg>
                     </span>
-                    <span className="block text-sm font-semibold">{tr(title)}</span>
-                    <span className={`block text-xs mt-0.5 ${voiceQuality === q ? 'text-white/90' : 'text-ink-soft'}`}>{tr(text)}</span>
+                    <span className="flex items-center gap-2 text-sm font-semibold">{tr(title)}
+                      {q === 'premium' && premiumBusy && <span className="rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">{tr('Busy')}</span>}
+                    </span>
+                    <span className={`block text-xs mt-0.5 ${q === 'premium' && premiumBusy ? 'text-red-600' : voiceQuality === q ? 'text-white/90' : 'text-ink-soft'}`}>
+                      {tr(q === 'premium' && premiumBusy ? 'Fully booked right now. Please use Standard, or try High quality again later.' : text)}</span>
                   </button>
                 ))}
               </div>

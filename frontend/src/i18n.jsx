@@ -235,6 +235,8 @@ const MY = {
   'Colours are approximate': 'အရောင်များမှာ ခန့်မှန်းမှုသာ',
   '▶ Play 5 s (loop)': '▶ ၅ စက္ကန့် ဖွင့်မည် (ထပ်ခါထပ်ခါ)',
   '+ Blur box': '+ မှုန်ဝါးအကွက်',
+  'Busy': 'အလုပ်များနေသည်',
+  'Fully booked right now. Please use Standard, or try High quality again later.': 'ယခု အပြည့်ဖြစ်နေပါသည်။ Standard အသံကို သုံးပါ၊ သို့မဟုတ် နောက်မှ High quality ကို ထပ်စမ်းပါ။',
   '30 voices to choose from, with emotion. Uses more of your allowance.': 'အသံမျိုးပေါင်း (၃၀)မှ ပါဝင်ပြီး သဘာဝတိုင်း ပီပြင်ပါသည်။ ကုန်ကျမှု ပိုများသည်။',
   'Tighten long translations to fit each scene': 'ဇာတ်ဝန်ခန်းနှင့် ကိုက်ညီအောင် ရှည်လွန်းသော ဘာသာပြန်ကို တိုစေမည်',
   'Your uploads are paused for now': 'သင့်ဗီဒီယိုတင်ခြင်းကို ယာယီရပ်ထားပါသည်',

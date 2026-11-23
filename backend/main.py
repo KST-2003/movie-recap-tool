@@ -822,8 +822,20 @@ def get_file(request: Request, filename: str, exp: int, sig: str, dl: int = 0):
     return ranged.file_response(request, path, media_type, name if dl else None)   # ranges: the player must be able to jump around
 
 
+def premium_busy(seconds: float | None = None) -> bool:
+    """True only when the high-quality (Gemini) voice could NOT take a video of this length right now: no Gemini model has enough
+    free voice requests left today (counting videos already queued / running). Same rule as the upload's admission check
+    (capacity.decide), so the app greys out "High quality" exactly when an upload with it would be refused. Unknown length = 1 minute."""
+    secs = min(max(float(seconds or 60), 1.0), MAX_VIDEO_MINUTES * 60)
+    need = capacity.est_requests(secs, "dub")
+    try:
+        return need > 0 and capacity.tts_pool.admit(need, "premium") is None
+    except Exception:
+        return False   # never block the choice because the check itself failed: the upload's own check still applies
+
+
 @app.get("/api/queue")
-def queue_status(user: User = Depends(auth.current_user)):
+def queue_status(seconds: float | None = None, user: User = Depends(auth.current_user)):
     """Would a video started now have to wait? The app then offers to render the picture on the user's phone instead."""
     with Session() as s:
         running = s.execute(select(func.count()).select_from(Job).where(Job.status == "running")).scalar_one()
@@ -834,7 +846,8 @@ def queue_status(user: User = Depends(auth.current_user)):
     waiting = max(queued + running - WORKERS + 1, 0)
     wait = int(waiting * avg / WORKERS)
     return {"busy": wait >= 60, "wait_seconds": wait, "queued": queued, "running": running,
-            "maintenance": bool(runtime_settings.maintenance())}   # the Create page then shows "Under maintenance" instead of the form
+            "maintenance": bool(runtime_settings.maintenance()),   # the Create page then shows "Under maintenance" instead of the form
+            "premium_busy": premium_busy(seconds)}   # High quality voice full for a video this long: the app disables that choice
 
 
 class DeviceLog(BaseModel):
