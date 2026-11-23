@@ -267,7 +267,7 @@ Upload form field `voice_quality` = `premium` (default: Gemini on AI Studio + Go
 **Cost - read this:** Azure bills per CHARACTER; the price in `usage.DEFAULT_PRICES` ($16 per 1M characters) is an ASSUMPTION (pricing page showed no number; standard neural is ~$15/1M). On a 30 s recap sample Azure voice cost 0.45 THB vs ~0.31 THB for `gemini-3.8-flash-tts` and 0.68 THB for the pool's first model `gemini-3.1-flash-tts-preview`: so Standard is NOT clearly cheaper than Gemini 3.8 Flash for Burmese, it is mainly more capacity (200 requests/s) and steadier. Check the real price in Azure Cost Management and edit it in admin Settings. The budget gate prices each quality separately: `cost_per_minute_standard_thb` (admin Settings, env `COST_PER_MINUTE_STANDARD_THB`, default 1.0) until 3 finished standard videos give a measured value (`capacity.measured_cost_per_minute(s, quality)`).
 **Not done / open:** standard videos are charged the SAME allowance minutes as premium (a "standard counts less" rule would be the plans idea that was reverted); the editor still offers all 30 voices / looks on a standard video (they map to the 2 Azure voices by gender, looks are ignored); full-movie Standard quality not yet heard by ear. Tests: `test_quality.py`, `test_azure_fallback.py` (offline).
 
-### "High quality: Busy" in the upload form (2026-11-23, branch `feature/premium-busy`, not deployed)
+### "High quality: Busy" in the upload form (2026-11-23, deployed: backend `main.py` + `capacity.py`, user app `main-CsgTR3pa.js`, OTA bundle `ota-202611230745`; backup `/opt/movie-recap/web-backup-20261123-0844`)
 When the High-quality (Gemini) voice could not take the chosen video right now, the "High quality" card is disabled with a red **Busy** tag
 ("Fully booked right now. Please use Standard, or try High quality again later.") and the form moves to Standard. Rule = the upload's own
 admission check: `main.premium_busy(seconds)` asks `tts_pool.admit(capacity.est_requests(seconds), "premium")` (free requests today minus
@@ -751,7 +751,7 @@ A push whose changed files are all documentation (e.g. only `CLAUDE.md`) changes
 
 ## 8. Changelog
 
-- 2026-11-23: High quality card disabled with a red Busy tag when the Gemini voice is fully booked for the chosen video (branch feature/premium-busy, not deployed); voice reservation per video minute 6 -> 4 (measured).
+- 2026-11-23: High quality card disabled with a red Busy tag when the Gemini voice is fully booked for the chosen video voice reservation per video minute 6 -> 4 (measured). Deployed (web, backend, OTA `ota-202611230745`).
 - 2026-11-20: Added local, Git-ignored Android upload-key configuration for signed release bundles; see `frontend/android/RELEASE.md`.
 
 - 2026-11-19: audit finding 6, limiter part, fixed and deployed (backend `auth.py`, `main.py`, new `ratelimit.py`, `.env.example`; no web rebuild; backup `/opt/movie-recap/backend-backup-20261119-2137`): `backend/ratelimit.py` (per IP / per account / per account + IP budgets counted before the password check, refunds on success, own budgets for sign-up and "delete my account"), dummy hash for unknown names, 256-character password cap; `test_ratelimit.py`; `.env.example` documents the settings. Admin sessions / allow-list / cookies of #6 are still open.
